@@ -1,11 +1,11 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+// lib/firebase.ts
+import { initializeApp, getApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-/* =======================
-   FIREBASE CONFIG
-======================= */
+// Analytics sadece browser’da çalışır (Next.js SSR’da patlamasın diye)
+import { getAnalytics, isSupported } from "firebase/analytics";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
@@ -14,22 +14,25 @@ const firebaseConfig = {
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID!,
 };
 
-/* =======================
-   INIT APP (SSR SAFE)
-======================= */
-
-// Next.js hot reload + server/client farkı yüzünden
-// Firebase app sadece bir kere initialize edilir
+// ✅ App init (Hot reload’da birden fazla init olmasın)
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-/* =======================
-   SERVICES
-======================= */
-
-export const db = getFirestore(app);
+// ✅ Core servisler
 export const auth = getAuth(app);
-
-// Storage explicit app ile bağlanır (çoklu app bug’larını önler)
+export const db = getFirestore(app);
 export const storage = getStorage(app);
+
+// ✅ Analytics (opsiyonel)
+// - SSR’da çalışmaz
+// - Sadece prod + browser’da aktif olsun istersen burası ideal
+export async function getFirebaseAnalytics() {
+  if (typeof window === "undefined") return null;
+  const supported = await isSupported();
+  if (!supported) return null;
+  return getAnalytics(app);
+}
+
+export default app;

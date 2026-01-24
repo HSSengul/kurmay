@@ -1,0 +1,40 @@
+mutation CreateKutue($content: String!, $imageUrl: String) @auth(level: USER) {
+  kutue_insert(data: {
+    content: $content,
+    imageUrl: $imageUrl,
+    userId_expr: "auth.uid",
+    createdAt_expr: "request.time"
+  })
+}
+
+query ListKutuesByUser @auth(level: USER) {
+  kutues(where: {userId: {eq_expr: "auth.uid"}}) {
+    id
+    content
+    imageUrl
+    createdAt
+  }
+}
+
+mutation LikeKutue($kutueId: UUID!) @auth(level: USER) {
+  like_insert(data: {
+    kutueId: $kutueId,
+    userId_expr: "auth.uid",
+    createdAt_expr: "request.time"
+  })
+}
+
+query ListKutues @auth(level: PUBLIC, insecureReason: "This operation is safe to expose to the public") {
+  kutues(orderBy: [{createdAt: DESC}]) {
+    id
+    content
+    imageUrl
+    createdAt
+    user {
+      id
+      username
+      profilePictureUrl
+    }
+    _count
+  }
+}

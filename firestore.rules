@@ -1,0 +1,548 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ========== HELPERS ========== */
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    function nonEmptyString(v, max) {
+      return v is string && v.size() > 0 && v.size() <= max;
+    }
+
+    function validImages(arr) {
+      return !(arr is list) || arr.size() <= 5;
+    }
+
+    // ✅ NEW: optional string helper ("" olabilir)
+    function optionalString(v, max) {
+      return (v is string) && (v.size() <= max);
+    }
+
+    // ✅ NEW: optional timestamp helper
+    function optionalTimestamp(v) {
+      return !(v in request.resource.data) || (v is timestamp);
+    }
+
+    // 🔒 Onboarding tamam mı?
+    function onboardingCompleted() {
+      return exists(/databases/$(database)/documents/publicProfiles/$(request.auth.uid))
+        && get(/databases/$(database)/documents/publicProfiles/$(request.auth.uid)).data.onboardingCompleted == true;
+    }
+
+    /* ====== CHAT HELPERS (CONVERSATIONS / MESSAGES) ====== */
+
+    function listingDoc(listingId) {
+      return get(/databases/$(database)/documents/listings/$(listingId));
+    }
+
+    function listingExists(listingId) {
+      return exists(/databases/$(database)/documents/listings/$(listingId));
+    }
+
+    function isParticipantByResource() {
+      return signedIn()
+        && (resource.data.participants is list)
+        && (request.auth.uid in resource.data.participants);
+    }
+
+    function isValidUnreadMap(m) {
+      return (m is map)
+        && (m.buyer is int || m.buyer is number)
+        && (m.seller is int || m.seller is number)
+        && (m.buyer >= 0)
+        && (m.seller >= 0);
+    }
+
+    function isValidDeletedForMap(m) {
+      return (m is map)
+        && (m.buyer is bool)
+        && (m.seller is bool);
+    }
+
+    function isValidStatus(v) {
+      return (v is string)
+        && (v in ["active", "archivedByBuyer", "archivedBySeller"]);
+    }
+
+    function hasValidParticipantsArray(arr, buyerId, sellerId) {
+      return (arr is list)
+        && (arr.size() == 2)
+        && (buyerId in arr)
+        && (sellerId in arr);
+    }
+
+    function isValidListingSnapshot(s) {
+      // Snapshot alanları: null'lara izin veriyoruz (örn imageUrl)
+      return (s is map)
+        && (s.title is string)
+        && (s.title.size() <= 200)
+        && (s.price is number)
+        && (s.price >= 0)
+        && (s.brandName is string)
+        && (s.brandName.size() <= 120)
+        && (s.modelName is string)
+        && (s.modelName.size() <= 120)
+        && (
+          // imageUrl hiç yoksa da olur
+          !("imageUrl" in s)
+          || (s.imageUrl == null)
+          || (s.imageUrl is string)
+        );
+    }
+
+    function isValidSellerSnapshot(s) {
+      return (s is map)
+        && nonEmptyString(s.publicProfileId, 256)
+        && nonEmptyString(s.displayName, 120);
+    }
+
+    function isValidBuyerSnapshot(s) {
+      return (s is map)
+        && nonEmptyString(s.displayName, 120);
+    }
+
+    function isValidLastMessageMap(m) {
+      // lastMessage varsa doğrula
+      return (m is map)
+        && (m.type is string)
+        && (m.type in ["text","image","system"])
+        && (m.senderId is string)
+        && (m.senderId.size() > 0)
+        && (m.createdAt is timestamp)
+        && (
+          // text ise text dolu olmalı
+          (m.type == "text" && nonEmptyString(m.text, 2000))
+          ||
+          // image ise text opsiyonel olabilir (yok veya kısa)
+          (m.type == "image" && (!("text" in m) || (m.text is string && m.text.size() <= 500)))
+          ||
+          // system ise text kısa olabilir
+          (m.type == "system" && ("text" in m) && (m.text is string) && (m.text.size() <= 500))
+        );
+    }
+
+    function isValidLastMessageField(data) {
+      // lastMessage opsiyonel
+      return !("lastMessage" in data) || isValidLastMessageMap(data.lastMessage);
+    }
+
+    function isValidLastReadAtMap(m) {
+      // - yoksa / null ise OK
+      // - varsa map olmalı
+      // - buyer/seller varsa timestamp olmalı
+      return (m == null) || (
+        (m is map)
+        && ( !("buyer" in m) || (m.buyer is timestamp) )
+        && ( !("seller" in m) || (m.seller is timestamp) )
+      );
+    }
+
+    // ✅ NEW: clearedAt validator (soft delete)
+    function isValidClearedAtMap(m) {
+      return (m == null) || (
+        (m is map)
+        && ( !("buyer" in m) || (m.buyer == null) || (m.buyer is timestamp) )
+        && ( !("seller" in m) || (m.seller == null) || (m.seller is timestamp) )
+      );
+    }
+
+    // ✅ NEW: clearedCount validator (silme anındaki totalMessages snapshot)
+    function isValidClearedCountMap(m) {
+      return (m == null) || (
+        (m is map)
+        && (
+          !("buyer" in m)
+          || (
+            (m.buyer is int || m.buyer is number)
+            && (m.buyer >= 0)
+          )
+        )
+        && (
+          !("seller" in m)
+          || (
+            (m.seller is int || m.seller is number)
+            && (m.seller >= 0)
+          )
+        )
+      );
+    }
+
+    // 🔥 YENİ: Typing map validator
+    function isValidTypingMap(m) {
+      // typing yoksa da olur; varsa buyer/seller bool, updatedAt timestamp olabilir
+      return (m == null) || (
+        (m is map)
+        && ( !("buyer" in m) || (m.buyer is bool) )
+        && ( !("seller" in m) || (m.seller is bool) )
+        && ( !("updatedAt" in m) || (m.updatedAt is timestamp) )
+      );
+    }
+
+    function isValidMessageCreate(msg, convo) {
+      // type: text / image (system'i client tarafında şimdilik kapatıyoruz; isAdmin ile açılabilir)
+      return (msg.type is string)
+        && (
+          msg.type == "text"
+          || msg.type == "image"
+          || (msg.type == "system" && isAdmin())
+        )
+        && (msg.senderId == request.auth.uid)
+        && (request.auth.uid in convo.data.participants)
+        && (msg.createdAt is timestamp)
+        && (
+          // TEXT
+          (msg.type == "text"
+            && nonEmptyString(msg.text, 2000)
+            && !( "imageUrl" in msg )
+            && !( "thumbnailUrl" in msg )
+          )
+          ||
+          // IMAGE (text yok ya da kısa olabilir)
+          (msg.type == "image"
+            && (
+              !("text" in msg)
+              || (msg.text is string && msg.text.size() <= 500)
+            )
+          )
+          ||
+          // SYSTEM (admin)
+          (msg.type == "system"
+            && isAdmin()
+            && (msg.text is string)
+            && msg.text.size() <= 500
+          )
+        )
+        && (
+          // imageUrl / thumbnailUrl kontrolü (image ise olmalı)
+          (msg.type != "image")
+          ||
+          (
+            ("imageUrl" in msg) && (msg.imageUrl is string) && msg.imageUrl.size() <= 2000
+            && ( !("thumbnailUrl" in msg) || (msg.thumbnailUrl is string && msg.thumbnailUrl.size() <= 2000) )
+          )
+        )
+        && (
+          // deleted opsiyonel, create anında false/olmaması tercih
+          !("deleted" in msg) || msg.deleted is bool
+        )
+        && (
+          // readAt opsiyonel; create anında yok veya map olabilir
+          !("readAt" in msg) || (msg.readAt is map)
+        )
+        && (
+          // moderation opsiyonel; sadece admin set edebilsin
+          !("moderation" in msg) || isAdmin()
+        );
+    }
+
+    /* ========== LISTINGS ========== */
+
+    match /listings/{id} {
+
+      allow read: if true;
+
+      // ➕ İlan oluşturma: sadece onboarding tamamlayan kullanıcı
+      allow create: if signedIn()
+        && onboardingCompleted()
+        && request.resource.data.ownerId == request.auth.uid
+        && nonEmptyString(request.resource.data.title, 120)
+        && request.resource.data.price is number
+        && request.resource.data.price >= 0
+        && nonEmptyString(request.resource.data.brandId, 128)
+        && nonEmptyString(request.resource.data.modelId, 128)
+        && nonEmptyString(request.resource.data.brandName, 120)
+        && nonEmptyString(request.resource.data.modelName, 120)
+        && validImages(request.resource.data.imageUrls);
+
+      // ✏️ İlan güncelleme: sadece onboarding tamamlayan kullanıcı
+      allow update: if signedIn()
+        && onboardingCompleted()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.brandId == resource.data.brandId
+        && request.resource.data.modelId == resource.data.modelId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && nonEmptyString(request.resource.data.title, 120)
+        && request.resource.data.price is number
+        && request.resource.data.price >= 0
+        && validImages(request.resource.data.imageUrls);
+
+      allow delete: if signedIn()
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    /* ========== USERS (PRIVATE) ========== */
+
+    match /users/{uid} {
+
+      // Kullanıcı sadece kendi belgesini okuyabilir ve oluşturabilir
+      allow read, create: if signedIn() && request.auth.uid == uid;
+
+      // Role değiştirilemez (admin escalation engeli)
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.role == resource.data.role;
+
+      // 🔥 Firebase SDK'nin aggregate (count) sorguları için
+      allow list: if signedIn();
+
+      allow delete: if false;
+    }
+
+    /* ========== PUBLIC PROFILES ========== */
+
+    match /publicProfiles/{uid} {
+      allow read: if true;
+
+      allow create, update: if signedIn()
+        && request.auth.uid == uid;
+
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    /* ============================================================
+       ✅ NEW: PRIVATE PROFILES (phone + address gizli)
+       - sadece sahibi + admin okuyabilir
+       - sadece sahibi yazabilir
+    ============================================================ */
+
+    match /privateProfiles/{uid} {
+
+      allow read: if signedIn()
+        && (request.auth.uid == uid || isAdmin());
+
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && nonEmptyString(request.resource.data.phone, 20)
+        && request.resource.data.phone.matches("^[0-9]{10,15}$")
+        && nonEmptyString(request.resource.data.address, 200)
+        && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) )
+        && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) );
+
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && nonEmptyString(request.resource.data.phone, 20)
+        && request.resource.data.phone.matches("^[0-9]{10,15}$")
+        && nonEmptyString(request.resource.data.address, 200)
+        && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) )
+        && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) )
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly(["phone", "address", "createdAt", "updatedAt"]);
+
+      allow delete: if false;
+    }
+
+    /* ============================================================
+       ✅ NEW: PUBLIC CONTACTS (izin verilmiş iletişim)
+       - sadece giriş yapanlar okuyabilir (scrape zor)
+       - sadece sahibi yazabilir
+    ============================================================ */
+
+    match /publicContacts/{uid} {
+
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && optionalString(request.resource.data.phone, 20)
+        && (request.resource.data.phone == "" || request.resource.data.phone.matches("^[0-9]{10,15}$"))
+        && optionalString(request.resource.data.email, 320)
+        && optionalString(request.resource.data.address, 200)
+        && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) )
+        && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) );
+
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && optionalString(request.resource.data.phone, 20)
+        && (request.resource.data.phone == "" || request.resource.data.phone.matches("^[0-9]{10,15}$"))
+        && optionalString(request.resource.data.email, 320)
+        && optionalString(request.resource.data.address, 200)
+        && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) )
+        && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) )
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly(["phone", "email", "address", "createdAt", "updatedAt"]);
+
+      allow delete: if false;
+    }
+
+    /* ========== BRANDS ========== */
+
+    match /brands/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ========== MODELS ========== */
+
+    match /models/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ============================================================
+       ✅ NEW: ADMIN PANEL COLLECTIONS (YOL B: stats + autoFlags)
+       (Diğer kurallara dokunmadım, sadece bunları ekledim)
+    ============================================================ */
+
+    match /adminStats/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /adminStatsDaily/{dateKey} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /autoFlags/{flagId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /adminSettings/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if signedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    /* ========== CONVERSATIONS (CHAT) ========== */
+
+    match /conversations/{conversationId} {
+
+      allow read: if signedIn()
+        && (resource.data.participants is list)
+        && (request.auth.uid in resource.data.participants);
+
+      allow list: if signedIn();
+
+      // Konuşma oluşturma
+      allow create: if signedIn()
+        && nonEmptyString(request.resource.data.listingId, 256)
+        && nonEmptyString(request.resource.data.buyerId, 256)
+        && nonEmptyString(request.resource.data.sellerId, 256)
+        && request.resource.data.buyerId == request.auth.uid
+        && request.resource.data.buyerId != request.resource.data.sellerId
+        && hasValidParticipantsArray(
+          request.resource.data.participants,
+          request.resource.data.buyerId,
+          request.resource.data.sellerId
+        )
+        && listingExists(request.resource.data.listingId)
+        && listingDoc(request.resource.data.listingId).data.ownerId == request.resource.data.sellerId
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.lastMessageAt is timestamp
+        && isValidUnreadMap(request.resource.data.unread)
+        && isValidDeletedForMap(request.resource.data.deletedFor)
+        && isValidStatus(request.resource.data.status)
+        && isValidListingSnapshot(request.resource.data.listingSnapshot)
+        && isValidSellerSnapshot(request.resource.data.sellerSnapshot)
+        && isValidBuyerSnapshot(request.resource.data.buyerSnapshot)
+        && isValidLastMessageField(request.resource.data)
+        && isValidLastReadAtMap(request.resource.data.lastReadAt)
+        && isValidTypingMap(request.resource.data.typing)
+        && (!("clearedAt" in request.resource.data) || isValidClearedAtMap(request.resource.data.clearedAt))
+        && (!("clearedCount" in request.resource.data) || isValidClearedCountMap(request.resource.data.clearedCount));
+
+      // Update
+      allow update: if isParticipantByResource()
+        && request.resource.data.listingId == resource.data.listingId
+        && request.resource.data.buyerId == resource.data.buyerId
+        && request.resource.data.sellerId == resource.data.sellerId
+        && request.resource.data.participants == resource.data.participants
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.listingSnapshot == resource.data.listingSnapshot
+        && request.resource.data.sellerSnapshot == resource.data.sellerSnapshot
+        && request.resource.data.buyerSnapshot == resource.data.buyerSnapshot
+        && isValidUnreadMap(request.resource.data.unread)
+        && isValidDeletedForMap(request.resource.data.deletedFor)
+        && isValidStatus(request.resource.data.status)
+        && isValidLastMessageField(request.resource.data)
+        && request.resource.data.lastMessageAt is timestamp
+        && isValidLastReadAtMap(request.resource.data.lastReadAt)
+        && isValidTypingMap(request.resource.data.typing)
+        && (!("clearedAt" in request.resource.data) || isValidClearedAtMap(request.resource.data.clearedAt))
+        && (!("clearedCount" in request.resource.data) || isValidClearedCountMap(request.resource.data.clearedCount))
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly([
+            "unread",
+            "lastMessage",
+            "lastMessageAt",
+            "deletedFor",
+            "status",
+            "lastReadAt",
+            "typing",
+            "totalMessages",
+            "clearedAt",
+            "clearedCount"
+          ]);
+
+      allow delete: if false;
+
+      /* ========== MESSAGES (SUBCOLLECTION) ========== */
+
+      match /messages/{messageId} {
+
+        // Okuma / listeleme
+        allow read, list: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+
+        // Mesaj oluşturma
+        allow create: if signedIn()
+          && isValidMessageCreate(
+            request.resource.data,
+            get(/databases/$(database)/documents/conversations/$(conversationId))
+          );
+
+        // Mesaj update
+        allow update: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants
+          && request.resource.data.senderId == resource.data.senderId
+          && request.resource.data.type == resource.data.type
+          && request.resource.data.createdAt == resource.data.createdAt
+          && (
+            !( "text" in resource.data ) || request.resource.data.text == resource.data.text
+          )
+          && (
+            !( "imageUrl" in resource.data ) || request.resource.data.imageUrl == resource.data.imageUrl
+          )
+          && (
+            !( "thumbnailUrl" in resource.data ) || request.resource.data.thumbnailUrl == resource.data.thumbnailUrl
+          )
+          && request.resource.data.diff(resource.data).changedKeys()
+            .hasOnly(["readAt","deleted","moderation"])
+          && (
+            !("deleted" in request.resource.data)
+            || request.resource.data.deleted == resource.data.deleted
+            || request.auth.uid == resource.data.senderId
+            || isAdmin()
+          )
+          && (
+            !("moderation" in request.resource.data)
+            || isAdmin()
+          );
+
+        allow delete: if false;
+      }
+    }
+
+    /* ========== DENY ALL ========== */
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

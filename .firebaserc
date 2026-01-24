@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "kutukafa-5a610"
-  }
+    "default": "kutukafa-4396e",
+    "kutukafa": "kutukafa-4396e"
+  },
+  "targets": {},
+  "etags": {}
 }

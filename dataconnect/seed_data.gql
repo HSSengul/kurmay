@@ -1,0 +1,51 @@
+mutation CreateSeedData @transaction @auth(level: PUBLIC, insecureReason: "This operation is used to seed the database with example data.") {
+  user_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440000",
+      username: "demouser1",
+      email: "demouser1@example.com",
+      passwordHash: "passwordhash1",
+      createdAt: "2024-04-26T00:00:00Z"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440001",
+      username: "demouser2",
+      email: "demouser2@example.com",
+      passwordHash: "passwordhash2",
+      createdAt: "2024-04-26T00:00:00Z"
+    }
+  ])
+  kutue_insertMany(data: [
+    {
+      id: "650e8400-e29b-41d4-a716-446655440000",
+      userId: "550e8400-e29b-41d4-a716-446655440000",
+      content: "Example kutue from demouser1",
+      createdAt: "2024-04-26T00:00:00Z"
+    },
+    {
+      id: "650e8400-e29b-41d4-a716-446655440001",
+      userId: "550e8400-e29b-41d4-a716-446655440001",
+      content: "Example kutue from demouser2",
+      createdAt: "2024-04-26T00:00:00Z"
+    }
+  ])
+  like_insertMany(data: [
+    {
+      userId: "550e8400-e29b-41d4-a716-446655440000",
+      kutueId: "650e8400-e29b-41d4-a716-446655440001",
+      createdAt: "2024-04-26T00:00:00Z"
+    },
+    {
+      userId: "550e8400-e29b-41d4-a716-446655440001",
+      kutueId: "650e8400-e29b-41d4-a716-446655440000",
+      createdAt: "2024-04-26T00:00:00Z"
+    }
+  ])
+  follow_insertMany(data: [
+    {
+      followerId: "550e8400-e29b-41d4-a716-446655440000",
+      followeeId: "550e8400-e29b-41d4-a716-446655440001",
+      createdAt: "2024-04-26T00:00:00Z"
+    }
+  ])
+}
