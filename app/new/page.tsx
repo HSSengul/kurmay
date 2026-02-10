@@ -1274,6 +1274,7 @@ export default function NewListingPage() {
       if (appCheck) {
         try {
           const appCheckToken = await getAppCheckToken(appCheck, false);
+          const appCheckTokenAny = appCheckToken as any;
           if (appCheckToken?.token) {
             appCheckStatus = "present";
             appCheckTokenLen = String(appCheckToken.token.length);
@@ -1281,10 +1282,8 @@ export default function NewListingPage() {
               0,
               8
             )}...${appCheckToken.token.slice(-6)}`;
-            if (typeof appCheckToken.expireTimeMillis === "number") {
-              appCheckExpire = new Date(
-                appCheckToken.expireTimeMillis
-              ).toISOString();
+            if (typeof appCheckTokenAny?.expireTimeMillis === "number") {
+              appCheckExpire = new Date(appCheckTokenAny.expireTimeMillis).toISOString();
             }
           } else {
             appCheckStatus = "missing";
