@@ -22,20 +22,21 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
+import { getCategoriesCached } from "@/lib/catalogCache";
 
 /* ================= TYPES ================= */
 
-type Brand = {
+type Category = {
   id: string;
   name: string;
   nameLower: string;
 };
 
-type Model = {
+type SubCategory = {
   id: string;
   name: string;
   nameLower: string;
-  brandId: string;
+  categoryId: string;
 };
 
 type Listing = {
@@ -43,10 +44,10 @@ type Listing = {
   title?: string;
   price?: number;
 
-  brandId?: string;
-  brandName?: string;
-  modelId?: string;
-  modelName?: string;
+  categoryId?: string;
+  categoryName?: string;
+  subCategoryId?: string;
+  subCategoryName?: string;
 
   productionYear?: string | null;
   gender?: string;
@@ -82,6 +83,16 @@ const safeText = (v?: string, fallback = "—") => {
 
 const normTR = (v?: string) =>
   normalizeSpaces(v || "").toLocaleLowerCase("tr-TR");
+
+const normTRAscii = (v?: string) =>
+  normTR(v)
+    .replaceAll("ı", "i")
+    .replaceAll("ş", "s")
+    .replaceAll("ğ", "g")
+    .replaceAll("ü", "u")
+    .replaceAll("ö", "o")
+    .replaceAll("ç", "c")
+    .replaceAll("İ", "i");
 
 const formatPriceTRY = (v?: number) => {
   const n = Number(v);
@@ -153,6 +164,16 @@ const getDiaNumber = (v?: number | null) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const toMillis = (v: any) => {
+  const d: Date =
+    v?.toDate?.() instanceof Date
+      ? v.toDate()
+      : v instanceof Date
+      ? v
+      : null;
+  return d ? d.getTime() : 0;
+};
+
 const compactLabel = (s?: string) => {
   const t = normalizeSpaces(s || "");
   return t.length > 18 ? t.slice(0, 18) + "…" : t;
@@ -189,17 +210,21 @@ const VIEW_OPTIONS = ["grid", "list"] as const;
 
 /* ================= PAGE ================= */
 
-export default function ModelPage() {
-  const params = useParams<{ brand: string; model: string }>();
+export default function SubCategoryPage() {
+  const params = useParams<{ category: string; subCategory: string }>();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const brandSlug = params?.brand;
-  const modelSlug = params?.model;
+  const categorySlug = params?.category
+    ? decodeURIComponent(params.category)
+    : "";
+  const subCategorySlug = params?.subCategory
+    ? decodeURIComponent(params.subCategory)
+    : "";
 
-  const [brand, setBrand] = useState<Brand | null>(null);
-  const [model, setModel] = useState<Model | null>(null);
+  const [category, setCategory] = useState<Category | null>(null);
+  const [subCategory, setSubCategory] = useState<SubCategory | null>(null);
 
   // ✅ Firestore pagination listings
   const [listings, setListings] = useState<Listing[]>([]);
@@ -231,12 +256,6 @@ export default function ModelPage() {
   const [yearMax, setYearMax] = useState("");
 
   const [gender, setGender] = useState("");
-  const [movementType, setMovementType] = useState("");
-  const [caseType, setCaseType] = useState("");
-  const [braceletMaterial, setBraceletMaterial] = useState("");
-
-  const [diaMin, setDiaMin] = useState("");
-  const [diaMax, setDiaMax] = useState("");
 
   const [wearFilter, setWearFilter] = useState<"" | "wear" | "noWear">("");
 
@@ -254,73 +273,12 @@ export default function ModelPage() {
     []
   );
 
-  const movementOptions = useMemo(
-    () => ["Otomatik", "Quartz", "Manual", "Diğer"],
-    []
-  );
-
-  const caseTypeOptions = useMemo(
-    () => [
-      "Çelik",
-      "Titanyum",
-      "Altın",
-      "Seramik",
-      "Karbon",
-      "Bronz",
-      "Gümüş",
-      "Platin",
-      "Diğer",
-    ],
-    []
-  );
-
-  const braceletMaterialOptions = useMemo(
-    () => [
-      "Çelik",
-      "Deri",
-      "Kauçuk",
-      "NATO",
-      "Titanyum",
-      "Tekstil",
-      "Seramik",
-      "Diğer",
-    ],
-    []
-  );
-
-  const diameterOptions = useMemo(() => {
-    return [
-      "28",
-      "30",
-      "32",
-      "34",
-      "35",
-      "36",
-      "37",
-      "38",
-      "39",
-      "40",
-      "41",
-      "42",
-      "43",
-      "44",
-      "45",
-      "46",
-      "48",
-    ];
-  }, []);
-
   const clearFilters = () => {
     setMinPrice("");
     setMaxPrice("");
     setYearMin("");
     setYearMax("");
     setGender("");
-    setMovementType("");
-    setCaseType("");
-    setBraceletMaterial("");
-    setDiaMin("");
-    setDiaMax("");
     setWearFilter("");
   };
 
@@ -331,11 +289,6 @@ export default function ModelPage() {
     if (yearMin.trim()) c++;
     if (yearMax.trim()) c++;
     if (gender.trim()) c++;
-    if (movementType.trim()) c++;
-    if (caseType.trim()) c++;
-    if (braceletMaterial.trim()) c++;
-    if (diaMin.trim()) c++;
-    if (diaMax.trim()) c++;
     if (wearFilter) c++;
     return c;
   }, [
@@ -344,11 +297,6 @@ export default function ModelPage() {
     yearMin,
     yearMax,
     gender,
-    movementType,
-    caseType,
-    braceletMaterial,
-    diaMin,
-    diaMax,
     wearFilter,
   ]);
 
@@ -358,7 +306,7 @@ export default function ModelPage() {
   const urlReadyRef = useRef(false);
 
   useEffect(() => {
-    if (!brandSlug || !modelSlug) return;
+    if (!categorySlug || !subCategorySlug) return;
 
     // Her route değişiminde URL init tekrar yapılır
     urlHydratingRef.current = true;
@@ -377,12 +325,6 @@ export default function ModelPage() {
     setYearMax(cleanParam(sp.get("yearMax") || ""));
 
     setGender(cleanParam(sp.get("gender") || ""));
-    setMovementType(cleanParam(sp.get("movement") || ""));
-    setCaseType(cleanParam(sp.get("caseType") || ""));
-    setBraceletMaterial(cleanParam(sp.get("bracelet") || ""));
-
-    setDiaMin(cleanParam(sp.get("diaMin") || ""));
-    setDiaMax(cleanParam(sp.get("diaMax") || ""));
 
     setWearFilter(pickEnum(sp.get("wear"), ["", "wear", "noWear"] as const, ""));
 
@@ -391,7 +333,7 @@ export default function ModelPage() {
       urlHydratingRef.current = false;
       urlReadyRef.current = true;
     }, 0);
-  }, [brandSlug, modelSlug, searchParams]);
+  }, [categorySlug, subCategorySlug, searchParams]);
 
   /* ================= URL SYNC (✅ filtreler değişince URL yaz) ================= */
 
@@ -414,13 +356,6 @@ export default function ModelPage() {
     if (yearMax.trim()) sp.set("yearMax", yearMax.trim());
 
     if (gender.trim()) sp.set("gender", gender.trim());
-    if (movementType.trim()) sp.set("movement", movementType.trim());
-    if (caseType.trim()) sp.set("caseType", caseType.trim());
-    if (braceletMaterial.trim()) sp.set("bracelet", braceletMaterial.trim());
-
-    if (diaMin.trim()) sp.set("diaMin", diaMin.trim());
-    if (diaMax.trim()) sp.set("diaMax", diaMax.trim());
-
     if (wearFilter) sp.set("wear", wearFilter);
 
     const nextQs = sp.toString();
@@ -442,62 +377,70 @@ export default function ModelPage() {
     yearMin,
     yearMax,
     gender,
-    movementType,
-    caseType,
-    braceletMaterial,
-    diaMin,
-    diaMax,
     wearFilter,
   ]);
 
-  /* ================= LOAD BRAND + MODEL ================= */
+  /* ================= LOAD CATEGORY + SUBCATEGORY ================= */
 
   useEffect(() => {
-    if (!brandSlug || !modelSlug) return;
+    if (!categorySlug || !subCategorySlug) return;
 
     let cancelled = false;
 
-    async function loadBrandModel() {
+    async function loadCategorySubCategory() {
       setLoading(true);
       setError(null);
 
       try {
-        // BRAND
-        const brandSnap = await getDocs(
-          query(collection(db, "brands"), where("nameLower", "==", brandSlug))
-        );
-        if (brandSnap.empty) throw new Error("Marka bulunamadı.");
+        // CATEGORY
+        const categoryDocs = (await getCategoriesCached()).map((d: any) => ({
+          id: d.id,
+          ...(d as any),
+        }));
+        const categoryKey = normTRAscii(categorySlug);
+        const matchCategory = categoryDocs.find((c) => {
+          const keys = [
+            c.id,
+            c.slug,
+            c.nameLower,
+            c.name,
+          ].map((x) => normTRAscii(x));
+          return keys.includes(categoryKey);
+        });
+        if (!matchCategory) throw new Error("Kategori bulunamadı.");
 
-        const bDoc = brandSnap.docs[0];
-        const b: Brand = {
-          id: bDoc.id,
-          name: bDoc.data().name,
-          nameLower: bDoc.data().nameLower,
+        const b: Category = {
+          id: matchCategory.id,
+          name: matchCategory.name,
+          nameLower: matchCategory.nameLower,
         };
 
         if (cancelled) return;
-        setBrand(b);
+        setCategory(b);
 
-        // MODEL
-        const modelSnap = await getDocs(
-          query(
-            collection(db, "models"),
-            where("nameLower", "==", modelSlug),
-            where("brandId", "==", b.id)
-          )
-        );
-        if (modelSnap.empty) throw new Error("Model bulunamadı.");
+        // SUBCATEGORY (categories parentId)
+        const subDocs = categoryDocs.filter((d) => d.parentId === b.id);
+        const subKey = normTRAscii(subCategorySlug);
+        const matchSub = subDocs.find((s) => {
+          const keys = [
+            s.id,
+            s.slug,
+            s.nameLower,
+            s.name,
+          ].map((x) => normTRAscii(x));
+          return keys.includes(subKey);
+        });
+        if (!matchSub) throw new Error("Alt kategori bulunamadı.");
 
-        const mDoc = modelSnap.docs[0];
-        const m: Model = {
-          id: mDoc.id,
-          name: mDoc.data().name,
-          nameLower: mDoc.data().nameLower,
-          brandId: mDoc.data().brandId,
+        const m: SubCategory = {
+          id: matchSub.id,
+          name: matchSub.name,
+          nameLower: matchSub.nameLower,
+          categoryId: matchSub.parentId,
         };
 
         if (cancelled) return;
-        setModel(m);
+        setSubCategory(m);
       } catch (e: any) {
         console.error(e);
         if (!cancelled) setError(e?.message || "Bir hata oluştu.");
@@ -506,18 +449,18 @@ export default function ModelPage() {
       }
     }
 
-    loadBrandModel();
+    loadCategorySubCategory();
 
     return () => {
       cancelled = true;
     };
-  }, [brandSlug, modelSlug]);
+  }, [categorySlug, subCategorySlug]);
 
   /* ================= FIRESTORE PAGINATION (✅ 2000 ilan uçurur) ================= */
 
   const serverQueryKey = useMemo(() => {
     // server tarafında gerçekten query değiştirip reset gerektiren şeyler:
-    // sortMode, pageSize, wearFilter, gender, movementType, caseType, braceletMaterial
+    // sortMode, pageSize, wearFilter, gender
     // (min/max price sadece price sıralamasında server tarafına eklenir)
     const priceKey =
       sortMode === "priceAsc" || sortMode === "priceDesc"
@@ -525,31 +468,30 @@ export default function ModelPage() {
         : ""; // newest'te fiyat range client-side
 
     return [
-      model?.id || "",
+      subCategory?.id || "",
       sortMode,
       String(pageSize),
       wearFilter || "",
       gender || "",
-      movementType || "",
-      caseType || "",
-      braceletMaterial || "",
       priceKey,
     ].join("|");
   }, [
-    model?.id,
+    subCategory?.id,
     sortMode,
     pageSize,
     wearFilter,
     gender,
-    movementType,
-    caseType,
-    braceletMaterial,
     minPrice,
     maxPrice,
   ]);
 
+  const isIndexError = (e: any) => {
+    const msg = String(e?.message || "");
+    return msg.includes("requires an index");
+  };
+
   const fetchPage = async (reset: boolean) => {
-    if (!model?.id) return;
+    if (!subCategory?.id) return;
     if (reset) {
       setLoading(true);
       setHasMore(true);
@@ -561,44 +503,28 @@ export default function ModelPage() {
     }
 
     try {
-      const constraints: any[] = [where("modelId", "==", model.id)];
+      const baseConstraints: any[] = [
+        where("subCategoryId", "==", subCategory.id),
+        orderBy("createdAt", "desc"),
+        limit(pageSize),
+      ];
 
-      // ✅ eşitlik filtreleri server-side (index isteyebilir)
-      if (wearFilter === "wear") constraints.push(where("wearExists", "==", true));
-      if (wearFilter === "noWear") constraints.push(where("wearExists", "==", false));
-
-      if (gender.trim()) constraints.push(where("gender", "==", gender.trim()));
-      if (movementType.trim())
-        constraints.push(where("movementType", "==", movementType.trim()));
-      if (caseType.trim()) constraints.push(where("caseType", "==", caseType.trim()));
-      if (braceletMaterial.trim())
-        constraints.push(where("braceletMaterial", "==", braceletMaterial.trim()));
-
-      // ✅ sort + (fiyat sort’ta min/max server-side uygulanabilir)
-      const minP = toNumOrNull(minPrice);
-      const maxP = toNumOrNull(maxPrice);
-
-      if (sortMode === "newest") {
-        constraints.push(orderBy("createdAt", "desc"));
-      } else if (sortMode === "priceAsc") {
-        if (minP !== null) constraints.push(where("price", ">=", minP));
-        if (maxP !== null) constraints.push(where("price", "<=", maxP));
-        constraints.push(orderBy("price", "asc"));
-        constraints.push(orderBy("createdAt", "desc"));
-      } else if (sortMode === "priceDesc") {
-        if (minP !== null) constraints.push(where("price", ">=", minP));
-        if (maxP !== null) constraints.push(where("price", "<=", maxP));
-        constraints.push(orderBy("price", "desc"));
-        constraints.push(orderBy("createdAt", "desc"));
-      }
-
-      constraints.push(limit(pageSize));
-
-      // startAfter
       const cursor = reset ? null : lastDoc;
-      if (cursor) constraints.push(startAfter(cursor));
+      if (cursor) baseConstraints.push(startAfter(cursor));
 
-      const snap = await getDocs(query(collection(db, "listings"), ...constraints));
+      let snap;
+      try {
+        snap = await getDocs(query(collection(db, "listings"), ...baseConstraints));
+      } catch (e: any) {
+        if (!isIndexError(e)) throw e;
+        // fallback: index yoksa orderBy olmadan dene
+        const fallback: any[] = [
+          where("subCategoryId", "==", subCategory.id),
+          limit(pageSize),
+        ];
+        if (cursor) fallback.push(startAfter(cursor));
+        snap = await getDocs(query(collection(db, "listings"), ...fallback));
+      }
 
       const items = snap.docs.map((d) => ({
         id: d.id,
@@ -639,24 +565,23 @@ export default function ModelPage() {
 
   // ✅ query değişince reset + ilk sayfa çek
   useEffect(() => {
-    if (!model?.id) return;
+    if (!subCategory?.id) return;
     if (!urlReadyRef.current) return;
     if (urlHydratingRef.current) return;
 
     fetchPage(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverQueryKey, model?.id]);
+  }, [serverQueryKey, subCategory?.id]);
 
-  /* ================= CLIENT FILTER (year + diameter gibi) ================= */
+  /* ================= CLIENT FILTER (year vb.) ================= */
 
   const filteredListings = useMemo(() => {
     const yMin = toIntOrNull(yearMin);
     const yMax = toIntOrNull(yearMax);
 
-    const dMin = toNumOrNull(diaMin);
-    const dMax = toNumOrNull(diaMax);
+    const minP = toNumOrNull(minPrice);
+    const maxP = toNumOrNull(maxPrice);
 
-    return listings.filter((l) => {
+    let next = listings.filter((l) => {
       const y = getYearNumber(l.productionYear);
       if (yMin !== null) {
         if (y === null || y < yMin) return false;
@@ -665,36 +590,61 @@ export default function ModelPage() {
         if (y === null || y > yMax) return false;
       }
 
-      const dia = getDiaNumber(l.diameterMm ?? null);
-      if (dMin !== null) {
-        if (dia === null || dia < dMin) return false;
-      }
-      if (dMax !== null) {
-        if (dia === null || dia > dMax) return false;
-      }
+      if (wearFilter === "wear" && l.wearExists !== true) return false;
+      if (wearFilter === "noWear" && l.wearExists !== false) return false;
 
-      // newest modunda fiyat min/max client-side çalışsın
-      if (sortMode === "newest") {
-        const minP = toNumOrNull(minPrice);
-        const maxP = toNumOrNull(maxPrice);
+      if (gender.trim() && (l.gender || "") !== gender.trim()) return false;
+      if (minP !== null) {
         const p = Number(l.price);
-        const ok = Number.isFinite(p);
-
-        if (minP !== null) {
-          if (!ok || p < minP) return false;
-        }
-        if (maxP !== null) {
-          if (!ok || p > maxP) return false;
-        }
+        if (!Number.isFinite(p) || p < minP) return false;
+      }
+      if (maxP !== null) {
+        const p = Number(l.price);
+        if (!Number.isFinite(p) || p > maxP) return false;
       }
 
       return true;
     });
-  }, [listings, yearMin, yearMax, diaMin, diaMax, sortMode, minPrice, maxPrice]);
+
+    if (sortMode === "priceAsc") {
+      next = [...next].sort((a, b) => {
+        const ap = Number(a.price);
+        const bp = Number(b.price);
+        if (Number.isFinite(ap) && Number.isFinite(bp) && ap !== bp) {
+          return ap - bp;
+        }
+        return toMillis(b.createdAt) - toMillis(a.createdAt);
+      });
+    } else if (sortMode === "priceDesc") {
+      next = [...next].sort((a, b) => {
+        const ap = Number(a.price);
+        const bp = Number(b.price);
+        if (Number.isFinite(ap) && Number.isFinite(bp) && ap !== bp) {
+          return bp - ap;
+        }
+        return toMillis(b.createdAt) - toMillis(a.createdAt);
+      });
+    } else {
+      next = [...next].sort(
+        (a, b) => toMillis(b.createdAt) - toMillis(a.createdAt)
+      );
+    }
+
+    return next;
+  }, [
+    listings,
+    yearMin,
+    yearMax,
+    wearFilter,
+    gender,
+    minPrice,
+    maxPrice,
+    sortMode,
+  ]);
 
   /* ================= UI STATES ================= */
 
-  if (loading && !brand && !model) {
+  if (loading && !category && !subCategory) {
     return (
       <div className="min-h-screen bg-gray-100 px-4 py-10">
         <div className="max-w-7xl mx-auto space-y-6">
@@ -733,7 +683,7 @@ export default function ModelPage() {
     );
   }
 
-  if (!brand || !model) return null;
+  if (!category || !subCategory) return null;
 
   /* ================= UI ================= */
 
@@ -746,11 +696,11 @@ export default function ModelPage() {
             Ana sayfa
           </Link>
           <span className="mx-2">/</span>
-          <Link href={`/${brand.nameLower}`} className="hover:underline">
-            {brand.name}
+          <Link href={`/${category.nameLower}`} className="hover:underline">
+            {category.name}
           </Link>
           <span className="mx-2">/</span>
-          <span className="text-gray-900 font-medium">{model.name}</span>
+          <span className="text-gray-900 font-medium">{subCategory.name}</span>
         </div>
 
         {/* ================= HERO ================= */}
@@ -758,10 +708,10 @@ export default function ModelPage() {
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
             <div className="space-y-2">
               <h1 className="text-3xl font-bold">
-                {brand.name} / {model.name}
+                {category.name} / {subCategory.name}
               </h1>
               <div className="text-gray-600">
-                Bu model için ilanlar. Filtrele, sırala, sayfalı yükle.
+                Bu subCategory için ilanlar. Filtrele, sırala, sayfalı yükle.
               </div>
 
               <div className="text-sm text-gray-500 mt-2">
@@ -786,10 +736,10 @@ export default function ModelPage() {
               </Link>
 
               <Link
-                href={`/${brand.nameLower}`}
+                href={`/${category.nameLower}`}
                 className="border rounded-xl px-5 py-3 font-semibold hover:bg-gray-50 text-center"
               >
-                ← Markaya dön
+                ← Kategoriye dön
               </Link>
             </div>
           </div>
@@ -1024,94 +974,6 @@ export default function ModelPage() {
                 </select>
               </div>
 
-              {/* Movement */}
-              <div className="border rounded-2xl p-4 space-y-3">
-                <div className="font-semibold">Çalışma şekli</div>
-                <select
-                  value={movementType}
-                  onChange={(e) => setMovementType(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="">Hepsi</option>
-                  {movementOptions.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Case */}
-              <div className="border rounded-2xl p-4 space-y-3">
-                <div className="font-semibold">Kasa tipi</div>
-                <select
-                  value={caseType}
-                  onChange={(e) => setCaseType(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="">Hepsi</option>
-                  {caseTypeOptions.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Diameter */}
-              <div className="border rounded-2xl p-4 space-y-3">
-                <div className="font-semibold">Çap (mm)</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Min</div>
-                    <select
-                      value={diaMin}
-                      onChange={(e) => setDiaMin(e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                    >
-                      <option value="">Seç</option>
-                      {diameterOptions.map((d) => (
-                        <option key={d} value={d}>
-                          {d}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Max</div>
-                    <select
-                      value={diaMax}
-                      onChange={(e) => setDiaMax(e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                    >
-                      <option value="">Seç</option>
-                      {diameterOptions.map((d) => (
-                        <option key={d} value={d}>
-                          {d}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bracelet Material */}
-              <div className="border rounded-2xl p-4 space-y-3">
-                <div className="font-semibold">Kordon malzemesi</div>
-                <select
-                  value={braceletMaterial}
-                  onChange={(e) => setBraceletMaterial(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="">Hepsi</option>
-                  {braceletMaterialOptions.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
-                </select>
-              </div>
 
               {/* Wear */}
               <div className="border rounded-2xl p-4 space-y-3">
@@ -1166,7 +1028,6 @@ export default function ModelPage() {
               const ago = timeAgoTR(l.createdAt);
 
               const y = getYearNumber(l.productionYear);
-              const dia = getDiaNumber(l.diameterMm ?? null);
 
               return (
                 <Link key={l.id} href={`/ilan/${l.id}`} className="block">
@@ -1206,23 +1067,6 @@ export default function ModelPage() {
                           </span>
                         ) : null}
 
-                        {l.movementType ? (
-                          <span className="px-2 py-1 rounded-full bg-gray-100">
-                            {compactLabel(l.movementType)}
-                          </span>
-                        ) : null}
-
-                        {dia ? (
-                          <span className="px-2 py-1 rounded-full bg-gray-100">
-                            {dia}mm
-                          </span>
-                        ) : null}
-
-                        {l.braceletMaterial ? (
-                          <span className="px-2 py-1 rounded-full bg-gray-100">
-                            {compactLabel(l.braceletMaterial)}
-                          </span>
-                        ) : null}
 
                         {l.wearExists === true ? (
                           <span className="px-2 py-1 rounded-full bg-red-50 text-red-700">
@@ -1236,7 +1080,7 @@ export default function ModelPage() {
                       </div>
 
                       <div className="text-xs text-gray-400 flex items-center justify-between">
-                        <div className="truncate">{safeText(l.brandName, brand.name)}</div>
+                        <div className="truncate">{safeText(l.categoryName, category.name)}</div>
                         <div className="shrink-0">{ago}</div>
                       </div>
                     </div>
@@ -1252,7 +1096,6 @@ export default function ModelPage() {
                 const img = firstImage(l.imageUrls);
                 const ago = timeAgoTR(l.createdAt);
                 const y = getYearNumber(l.productionYear);
-                const dia = getDiaNumber(l.diameterMm ?? null);
 
                 return (
                   <Link
@@ -1280,17 +1123,12 @@ export default function ModelPage() {
                         </div>
 
                         <div className="text-sm text-gray-600 truncate">
-                          {brand.name} / {model.name}
+                          {category.name} / {subCategory.name}
                         </div>
 
                         <div className="text-xs text-gray-500 flex flex-wrap gap-2">
                           {y ? <span>{y}</span> : null}
                           {l.gender ? <span>• {l.gender}</span> : null}
-                          {l.movementType ? <span>• {l.movementType}</span> : null}
-                          {dia ? <span>• {dia}mm</span> : null}
-                          {l.braceletMaterial ? (
-                            <span>• {l.braceletMaterial}</span>
-                          ) : null}
                           {l.wearExists === true ? (
                             <span className="text-red-600">• Aşınma var</span>
                           ) : l.wearExists === false ? (
@@ -1331,18 +1169,18 @@ export default function ModelPage() {
         {/* ================= MODEL INFO ================= */}
         <div className="bg-white rounded-2xl shadow p-8 space-y-4">
           <h2 className="text-xl font-bold">
-            {brand.name} {model.name} hakkında
+            {category.name} {subCategory.name} hakkında
           </h2>
 
           <div className="text-gray-700 leading-relaxed">
-            Bu sayfada {brand.name} / {model.name} modeline ait ilanları görürsün.
+            Bu sayfada {category.name} / {subCategory.name} subCategoryine ait ilanları görürsün.
             Filtreleri URL’e yazdığı için linki paylaşınca aynı filtreli ekran açılır.
           </div>
 
           <div className="border rounded-xl p-4 bg-gray-50 text-sm text-gray-700">
             <div className="font-semibold mb-2">Alıcı için küçük ipuçları</div>
             <ul className="list-disc pl-5 space-y-1">
-              <li>Fotoğrafları büyütüp kasa/bezeli ve kadran detaylarına bak.</li>
+              <li>Fotoğrafları büyütüp ürün detaylarına bak.</li>
               <li>Servis geçmişi, kutu/belge, seri numarası gibi bilgileri sor.</li>
               <li>Pazarlığı mesajlaşmada netleştir.</li>
             </ul>

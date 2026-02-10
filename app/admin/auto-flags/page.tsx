@@ -92,7 +92,7 @@ function getAdminTargetHref(row: AutoFlagRow): string | null {
   if (!row?.targetType || !row?.targetId) return null;
 
   if (row.targetType === "listing") return `/admin/listings/${row.targetId}`;
-  if (row.targetType === "user") return `/admin/users/${row.targetId}`;
+  if (row.targetType === "user") return `/admin/users?uid=${row.targetId}`;
 
   if (row.targetType === "message") {
     const convId =
@@ -162,7 +162,7 @@ export default function AdminAutoFlagsPage() {
       showToast({
         type: "success",
         title: "Güncellendi",
-        text: `AutoFlags listesi yenilendi (${status}).`,
+        text: `Oto Bayraklar listesi yenilendi (${status}).`,
       });
     } catch (e) {
       console.error(e);
@@ -170,7 +170,7 @@ export default function AdminAutoFlagsPage() {
       showToast({
         type: "error",
         title: "Hata",
-        text: "AutoFlags çekilemedi (rules / index kontrol et).",
+        text: "Oto Bayraklar çekilemedi (rules / index kontrol et).",
       });
     } finally {
       setLoading(false);
@@ -209,7 +209,6 @@ export default function AdminAutoFlagsPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   return (
@@ -220,7 +219,7 @@ export default function AdminAutoFlagsPage() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-xs text-gray-500">Admin</div>
-            <div className="mt-1 text-xl font-semibold text-gray-900">AutoFlags</div>
+            <div className="mt-1 text-xl font-semibold text-gray-900">Oto Bayraklar</div>
             <div className="mt-1 text-sm text-gray-600">
               Risk motorunun ürettiği otomatik uyarılar. KVKK açısından içerik minimum tutulur.
             </div>
@@ -235,7 +234,7 @@ export default function AdminAutoFlagsPage() {
               href="/admin/dashboard"
               className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 active:bg-gray-100 text-sm"
             >
-              ← Dashboard
+              ← Kontrol Paneli
             </Link>
 
             <button
@@ -443,7 +442,7 @@ export default function AdminAutoFlagsPage() {
       </div>
 
       <div className="text-[11px] text-gray-500">
-        Not: AutoFlags ekranı sadece autoFlags koleksiyonunu okur. KVKK açısından içerik minimum tutulur.
+        Not: Oto Bayraklar ekranı sadece autoFlags koleksiyonunu okur. KVKK açısından içerik minimum tutulur.
       </div>
     </div>
   );

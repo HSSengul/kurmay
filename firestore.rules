@@ -15,6 +15,43 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
     }
 
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function userData(uid) {
+      return userDoc(uid).data;
+    }
+
+    function isUserBanned(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && (
+          (
+            ("banStatus" in userData(uid))
+            && userData(uid).banStatus == "permanent"
+          )
+          || (
+            ("banStatus" in userData(uid))
+            && userData(uid).banStatus == "temporary"
+            && ("banUntil" in userData(uid))
+            && (userData(uid).banUntil is timestamp)
+            && userData(uid).banUntil > request.time
+          )
+        );
+    }
+
+    function isUserBlockedListings(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && ("blockListings" in userData(uid))
+        && userData(uid).blockListings == true;
+    }
+
+    function isUserBlockedMessages(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && ("blockMessages" in userData(uid))
+        && userData(uid).blockMessages == true;
+    }
+
     function nonEmptyString(v, max) {
       return v is string && v.size() > 0 && v.size() <= max;
     }
@@ -26,11 +63,6 @@ service cloud.firestore {
     // ✅ NEW: optional string helper ("" olabilir)
     function optionalString(v, max) {
       return (v is string) && (v.size() <= max);
-    }
-
-    // ✅ NEW: optional timestamp helper
-    function optionalTimestamp(v) {
-      return !(v in request.resource.data) || (v is timestamp);
     }
 
     // 🔒 Onboarding tamam mı?
@@ -88,10 +120,10 @@ service cloud.firestore {
         && (s.title.size() <= 200)
         && (s.price is number)
         && (s.price >= 0)
-        && (s.brandName is string)
-        && (s.brandName.size() <= 120)
-        && (s.modelName is string)
-        && (s.modelName.size() <= 120)
+        && (s.categoryName is string)
+        && (s.categoryName.size() <= 120)
+        && (s.subCategoryName is string)
+        && (s.subCategoryName.size() <= 120)
         && (
           // imageUrl hiç yoksa da olur
           !("imageUrl" in s)
@@ -191,6 +223,8 @@ service cloud.firestore {
     function isValidMessageCreate(msg, convo) {
       // type: text / image (system'i client tarafında şimdilik kapatıyoruz; isAdmin ile açılabilir)
       return (msg.type is string)
+        && !isUserBanned(request.auth.uid)
+        && !isUserBlockedMessages(request.auth.uid)
         && (
           msg.type == "text"
           || msg.type == "image"
@@ -254,23 +288,27 @@ service cloud.firestore {
       // ➕ İlan oluşturma: sadece onboarding tamamlayan kullanıcı
       allow create: if signedIn()
         && onboardingCompleted()
+        && !isUserBanned(request.auth.uid)
+        && !isUserBlockedListings(request.auth.uid)
         && request.resource.data.ownerId == request.auth.uid
         && nonEmptyString(request.resource.data.title, 120)
         && request.resource.data.price is number
         && request.resource.data.price >= 0
-        && nonEmptyString(request.resource.data.brandId, 128)
-        && nonEmptyString(request.resource.data.modelId, 128)
-        && nonEmptyString(request.resource.data.brandName, 120)
-        && nonEmptyString(request.resource.data.modelName, 120)
+        && nonEmptyString(request.resource.data.categoryId, 128)
+        && nonEmptyString(request.resource.data.subCategoryId, 128)
+        && nonEmptyString(request.resource.data.categoryName, 120)
+        && nonEmptyString(request.resource.data.subCategoryName, 120)
         && validImages(request.resource.data.imageUrls);
 
       // ✏️ İlan güncelleme: sadece onboarding tamamlayan kullanıcı
       allow update: if signedIn()
         && onboardingCompleted()
+        && !isUserBanned(request.auth.uid)
+        && !isUserBlockedListings(request.auth.uid)
         && resource.data.ownerId == request.auth.uid
         && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.brandId == resource.data.brandId
-        && request.resource.data.modelId == resource.data.modelId
+        && request.resource.data.categoryId == resource.data.categoryId
+        && request.resource.data.subCategoryId == resource.data.subCategoryId
         && request.resource.data.createdAt == resource.data.createdAt
         && nonEmptyString(request.resource.data.title, 120)
         && request.resource.data.price is number
@@ -286,15 +324,19 @@ service cloud.firestore {
     match /users/{uid} {
 
       // Kullanıcı sadece kendi belgesini okuyabilir ve oluşturabilir
-      allow read, create: if signedIn() && request.auth.uid == uid;
+      allow read, create: if signedIn() && (request.auth.uid == uid || isAdmin());
 
       // Role değiştirilemez (admin escalation engeli)
-      allow update: if signedIn()
+      allow update: if isAdmin() || (
+        signedIn()
         && request.auth.uid == uid
-        && request.resource.data.role == resource.data.role;
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly(["email", "provider", "updatedAt"])
+      );
 
       // 🔥 Firebase SDK'nin aggregate (count) sorguları için
-      allow list: if signedIn();
+      allow list: if isAdmin();
 
       allow delete: if false;
     }
@@ -304,8 +346,8 @@ service cloud.firestore {
     match /publicProfiles/{uid} {
       allow read: if true;
 
-      allow create, update: if signedIn()
-        && request.auth.uid == uid;
+      allow create, update: if (signedIn()
+        && request.auth.uid == uid) || isAdmin();
 
       allow delete: if signedIn() && request.auth.uid == uid;
     }
@@ -322,7 +364,7 @@ service cloud.firestore {
         && (request.auth.uid == uid || isAdmin());
 
       allow create: if signedIn()
-        && request.auth.uid == uid
+        && (request.auth.uid == uid || isAdmin())
         && nonEmptyString(request.resource.data.phone, 20)
         && request.resource.data.phone.matches("^[0-9]{10,15}$")
         && nonEmptyString(request.resource.data.address, 200)
@@ -330,7 +372,7 @@ service cloud.firestore {
         && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) );
 
       allow update: if signedIn()
-        && request.auth.uid == uid
+        && (request.auth.uid == uid || isAdmin())
         && nonEmptyString(request.resource.data.phone, 20)
         && request.resource.data.phone.matches("^[0-9]{10,15}$")
         && nonEmptyString(request.resource.data.address, 200)
@@ -353,7 +395,7 @@ service cloud.firestore {
       allow read: if signedIn();
 
       allow create: if signedIn()
-        && request.auth.uid == uid
+        && (request.auth.uid == uid || isAdmin())
         && optionalString(request.resource.data.phone, 20)
         && (request.resource.data.phone == "" || request.resource.data.phone.matches("^[0-9]{10,15}$"))
         && optionalString(request.resource.data.email, 320)
@@ -362,7 +404,7 @@ service cloud.firestore {
         && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) );
 
       allow update: if signedIn()
-        && request.auth.uid == uid
+        && (request.auth.uid == uid || isAdmin())
         && optionalString(request.resource.data.phone, 20)
         && (request.resource.data.phone == "" || request.resource.data.phone.matches("^[0-9]{10,15}$"))
         && optionalString(request.resource.data.email, 320)
@@ -377,14 +419,21 @@ service cloud.firestore {
 
     /* ========== BRANDS ========== */
 
-    match /brands/{id} {
+    match /categories/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
 
     /* ========== MODELS ========== */
 
-    match /models/{id} {
+    match /subCategories/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ========== LISTING SCHEMAS ========== */
+
+    match /listingSchemas/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
@@ -423,14 +472,18 @@ service cloud.firestore {
 
     match /conversations/{conversationId} {
 
-      allow read: if signedIn()
+      allow read: if isAdmin() || (
+        signedIn()
         && (resource.data.participants is list)
-        && (request.auth.uid in resource.data.participants);
+        && (request.auth.uid in resource.data.participants)
+      );
 
-      allow list: if signedIn();
+      allow list: if isAdmin() || signedIn();
 
       // Konuşma oluşturma
       allow create: if signedIn()
+        && !isUserBanned(request.auth.uid)
+        && !isUserBlockedMessages(request.auth.uid)
         && nonEmptyString(request.resource.data.listingId, 256)
         && nonEmptyString(request.resource.data.buyerId, 256)
         && nonEmptyString(request.resource.data.sellerId, 256)
@@ -497,8 +550,10 @@ service cloud.firestore {
       match /messages/{messageId} {
 
         // Okuma / listeleme
-        allow read, list: if signedIn()
-          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow read, list: if isAdmin() || (
+          signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants
+        );
 
         // Mesaj oluşturma
         allow create: if signedIn()

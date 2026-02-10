@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   GoogleAuthProvider,
@@ -71,13 +71,13 @@ function isAllowedEmail(email: string) {
 function firebaseErrorToTR(code?: string) {
   switch (code) {
     case "auth/user-not-found":
-      return "Bu email ile kayıtlı kullanıcı bulunamadı.";
+      return "Bu e-posta ile kayıtlı kullanıcı bulunamadı.";
     case "auth/wrong-password":
       return "Şifre yanlış.";
     case "auth/email-already-in-use":
-      return "Bu email zaten kayıtlı.";
+      return "Bu e-posta zaten kayıtlı.";
     case "auth/invalid-email":
-      return "Geçersiz email adresi.";
+      return "Geçersiz e-posta adresi.";
     case "auth/weak-password":
       return "Şifre çok zayıf.";
     case "auth/popup-closed-by-user":
@@ -87,7 +87,7 @@ function firebaseErrorToTR(code?: string) {
     case "auth/popup-blocked":
       return "Tarayıcı popup engelledi. Popup izinlerini aç.";
     case "auth/account-exists-with-different-credential":
-      return "Bu email farklı bir giriş yöntemiyle kayıtlı. Email+şifre ile giriş yapıp hesabına Google’ı bağlayabiliriz.";
+      return "Bu e-posta farklı bir giriş yöntemiyle kayıtlı. E-posta + şifre ile giriş yapıp hesabına Google’ı bağlayabiliriz.";
     case "auth/too-many-requests":
       return "Çok fazla deneme yapıldı. Bir süre sonra tekrar dene.";
     default:
@@ -168,7 +168,7 @@ async function ensureUserDocs(user: User) {
    PAGE
 ======================= */
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -246,7 +246,7 @@ export default function LoginPage() {
     const pw = password;
 
     if (!em) {
-      setError("Email zorunlu.");
+      setError("E-posta zorunlu.");
       return;
     }
     if (!pw) {
@@ -273,7 +273,7 @@ export default function LoginPage() {
     const pw = password;
 
     if (!em) {
-      setError("Email zorunlu.");
+      setError("E-posta zorunlu.");
       return;
     }
 
@@ -299,7 +299,7 @@ export default function LoginPage() {
         // password method yoksa kullanıcıya düzgün mesaj ver
         if (!methods.includes("password")) {
           setError(
-            "Bu email daha önce farklı bir yöntemle kayıt olmuş. Giriş yapmayı dene ya da Google ile bağlayalım."
+            "Bu e-posta daha önce farklı bir yöntemle kayıt olmuş. Giriş yapmayı dene ya da Google ile bağlayalım."
           );
           return;
         }
@@ -321,7 +321,7 @@ export default function LoginPage() {
 
     const em = normalizeEmail(email);
     if (!em) {
-      setError("Email zorunlu.");
+      setError("E-posta zorunlu.");
       return;
     }
 
@@ -389,7 +389,7 @@ export default function LoginPage() {
 
     const em = u.email ? normalizeEmail(u.email) : "";
     if (!em) {
-      setError("Google hesabından email alınamadı. Farklı bir hesapla dene.");
+      setError("Google hesabından e-posta alınamadı. Farklı bir hesapla dene.");
       return;
     }
 
@@ -509,7 +509,7 @@ export default function LoginPage() {
         {mode === "login" && (
           <form onSubmit={handleEmailLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Email</label>
+              <label className="block text-sm font-medium mb-1">E-posta</label>
               <input
                 type="email"
                 className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -579,7 +579,7 @@ export default function LoginPage() {
         {mode === "register" && (
           <form onSubmit={handleEmailRegister} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Email</label>
+              <label className="block text-sm font-medium mb-1">E-posta</label>
               <input
                 type="email"
                 className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -645,7 +645,7 @@ export default function LoginPage() {
         {mode === "reset" && (
           <form onSubmit={handleSendReset} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Email</label>
+              <label className="block text-sm font-medium mb-1">E-posta</label>
               <input
                 type="email"
                 className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -741,5 +741,19 @@ export default function LoginPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center text-gray-600">
+          Yükleniyor...
+        </div>
+      }
+    >
+      <LoginPageInner />
+    </Suspense>
   );
 }

@@ -37,6 +37,12 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+function safeText(v: any, fallback = ""): string {
+  if (typeof v === "string") return v;
+  if (v == null) return fallback;
+  return String(v);
+}
+
 function getTimestampMillis(ts: any): number {
   if (!ts) return 0;
   if (typeof ts?.toMillis === "function") return ts.toMillis();
@@ -54,6 +60,42 @@ function formatClockTR(ts: any) {
     }).format(new Date(ms));
   } catch {
     return "";
+  }
+}
+
+function getDayKey(ts: any) {
+  const ms = getTimestampMillis(ts);
+  if (!ms) return "";
+  const d = new Date(ms);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatDayTR(ts: any) {
+  const ms = getTimestampMillis(ts);
+  if (!ms) return "";
+  try {
+    return new Intl.DateTimeFormat("tr-TR", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    }).format(new Date(ms));
+  } catch {
+    return "";
+  }
+}
+
+function formatTryPrice(v: number) {
+  try {
+    return new Intl.NumberFormat("tr-TR", {
+      style: "currency",
+      currency: "TRY",
+      maximumFractionDigits: 0,
+    }).format(v);
+  } catch {
+    return `${Math.round(v)} ₺`;
   }
 }
 
@@ -208,7 +250,6 @@ export default function ChatPage() {
       if (typingFlushTimerRef.current) clearTimeout(typingFlushTimerRef.current);
       writeTyping(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, userId]);
 
   useEffect(() => {
@@ -380,7 +421,6 @@ export default function ChatPage() {
 
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function fetchOlder() {
@@ -562,7 +602,9 @@ export default function ChatPage() {
       await writeTyping(false);
 
       const imgRef = ref(storage, `chatImages/${conversationId}/${Date.now()}_${file.name}`);
-      await uploadBytes(imgRef, file);
+      await uploadBytes(imgRef, file, {
+        contentType: file.type || "image/jpeg",
+      });
       const url = await getDownloadURL(imgRef);
 
       await addDoc(collection(db, "conversations", conversationId, "messages"), {
@@ -652,143 +694,209 @@ export default function ChatPage() {
 
   return (
     <div
-      className="flex flex-col overflow-hidden"
+      className="flex flex-col overflow-hidden bg-[radial-gradient(120%_90%_at_10%_0%,#fff7ea_0%,#f7f4ef_45%,#f1ece3_100%)]"
       style={{ height: "calc(100vh - var(--app-header-height, 0px))" }}
     >
       {/* Listing header */}
       {conversation?.listingSnapshot && (
-        <div
-          onClick={() => {
-            if (listingId) router.push(`/ilan/${listingId}`);
-          }}
-          className="shrink-0 border-b p-3 bg-white hover:bg-gray-50 cursor-pointer"
-        >
-          <div className="flex gap-3 items-start">
-            {conversation.listingSnapshot.imageUrl ? (
-              <img
-                src={conversation.listingSnapshot.imageUrl}
-                className="w-20 h-20 object-cover rounded border"
-                alt="İlan görseli"
-              />
-            ) : (
-              <div className="w-20 h-20 bg-gray-200 rounded" />
-            )}
-
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold truncate">
-                {conversation.listingSnapshot.brandName} {conversation.listingSnapshot.modelName}
-              </div>
-              <div className="text-sm text-gray-600">
-                {conversation.listingSnapshot.price} ₺
-              </div>
-
-              <div className="mt-2 flex items-center gap-2">
-                {avatar ? (
+        <div className="shrink-0 border-b border-[#ead8c5] bg-[#fffaf3]/95 backdrop-blur">
+          <div className="max-w-5xl mx-auto px-4 py-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="w-full sm:w-28">
+                {conversation.listingSnapshot.imageUrl ? (
                   <img
-                    src={avatar}
-                    className="w-6 h-6 rounded-full object-cover"
-                    alt="Profil"
+                    src={conversation.listingSnapshot.imageUrl}
+                    className="w-full h-24 sm:h-24 object-cover rounded-2xl border border-[#ead8c5] shadow-[0_6px_18px_rgba(0,0,0,0.08)]"
+                    alt="İlan görseli"
                   />
                 ) : (
-                  <div className="w-6 h-6 rounded-full bg-gray-300" />
+                  <div className="w-full h-24 rounded-2xl bg-[#f3e9db] border border-[#ead8c5]" />
                 )}
-                <span className="text-xs text-gray-700">{displayName}</span>
               </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide text-[#7a5a40]">
+                  <span className="rounded-full border border-[#ead8c5] bg-white px-2 py-1">
+                    {safeText(conversation.listingSnapshot.categoryName, "Kategori")}
+                  </span>
+                  <span className="rounded-full border border-[#ead8c5] bg-white px-2 py-1">
+                    {safeText(conversation.listingSnapshot.subCategoryName, "Alt kategori")}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <div className="text-lg sm:text-xl font-semibold text-[#2f241b] line-clamp-1">
+                    {safeText(conversation.listingSnapshot.title, "İlan")}
+                  </div>
+                  <span className="inline-flex items-center rounded-full border border-[#ead8c5] bg-white px-3 py-1 text-sm font-semibold text-[#3f2a1a] shadow-sm">
+                    {formatTryPrice(Number(conversation.listingSnapshot.price ?? 0))}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex items-center gap-2 text-xs text-[#6b4b33]">
+                  {avatar ? (
+                    <img
+                      src={avatar}
+                      className="w-7 h-7 rounded-full object-cover border border-[#ead8c5]"
+                      alt="Profil"
+                    />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-[#f3e9db] border border-[#ead8c5]" />
+                  )}
+                  <span className="font-semibold">{displayName || "Kullanıcı"}</span>
+                  <span className="text-[#9a7a5f]">•</span>
+                  <span className="text-[#9a7a5f]">Sohbet</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  if (listingId) router.push(`/ilan/${listingId}`);
+                }}
+                className="self-start sm:self-center rounded-2xl border border-[#ead8c5] bg-white px-4 py-2 text-sm font-semibold text-[#3f2a1a] hover:bg-[#fff2e6] transition shadow-sm"
+              >
+                İlana git
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
-        {messages.map((m) => {
-          const mine = m.senderId === userId;
-          const seen = isSeenByOther(m);
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-5 bg-[#f7f4ef]">
+        <div className="max-w-5xl mx-auto space-y-4">
+          {(() => {
+            let lastDayKey = "";
+            return messages.map((m) => {
+              const dayKey = getDayKey(m.createdAt);
+              const showDay = dayKey && dayKey !== lastDayKey;
+              if (showDay) lastDayKey = dayKey;
 
-          return (
-            <div
-              key={m.id}
-              className={cx(
-                "max-w-xs p-2 rounded",
-                mine ? "bg-blue-500 text-white ml-auto" : "bg-gray-200 mr-auto"
-              )}
-            >
-              {/* Content */}
-              {m.type === "image" ? (
-                <img src={m.imageUrl} className="max-w-full rounded" alt="Mesaj görseli" />
-              ) : (
-                <div className="whitespace-pre-wrap break-words">{m.text}</div>
-              )}
+              const mine = m.senderId === userId;
+              const seen = isSeenByOther(m);
 
-              {/* Meta */}
-              <div
-                className={cx(
-                  "mt-1 text-[11px] flex items-center justify-end gap-1 opacity-90",
-                  mine ? "text-white/90" : "text-gray-600"
-                )}
-              >
-                <span>{formatClockTR(m.createdAt)}</span>
-                {mine && <span className="ml-1">{seen ? "✓✓" : "✓"}</span>}
+              return (
+                <div key={m.id} className="space-y-2">
+                  {showDay && (
+                    <div className="flex items-center gap-3 py-1">
+                      <div className="h-px flex-1 bg-[#ead8c5]" />
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-[#9a7a5f]">
+                        {formatDayTR(m.createdAt)}
+                      </span>
+                      <div className="h-px flex-1 bg-[#ead8c5]" />
+                    </div>
+                  )}
+
+                  <div className={cx("flex", mine ? "justify-end" : "justify-start")}>
+                    <div
+                      className={cx(
+                        "max-w-[85%] sm:max-w-[70%] rounded-2xl px-4 py-3 border shadow-[0_8px_24px_rgba(0,0,0,0.08)]",
+                        mine
+                          ? "bg-gradient-to-br from-[#1f2a24] via-[#22332a] to-[#2b3b32] text-white border-transparent rounded-br-md"
+                          : "bg-white text-[#2f2a24] border-[#ead8c5] rounded-bl-md"
+                      )}
+                    >
+                      {/* Content */}
+                      {m.type === "image" ? (
+                        <img
+                          src={m.imageUrl}
+                          className="max-w-full rounded-xl border border-white/10"
+                          alt="Mesaj görseli"
+                        />
+                      ) : (
+                        <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                          {m.text}
+                        </div>
+                      )}
+
+                      {/* Meta */}
+                      <div
+                        className={cx(
+                          "mt-2 text-[11px] flex items-center gap-1",
+                          mine ? "justify-end text-white/75" : "justify-start text-[#8a6a4f]"
+                        )}
+                      >
+                        <span>{formatClockTR(m.createdAt)}</span>
+                        {mine && <span className="ml-1">{seen ? "✓✓" : "✓"}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            });
+          })()}
+
+          {/* Typing fake message */}
+          {otherIsTyping && (
+            <div className="flex justify-start">
+              <div className="max-w-[70%] rounded-2xl rounded-bl-md border border-[#ead8c5] bg-white px-4 py-3 shadow-sm">
+                <div className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 bg-[#8a6a4f] rounded-full animate-bounce" />
+                  <span className="w-2 h-2 bg-[#8a6a4f] rounded-full animate-bounce [animation-delay:120ms]" />
+                  <span className="w-2 h-2 bg-[#8a6a4f] rounded-full animate-bounce [animation-delay:240ms]" />
+                </div>
               </div>
             </div>
-          );
-        })}
-
-        {/* Typing fake message */}
-        {otherIsTyping && (
-          <div className="max-w-xs p-2 rounded bg-gray-200 mr-auto">
-            <div className="inline-flex items-center gap-1">
-              <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
-              <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:120ms]" />
-              <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:240ms]" />
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Composer */}
-      <div className="shrink-0 p-3 border-t flex gap-2 bg-white">
-        <input
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            if (userId && conversationId && conversation) {
-              writeTyping(true);
-              scheduleTypingStop();
-            }
-          }}
-          onBlur={() => writeTyping(false)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              sendText();
-            }
-          }}
-          className="border rounded px-3 py-2 flex-1"
-          placeholder="Mesaj yaz..."
-        />
+      <div className="shrink-0 border-t border-[#ead8c5] bg-white/95">
+        <div className="max-w-5xl mx-auto px-4 py-3">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-end gap-2 rounded-3xl border border-[#ead8c5] bg-white px-3 py-2 shadow-sm">
+              <textarea
+                value={text}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  if (userId && conversationId && conversation) {
+                    writeTyping(true);
+                    scheduleTypingStop();
+                  }
+                }}
+                onBlur={() => writeTyping(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendText();
+                  }
+                }}
+                rows={1}
+                className="w-full flex-1 resize-none bg-transparent px-2 py-2 text-sm text-[#3f2a1a] focus:outline-none"
+                placeholder="Mesaj yaz..."
+              />
 
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => {
-            if (e.target.files && e.target.files[0]) {
-              sendImage(e.target.files[0]);
-              e.currentTarget.value = "";
-            }
-          }}
-        />
+              <label className="inline-flex items-center justify-center rounded-2xl border border-[#ead8c5] bg-white px-4 py-2 text-sm font-semibold text-[#3f2a1a] hover:bg-[#fff2e6] transition cursor-pointer">
+                Fotoğraf
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      sendImage(e.target.files[0]);
+                      e.currentTarget.value = "";
+                    }
+                  }}
+                />
+              </label>
 
-        <button
-          onClick={sendText}
-          disabled={!text.trim()}
-          className={cx(
-            "px-4 rounded text-white",
-            text.trim() ? "bg-blue-600 hover:bg-blue-700" : "bg-blue-300 cursor-not-allowed"
-          )}
-        >
-          Gönder
-        </button>
+              <button
+                onClick={sendText}
+                disabled={!text.trim()}
+                className={cx(
+                  "px-5 rounded-2xl text-sm font-semibold text-white transition",
+                  text.trim()
+                    ? "bg-[#1f2a24] hover:bg-[#2b3b32]"
+                    : "bg-[#b9c9bf] cursor-not-allowed"
+                )}
+              >
+                Gönder
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

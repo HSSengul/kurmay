@@ -11,6 +11,10 @@ import {
   orderBy,
   query,
   where,
+  limit,
+  startAfter,
+  DocumentData,
+  QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -24,8 +28,8 @@ type Listing = {
   price: number;
   createdAt?: any;
 
-  brandName?: string;
-  modelName?: string;
+  categoryName?: string;
+  subCategoryName?: string;
 
   imageUrls?: string[];
 };
@@ -39,6 +43,20 @@ type PublicProfile = {
   address?: string;
   avatarUrl?: string;
 };
+
+function formatPriceTRY(v?: number) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  try {
+    return new Intl.NumberFormat("tr-TR", {
+      style: "currency",
+      currency: "TRY",
+      maximumFractionDigits: 0,
+    }).format(n);
+  } catch {
+    return `${n} ₺`;
+  }
+}
 
 /* =======================
    PAGE
@@ -54,6 +72,12 @@ export default function SellerPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cursor, setCursor] =
+    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const LISTINGS_PAGE_SIZE = 24;
 
   /* =======================
      LOAD SELLER + LISTINGS
@@ -88,7 +112,8 @@ export default function SellerPage() {
         const q = query(
           collection(db, "listings"),
           where("ownerId", "==", uid),
-          orderBy("createdAt", "desc")
+          orderBy("createdAt", "desc"),
+          limit(LISTINGS_PAGE_SIZE)
         );
 
         const snap = await getDocs(q);
@@ -101,6 +126,8 @@ export default function SellerPage() {
         })) as Listing[];
 
         setListings(data);
+        setCursor(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
+        setHasMore(snap.docs.length === LISTINGS_PAGE_SIZE);
       } catch (e: any) {
         console.error("Seller page error:", e);
         if (!cancelled) setError(e.message || "Bir hata oluştu.");
@@ -115,6 +142,50 @@ export default function SellerPage() {
       cancelled = true;
     };
   }, [uid]);
+
+  const loadMoreListings = async () => {
+    if (!uid) return;
+    if (!hasMore) return;
+    if (!cursor) return;
+    if (loadingMore) return;
+
+    setLoadingMore(true);
+
+    try {
+      const q = query(
+        collection(db, "listings"),
+        where("ownerId", "==", uid),
+        orderBy("createdAt", "desc"),
+        startAfter(cursor),
+        limit(LISTINGS_PAGE_SIZE)
+      );
+
+      const snap = await getDocs(q);
+      const data = snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as any),
+      })) as Listing[];
+
+      setListings((prev) => {
+        const seen = new Set(prev.map((x) => x.id));
+        const merged = [...prev];
+        for (const item of data) {
+          if (!seen.has(item.id)) {
+            merged.push(item);
+            seen.add(item.id);
+          }
+        }
+        return merged;
+      });
+
+      setCursor(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : cursor);
+      setHasMore(snap.docs.length === LISTINGS_PAGE_SIZE);
+    } catch (e) {
+      console.error("Seller loadMore error:", e);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   /* =======================
      UI STATES
@@ -260,7 +331,8 @@ export default function SellerPage() {
           </h2>
 
           <div className="text-sm text-gray-600">
-            Toplam: {listings.length}
+            Gösterilen: {listings.length}
+            {hasMore ? "+" : ""}
           </div>
         </div>
 
@@ -299,13 +371,13 @@ export default function SellerPage() {
                       </div>
 
                       <div className="text-sm text-green-700 font-medium">
-                        {l.price} TL
+                        {formatPriceTRY(l.price)}
                       </div>
 
-                      {(l.brandName || l.modelName) && (
+                      {(l.categoryName || l.subCategoryName) && (
                         <div className="text-xs text-gray-500">
-                          {l.brandName || ""}
-                          {l.modelName ? ` / ${l.modelName}` : ""}
+                          {l.categoryName || ""}
+                          {l.subCategoryName ? ` / ${l.subCategoryName}` : ""}
                         </div>
                       )}
                     </div>
@@ -316,10 +388,23 @@ export default function SellerPage() {
             })}
           </div>
         )}
+
+        {hasMore && (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={loadMoreListings}
+              disabled={loadingMore}
+              className="px-4 py-2 rounded-full border border-slate-200 text-sm bg-white hover:bg-slate-50 disabled:opacity-60"
+            >
+              {loadingMore ? "Yükleniyor…" : "Daha fazla ilan yükle"}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="text-xs text-gray-400">
-        Seller UID: {uid}
+        Satıcı UID: {uid}
       </div>
     </div>
   );

@@ -3,16 +3,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  serverTimestamp,
-  collection,
-  getDocs,
-} from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
+import { getCategoriesCached, getSubCategoriesCached } from "@/lib/catalogCache";
 import {
   ref,
   uploadBytesResumable,
@@ -26,10 +20,10 @@ type Listing = {
   title: string;
   price: number;
 
-  brandId: string;
-  brandName: string;
-  modelId: string;
-  modelName: string;
+  categoryId: string;
+  categoryName: string;
+  subCategoryId: string;
+  subCategoryName: string;
 
   productionYear?: string | null;
   gender?: string;
@@ -58,17 +52,17 @@ type Listing = {
   updatedAt?: any;
 };
 
-type Brand = {
+type Category = {
   id: string;
   name: string;
   nameLower?: string;
 };
 
-type Model = {
+type SubCategory = {
   id: string;
   name: string;
   nameLower?: string;
-  brandId: string;
+  categoryId: string;
 };
 
 type PublicProfileGate = {
@@ -263,21 +257,21 @@ export default function EditListingPage() {
     ];
   }, []);
 
-  /* ================= BRAND/MODEL DATA ================= */
+  /* ================= CATEGORY/SUBCATEGORY DATA ================= */
 
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [allModels, setAllModels] = useState<Model[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [allSubCategories, setAllSubCategories] = useState<SubCategory[]>([]);
 
   /* ================= FORM STATES ================= */
 
   const [title, setTitle] = useState("");
   const [price, setPrice] = useState("");
 
-  // brand/model edit kapalı ama state duruyor
-  const [brandId, setBrandId] = useState("");
-  const [brandName, setBrandName] = useState("");
-  const [modelId, setModelId] = useState("");
-  const [modelName, setModelName] = useState("");
+  // category/subCategory edit kapalı ama state duruyor
+  const [categoryId, setCategoryId] = useState("");
+  const [categoryName, setCategoryName] = useState("");
+  const [subCategoryId, setSubCategoryId] = useState("");
+  const [subCategoryName, setSubCategoryName] = useState("");
 
   const [productionYear, setProductionYear] = useState("");
   const [gender, setGender] = useState("");
@@ -326,14 +320,14 @@ export default function EditListingPage() {
     return Math.max(0, 5 - remainingExistingUrls.length);
   }, [remainingExistingUrls.length]);
 
-  const filteredModels = useMemo(() => {
-    if (!brandId) return [];
-    return allModels
-      .filter((m) => m.brandId === brandId)
+  const filteredSubCategories = useMemo(() => {
+    if (!categoryId) return [];
+    return allSubCategories
+      .filter((m) => m.categoryId === categoryId)
       .sort((a, b) =>
         (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
       );
-  }, [allModels, brandId]);
+  }, [allSubCategories, categoryId]);
 
   /* ================= DIRTY STATE (UX) ================= */
 
@@ -343,8 +337,8 @@ export default function EditListingPage() {
     return JSON.stringify({
       title,
       price,
-      brandId,
-      modelId,
+      categoryId,
+      subCategoryId,
       productionYear,
       gender,
       serialNumber,
@@ -369,8 +363,8 @@ export default function EditListingPage() {
   }, [
     title,
     price,
-    brandId,
-    modelId,
+    categoryId,
+    subCategoryId,
     productionYear,
     gender,
     serialNumber,
@@ -471,35 +465,37 @@ export default function EditListingPage() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadBrandModelData() {
+    async function loadCategorySubCategoryData() {
       try {
-        const bSnap = await getDocs(collection(db, "brands"));
-        const mSnap = await getDocs(collection(db, "models"));
+        const [bSnap, mSnap] = await Promise.all([
+          getCategoriesCached(),
+          getSubCategoriesCached(),
+        ]);
 
         if (cancelled) return;
 
-        const b = bSnap.docs.map((d) => ({
+        const b = (bSnap || []).map((d: any) => ({
           id: d.id,
-          ...(d.data() as any),
-        })) as Brand[];
+          ...(d as any),
+        })) as Category[];
 
-        const m = mSnap.docs.map((d) => ({
+        const m = (mSnap || []).map((d: any) => ({
           id: d.id,
-          ...(d.data() as any),
-        })) as Model[];
+          ...(d as any),
+        })) as SubCategory[];
 
         b.sort((a, b) =>
           (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
         );
 
-        setBrands(b);
-        setAllModels(m);
+        setCategories(b);
+        setAllSubCategories(m);
       } catch (e) {
-        console.warn("Brand/Model load failed:", e);
+        console.warn("Kategori/Alt kategori load failed:", e);
       }
     }
 
-    loadBrandModelData();
+    loadCategorySubCategoryData();
 
     return () => {
       cancelled = true;
@@ -531,10 +527,10 @@ export default function EditListingPage() {
         setTitle(data.title || "");
         setPrice(String(data.price ?? ""));
 
-        setBrandId(data.brandId || "");
-        setBrandName(data.brandName || "");
-        setModelId(data.modelId || "");
-        setModelName(data.modelName || "");
+        setCategoryId(data.categoryId || "");
+        setCategoryName(data.categoryName || "");
+        setSubCategoryId(data.subCategoryId || "");
+        setSubCategoryName(data.subCategoryName || "");
 
         setProductionYear((data.productionYear as any) || "");
         setGender(data.gender || "");
@@ -574,8 +570,8 @@ export default function EditListingPage() {
           initialSnapshotRef.current = JSON.stringify({
             title: data.title || "",
             price: String(data.price ?? ""),
-            brandId: data.brandId || "",
-            modelId: data.modelId || "",
+            categoryId: data.categoryId || "",
+            subCategoryId: data.subCategoryId || "",
             productionYear: (data.productionYear as any) || "",
             gender: data.gender || "",
             serialNumber: data.serialNumber || "",
@@ -783,23 +779,17 @@ export default function EditListingPage() {
     if (!cleanProductionYear) return setError("Üretim yılı zorunlu.");
     if (!cleanGender) return setError("Cinsiyet zorunlu.");
     if (!cleanSerialNumber) return setError("Seri numarası zorunlu.");
-    if (!cleanMovementType) return setError("Çalışma şekli zorunlu.");
-
-    if (!cleanCaseType) return setError("Kasa tipi zorunlu.");
-    if (!cleanDiameter) return setError("Çap (mm) zorunlu.");
-    const diameterNumber = Number(cleanDiameter);
-    if (!Number.isFinite(diameterNumber) || diameterNumber <= 0) {
-      return setError("Çap (mm) geçersiz görünüyor.");
-    }
-
-    if (!cleanDialColor) return setError("Kadran rengi zorunlu.");
-
-    if (!cleanBraceletMaterial) return setError("Kordon malzemesi zorunlu.");
-    if (!cleanBraceletColor) return setError("Kordon rengi zorunlu.");
 
     if (!wearLevel) return setError("Aşınma seviyesi zorunlu.");
     if (!cleanAccessories) return setError("Aksesuar durumu zorunlu.");
     if (!cleanDescription) return setError("Açıklama zorunlu.");
+
+    const diameterNumber = cleanDiameter
+      ? Number(cleanDiameter)
+      : null;
+    if (cleanDiameter && !Number.isFinite(diameterNumber)) {
+      return setError("Çap değeri geçersiz görünüyor.");
+    }
 
     // ✅ Fotoğraf zorunlu: toplam 1..5 olmalı
     if (totalAfter === 0) {
@@ -812,11 +802,11 @@ export default function EditListingPage() {
     const fileError = validateFiles(newFiles);
     if (fileError) return setError(fileError);
 
-    // Rules uyumu: brandId/modelId kilitli
-    const finalBrandId = listing.brandId;
-    const finalBrandName = listing.brandName;
-    const finalModelId = listing.modelId;
-    const finalModelName = listing.modelName;
+    // Rules uyumu: categoryId/subCategoryId kilitli
+    const finalCategoryId = listing.categoryId;
+    const finalCategoryName = listing.categoryName;
+    const finalSubCategoryId = listing.subCategoryId;
+    const finalSubCategoryName = listing.subCategoryName;
 
     try {
       setSaving(true);
@@ -840,10 +830,10 @@ export default function EditListingPage() {
         description: cleanDescription,
         price: priceNumber,
 
-        brandId: finalBrandId,
-        brandName: finalBrandName,
-        modelId: finalModelId,
-        modelName: finalModelName,
+        categoryId: finalCategoryId,
+        categoryName: finalCategoryName,
+        subCategoryId: finalSubCategoryId,
+        subCategoryName: finalSubCategoryName,
 
         productionYear: cleanProductionYear,
         gender: cleanGender,
@@ -976,7 +966,7 @@ export default function EditListingPage() {
 
   /* ================= UI ================= */
 
-  const disableBrandModelEdit = true;
+  const disableCategorySubCategoryEdit = true;
 
   return (
     <div className="min-h-screen bg-gray-100 px-4 py-10">
@@ -985,7 +975,7 @@ export default function EditListingPage() {
           <div>
             <h1 className="text-2xl font-bold">İlanı Düzenle</h1>
             <div className="text-sm text-gray-600 mt-1">
-              {listing.brandName} / {listing.modelName}
+              {listing.categoryName} / {listing.subCategoryName}
             </div>
             <div className="text-xs text-gray-400 mt-1">
               Bu sayfada tüm alanlar zorunludur. Eksik alan varsa kaydedilmez.
@@ -1014,9 +1004,9 @@ export default function EditListingPage() {
           </div>
         )}
 
-        {disableBrandModelEdit && (
+        {disableCategorySubCategoryEdit && (
           <div className="text-sm bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-lg">
-            Marka / model değişimi şu an kapalı. (Güvenlik kuralları brandId/modelId
+            Kategori / alt kategori değişimi şu an kapalı. (Güvenlik kuralları categoryId/subCategoryId
             değişikliğine izin vermiyor.)
           </div>
         )}
@@ -1024,30 +1014,30 @@ export default function EditListingPage() {
         <form onSubmit={handleSave} className="space-y-8">
           {/* ================= BRAND & MODEL ================= */}
           <div className="border rounded-2xl p-5 space-y-4">
-            <div className="font-semibold text-lg">Marka & Model</div>
+            <div className="font-semibold text-lg">Kategori & Alt Kategori</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <div className="text-sm font-semibold">
-                  Marka <span className="text-red-600">*</span>
+                  Kategori <span className="text-red-600">*</span>
                 </div>
                 <select
-                  value={brandId}
+                  value={categoryId}
                   onChange={(e) => {
                     const bid = e.target.value;
-                    const b = brands.find((x) => x.id === bid);
+                    const b = categories.find((x) => x.id === bid);
 
-                    setBrandId(bid);
-                    setBrandName(b?.name || "");
+                    setCategoryId(bid);
+                    setCategoryName(b?.name || "");
 
-                    setModelId("");
-                    setModelName("");
+                    setSubCategoryId("");
+                    setSubCategoryName("");
                   }}
                   className="w-full border rounded-lg px-4 py-2 disabled:bg-gray-100"
-                  disabled={disableBrandModelEdit || saving || uploading}
+                  disabled={disableCategorySubCategoryEdit || saving || uploading}
                 >
-                  <option value="">Marka seç</option>
-                  {brands.map((b) => (
+                  <option value="">Kategori seç</option>
+                  {categories.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
                     </option>
@@ -1055,29 +1045,29 @@ export default function EditListingPage() {
                 </select>
 
                 <div className="text-xs text-gray-500">
-                  Mevcut: <span className="font-semibold">{listing.brandName}</span>
+                  Mevcut: <span className="font-semibold">{listing.categoryName}</span>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <div className="text-sm font-semibold">
-                  Model <span className="text-red-600">*</span>
+                  Alt kategori <span className="text-red-600">*</span>
                 </div>
                 <select
-                  value={modelId}
+                  value={subCategoryId}
                   onChange={(e) => {
                     const mid = e.target.value;
-                    const m = filteredModels.find((x) => x.id === mid);
-                    setModelId(mid);
-                    setModelName(m?.name || "");
+                    const m = filteredSubCategories.find((x) => x.id === mid);
+                    setSubCategoryId(mid);
+                    setSubCategoryName(m?.name || "");
                   }}
                   className="w-full border rounded-lg px-4 py-2 disabled:bg-gray-100"
                   disabled={
-                    disableBrandModelEdit || !brandId || saving || uploading
+                    disableCategorySubCategoryEdit || !categoryId || saving || uploading
                   }
                 >
-                  <option value="">Model seç</option>
-                  {filteredModels.map((m) => (
+                  <option value="">Alt kategori seç</option>
+                  {filteredSubCategories.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
                     </option>
@@ -1085,7 +1075,7 @@ export default function EditListingPage() {
                 </select>
 
                 <div className="text-xs text-gray-500">
-                  Mevcut: <span className="font-semibold">{listing.modelName}</span>
+                  Mevcut: <span className="font-semibold">{listing.subCategoryName}</span>
                 </div>
               </div>
             </div>
@@ -1186,137 +1176,6 @@ export default function EditListingPage() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Çalışma şekli <span className="text-red-600">*</span>
-                </div>
-                <select
-                  value={movementType}
-                  onChange={(e) => setMovementType(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
-                  disabled={saving || uploading}
-                  required
-                >
-                  <option value="">Seç</option>
-                  <option value="Otomatik">Otomatik</option>
-                  <option value="Quartz">Quartz</option>
-                  <option value="Manual">Manual</option>
-                  <option value="Diğer">Diğer</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* ================= CASE & DIAL ================= */}
-          <div className="border rounded-2xl p-5 space-y-4">
-            <div className="font-semibold text-lg">Kasa & Kadran</div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* ✅ KASA TİPİ DROPDOWN */}
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Kasa tipi <span className="text-red-600">*</span>
-                </div>
-                <select
-                  value={caseType}
-                  onChange={(e) => setCaseType(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
-                  disabled={saving || uploading}
-                  required
-                >
-                  <option value="">Seç</option>
-                  {caseTypeOptions.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
-                </select>
-
-                {caseType && !baseCaseTypeOptions.includes(caseType) && (
-                  <div className="text-xs text-gray-500">
-                    Bu ilan eski bir değer içeriyor:{" "}
-                    <span className="font-semibold">{caseType}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Çap (mm) <span className="text-red-600">*</span>
-                </div>
-                <select
-                  value={diameterMm}
-                  onChange={(e) => setDiameterMm(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
-                  disabled={saving || uploading}
-                  required
-                >
-                  <option value="">Seç</option>
-                  {diameterOptions.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Kadran rengi <span className="text-red-600">*</span>
-                </div>
-                <input
-                  value={dialColor}
-                  onChange={(e) => setDialColor(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
-                  disabled={saving || uploading}
-                  placeholder="Örn: Siyah"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* ================= BRACELET ================= */}
-          <div className="border rounded-2xl p-5 space-y-4">
-            <div className="font-semibold text-lg">Kordon</div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Kordon malzemesi <span className="text-red-600">*</span>
-                </div>
-                <select
-                  value={braceletMaterial}
-                  onChange={(e) => setBraceletMaterial(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
-                  disabled={saving || uploading}
-                  required
-                >
-                  <option value="">Seç</option>
-                  <option value="Çelik">Çelik</option>
-                  <option value="Deri">Deri</option>
-                  <option value="Kauçuk">Kauçuk</option>
-                  <option value="NATO">NATO</option>
-                  <option value="Titanyum">Titanyum</option>
-                  <option value="Seramik">Seramik</option>
-                  <option value="Kumaş">Kumaş</option>
-                  <option value="Diğer">Diğer</option>
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Kordon rengi <span className="text-red-600">*</span>
-                </div>
-                <input
-                  value={braceletColor}
-                  onChange={(e) => setBraceletColor(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
-                  disabled={saving || uploading}
-                  placeholder="Örn: Kahverengi"
-                  required
-                />
-              </div>
             </div>
           </div>
 

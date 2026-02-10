@@ -1,8 +1,10 @@
+﻿// app/ilan/[id]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+
 import {
   collection,
   doc,
@@ -13,9 +15,9 @@ import {
   query,
   where,
 } from "firebase/firestore";
+
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { startConversation } from "@/lib/chat";
 
 /* ================= TYPES ================= */
 
@@ -23,11 +25,19 @@ type Listing = {
   title: string;
   price: number;
 
-  brandId: string;
-  brandName: string;
-  modelId: string;
-  modelName: string;
+  categoryId: string;
+  categoryName: string;
+  subCategoryId: string;
+  subCategoryName: string;
 
+  // ✅ yeni sistem alanları
+  conditionKey?: "new" | "likeNew" | "good" | "used" | "forParts" | "";
+  conditionLabel?: string;
+  schemaVersion?: number | null;
+  attributes?: Record<string, any>;
+  status?: "active" | "draft" | "sold";
+
+  // legacy/opsiyonel
   productionYear?: string | null;
   gender?: string;
   serialNumber?: string;
@@ -58,13 +68,28 @@ type PublicProfile = {
 
   bio?: string;
 
-  phone?: string;
-  email?: string;
-
   websiteInstagram?: string;
   avatarUrl?: string;
-
+  phone?: string;
+  email?: string;
   address?: string;
+};
+
+type SchemaField = {
+  key: string;
+  label: string;
+  type: "text" | "number" | "select" | "boolean" | "multiselect";
+  required: boolean;
+  placeholder?: string;
+  min?: number | null;
+  max?: number | null;
+  options?: string[];
+};
+
+type ListingSchemaDoc = {
+  categoryId: string;
+  version: number;
+  fields: SchemaField[];
 };
 
 type SimilarListing = {
@@ -72,8 +97,8 @@ type SimilarListing = {
   title: string;
   price: number;
   imageUrls?: string[];
-  brandName?: string;
-  modelName?: string;
+  categoryName?: string;
+  subCategoryName?: string;
 };
 
 type SellerOtherListing = {
@@ -81,8 +106,8 @@ type SellerOtherListing = {
   title: string;
   price: number;
   imageUrls?: string[];
-  brandName?: string;
-  modelName?: string;
+  categoryName?: string;
+  subCategoryName?: string;
 };
 
 /* ================= HELPERS ================= */
@@ -99,15 +124,45 @@ const fmtTL = (v: number) => {
   }
 };
 
+const BOARD_GAME_ATTR_KEYS = new Set([
+  "gameName",
+  "minPlayers",
+  "maxPlayers",
+  "minPlaytime",
+  "maxPlaytime",
+  "suggestedAge",
+  "language",
+  "completeContent",
+  "sleeved",
+]);
+
+const formatDateTR = (value: any) => {
+  if (!value) return "";
+  const asDate = value?.toDate ? value.toDate() : new Date(value);
+  if (!(asDate instanceof Date) || Number.isNaN(asDate.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat("tr-TR", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    }).format(asDate);
+  } catch {
+    return "";
+  }
+};
+
+
 const safeText = (v: any) => {
   if (v === null || v === undefined) return "";
   return String(v);
 };
 
-const onlyDigits = (s: string) => s.replace(/\D/g, "");
+const onlyDigits = (s: string) => (s || "").replace(/\D/g, "");
 
 const buildWhatsAppLink = (rawPhone: string) => {
   const digits = onlyDigits(rawPhone);
+  if (!digits) return "";
+
   let normalized = digits;
 
   if (normalized.startsWith("0") && normalized.length >= 10) {
@@ -126,7 +181,7 @@ const buildWhatsAppLink = (rawPhone: string) => {
 };
 
 const normalizeWebsiteInstagramLink = (value: string) => {
-  const v = value.trim();
+  const v = (value || "").trim();
   if (!v) return "";
 
   if (v.startsWith("@")) {
@@ -160,12 +215,19 @@ const accessoryLabel = (v: string) => {
 };
 
 function slugifyTR(input: string) {
-  return input
+  return (input || "")
     .toLowerCase()
     .trim()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9\-ığüşöçİĞÜŞÖÇ]/gi, "")
     .replace(/-+/g, "-");
+}
+
+function formatAttrValue(v: any) {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "boolean") return v ? "Evet" : "Hayır";
+  if (Array.isArray(v)) return v.join(", ");
+  return String(v);
 }
 
 /* ================= PAGE ================= */
@@ -178,7 +240,6 @@ export default function ListingDetailPage() {
 
   const [listing, setListing] = useState<Listing | null>(null);
   const [seller, setSeller] = useState<PublicProfile | null>(null);
-
   const [similarListings, setSimilarListings] = useState<SimilarListing[]>([]);
   const [sellerOtherListings, setSellerOtherListings] = useState<SellerOtherListing[]>([]);
 
@@ -187,9 +248,11 @@ export default function ListingDetailPage() {
 
   const [error, setError] = useState<string>("");
 
+  // Schema (attributes label göstermek için)
+  const [schemaFields, setSchemaFields] = useState<SchemaField[]>([]);
+
   // Auth state
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [currentUserDisplayName, setCurrentUserDisplayName] = useState<string>("");
 
   // CTA states
   const [msgCreating, setMsgCreating] = useState(false);
@@ -199,11 +262,9 @@ export default function ListingDetailPage() {
     const unsub = onAuthStateChanged(auth, (u) => {
       if (!u) {
         setCurrentUserId(null);
-        setCurrentUserDisplayName("");
         return;
       }
       setCurrentUserId(u.uid);
-      setCurrentUserDisplayName(u.displayName || "");
     });
     return () => unsub();
   }, []);
@@ -227,8 +288,7 @@ export default function ListingDetailPage() {
           if (!cancelled) {
             setListing(null);
             setSeller(null);
-            setSimilarListings([]);
-            setSellerOtherListings([]);
+            setSchemaFields([]);
           }
           return;
         }
@@ -250,65 +310,102 @@ export default function ListingDetailPage() {
           if (!cancelled) setSeller(null);
         }
 
-        // SELLER OTHER LISTINGS
+        // LISTING SCHEMA (attributes label göstermek için)
+        // schema docId = categoryId (bizde category = categoryId)
+        if (listingData.categoryId) {
+          try {
+            const sSnap = await getDoc(doc(db, "listingSchemas", listingData.categoryId));
+            if (!cancelled) {
+              if (sSnap.exists()) {
+                const d = sSnap.data() as ListingSchemaDoc;
+                setSchemaFields(Array.isArray(d.fields) ? d.fields : []);
+              } else {
+                setSchemaFields([]);
+              }
+            }
+          } catch {
+            if (!cancelled) {
+              setSchemaFields([]);
+            }
+          }
+        } else {
+          if (!cancelled) {
+            setSchemaFields([]);
+          }
+        }
+
+        if (!cancelled) {
+          setSimilarListings([]);
+          setSellerOtherListings([]);
+        }
+
+        const listingId = listingSnap.id;
+        const toPreview = (snap: any) => {
+          const data = snap.data() as Listing;
+          return {
+            id: snap.id,
+            title: safeText(data.title) || "İlan",
+            price: Number(data.price ?? 0),
+            imageUrls: Array.isArray(data.imageUrls) ? data.imageUrls : [],
+            categoryName: data.categoryName,
+            subCategoryName: data.subCategoryName,
+          };
+        };
+
+        const extraTasks: Array<Promise<void>> = [];
+
         if (listingData.ownerId) {
-          const qSeller = query(
-            collection(db, "listings"),
-            where("ownerId", "==", listingData.ownerId),
-            orderBy("createdAt", "desc"),
-            limit(12)
+          extraTasks.push(
+            (async () => {
+              try {
+                const sellerQuery = query(
+                  collection(db, "listings"),
+                  where("ownerId", "==", listingData.ownerId),
+                  orderBy("createdAt", "desc"),
+                  limit(9)
+                );
+                const sellerSnap = await getDocs(sellerQuery);
+                if (cancelled) return;
+                const items = sellerSnap.docs
+                  .filter((d) => d.id !== listingId)
+                  .map(toPreview)
+                  .slice(0, 8);
+                setSellerOtherListings(items);
+              } catch (e) {
+                console.warn("Seller listings load failed:", e);
+              }
+            })()
           );
-
-          const sellerSnap = await getDocs(qSeller);
-
-          if (!cancelled) {
-            const others = sellerSnap.docs
-              .filter((d) => d.id !== id)
-              .slice(0, 8)
-              .map((d) => ({
-                id: d.id,
-                title: safeText(d.data().title),
-                price: Number(d.data().price ?? 0),
-                imageUrls: Array.isArray(d.data().imageUrls) ? (d.data().imageUrls as string[]) : [],
-                brandName: safeText(d.data().brandName),
-                modelName: safeText(d.data().modelName),
-              }));
-
-            setSellerOtherListings(others);
-          }
-        } else {
-          if (!cancelled) setSellerOtherListings([]);
         }
 
-        // SIMILAR LISTINGS
-        if (listingData.modelId) {
-          const qSimilar = query(
-            collection(db, "listings"),
-            where("modelId", "==", listingData.modelId),
-            orderBy("createdAt", "desc"),
-            limit(12)
+        if (listingData.subCategoryId) {
+          extraTasks.push(
+            (async () => {
+              try {
+                const similarQuery = query(
+                  collection(db, "listings"),
+                  where("subCategoryId", "==", listingData.subCategoryId),
+                  orderBy("createdAt", "desc"),
+                  limit(9)
+                );
+                const similarSnap = await getDocs(similarQuery);
+                if (cancelled) return;
+                const items = similarSnap.docs
+                  .filter((d) => d.id !== listingId)
+                  .map(toPreview)
+                  .slice(0, 8);
+                setSimilarListings(items);
+              } catch (e) {
+                console.warn("Similar listings load failed:", e);
+              }
+            })()
           );
-
-          const simSnap = await getDocs(qSimilar);
-
-          if (!cancelled) {
-            const sims = simSnap.docs
-              .filter((d) => d.id !== id)
-              .slice(0, 8)
-              .map((d) => ({
-                id: d.id,
-                title: safeText(d.data().title),
-                price: Number(d.data().price ?? 0),
-                imageUrls: Array.isArray(d.data().imageUrls) ? (d.data().imageUrls as string[]) : [],
-                brandName: safeText(d.data().brandName),
-                modelName: safeText(d.data().modelName),
-              }));
-
-            setSimilarListings(sims);
-          }
-        } else {
-          if (!cancelled) setSimilarListings([]);
         }
+
+        if (extraTasks.length > 0) {
+          await Promise.all(extraTasks);
+        }
+
       } catch (e: any) {
         console.error("ListingDetailPage load error:", e);
         if (!cancelled) setError(e?.message || "Bir hata oluştu.");
@@ -333,8 +430,9 @@ export default function ListingDetailPage() {
   }, [seller?.displayName, seller?.name]);
 
   const waLink = useMemo(() => {
-    if (!seller?.phone) return "";
-    return buildWhatsAppLink(seller.phone);
+    const phone = seller?.phone || "";
+    if (!phone) return "";
+    return buildWhatsAppLink(phone);
   }, [seller?.phone]);
 
   const websiteInstagramLink = useMemo(() => {
@@ -344,19 +442,17 @@ export default function ListingDetailPage() {
 
   const hasImages = !!listing?.imageUrls && listing.imageUrls.length > 0;
 
-  const breadcrumbBrandHref = useMemo(() => {
-    if (!listing?.brandName) return "";
-    return `/${slugifyTR(listing.brandName)}`;
-  }, [listing?.brandName]);
+  const breadcrumbCategoryHref = useMemo(() => {
+    if (!listing?.categoryName) return "";
+    return `/${slugifyTR(listing.categoryName)}`;
+  }, [listing?.categoryName]);
 
-  const breadcrumbModelHref = useMemo(() => {
-    if (!listing?.brandName || !listing?.modelName) return "";
-    const brandSlug = slugifyTR(listing.brandName);
-    const modelSlug = slugifyTR(listing.modelName);
-    return `/${brandSlug}/${modelSlug}`;
-  }, [listing?.brandName, listing?.modelName]);
-
-  /* ================= MESSAGE CTA ================= */
+  const breadcrumbSubCategoryHref = useMemo(() => {
+    if (!listing?.categoryName || !listing?.subCategoryName) return "";
+    const categorySlug = slugifyTR(listing.categoryName);
+    const subCategorySlug = slugifyTR(listing.subCategoryName);
+    return `/${categorySlug}/${subCategorySlug}`;
+  }, [listing?.categoryName, listing?.subCategoryName]);
 
   const canMessageSeller = useMemo(() => {
     if (!listing) return false;
@@ -364,6 +460,95 @@ export default function ListingDetailPage() {
     if (!listing.ownerId) return false;
     return currentUserId !== listing.ownerId;
   }, [listing, currentUserId]);
+
+  const isBoardGameCategory = useMemo(() => {
+    const categoryId = safeText(listing?.categoryId || "");
+    return categoryId.startsWith("kutu-oyunlari");
+  }, [listing?.categoryId]);
+
+  // ✅ attributes render listesi (schema varsa label ile)
+  const attributeRows = useMemo(() => {
+    const attrs = listing?.attributes && typeof listing.attributes === "object" ? listing.attributes : {};
+    const keys = Object.keys(attrs || {});
+
+    if (keys.length === 0) return [];
+
+    const fieldByKey = new Map<string, SchemaField>();
+    for (const f of schemaFields) fieldByKey.set(f.key, f);
+
+    return keys
+      .filter((k) => !isBoardGameCategory || !BOARD_GAME_ATTR_KEYS.has(k))
+      .map((k) => {
+        const field = fieldByKey.get(k);
+        const label = field?.label || k;
+        const val = formatAttrValue((attrs as any)[k]);
+        if (!val) return null;
+        return { key: k, label, value: val };
+      })
+      .filter(Boolean) as Array<{ key: string; label: string; value: string }>;
+  }, [listing?.attributes, schemaFields, isBoardGameCategory]);
+
+  const boardGameDetails = useMemo(() => {
+    const attrs = listing?.attributes && typeof listing.attributes === "object" ? listing.attributes : {};
+    const buildRange = (minVal: any, maxVal: any, suffix?: string) => {
+      const minOk = minVal !== null && minVal !== undefined && String(minVal).trim() !== "";
+      const maxOk = maxVal !== null && maxVal !== undefined && String(maxVal).trim() !== "";
+      if (minOk && maxOk) {
+        return `${minVal} - ${maxVal}${suffix ? ` ${suffix}` : ""}`;
+      }
+      if (minOk) return `${minVal}${suffix ? ` ${suffix}` : ""}`;
+      if (maxOk) return `${maxVal}${suffix ? ` ${suffix}` : ""}`;
+      return "";
+    };
+
+    return {
+      gameName: safeText((attrs as any).gameName).trim(),
+      players: buildRange((attrs as any).minPlayers, (attrs as any).maxPlayers),
+      playtime: buildRange((attrs as any).minPlaytime, (attrs as any).maxPlaytime, "dk"),
+      suggestedAge: safeText((attrs as any).suggestedAge).trim(),
+      language: safeText((attrs as any).language).trim(),
+      completeContent: formatAttrValue((attrs as any).completeContent),
+      sleeved: formatAttrValue((attrs as any).sleeved),
+    };
+  }, [listing?.attributes]);
+
+  const boardGameAgeLabel = useMemo(() => {
+    const age = safeText(boardGameDetails.suggestedAge).trim();
+    if (!age) return "";
+    return age.includes("+") ? age : `${age}+`;
+  }, [boardGameDetails.suggestedAge]);
+
+  const boardGameInfoTags = useMemo(() => {
+    if (!isBoardGameCategory) return [] as string[];
+    const tags: string[] = [];
+    if (boardGameDetails.gameName) tags.push(`Oyun: ${boardGameDetails.gameName}`);
+    if (boardGameDetails.players) tags.push(`Oyuncu: ${boardGameDetails.players}`);
+    if (boardGameDetails.playtime) tags.push(`Süre: ${boardGameDetails.playtime}`);
+    if (boardGameAgeLabel) tags.push(`Yaş: ${boardGameAgeLabel}`);
+    return tags;
+  }, [
+    isBoardGameCategory,
+    boardGameDetails.gameName,
+    boardGameDetails.players,
+    boardGameDetails.playtime,
+    boardGameAgeLabel,
+  ]);
+
+  const publishedAt = useMemo(() => formatDateTR(listing?.createdAt), [listing?.createdAt]);
+
+
+  const pageWrapClass =
+    "min-h-screen bg-[#f7f4ef] bg-[radial-gradient(circle_at_top,_#fff7ed,_#f7f4ef_60%)]";
+  const cardClass =
+    "rounded-3xl border border-[#ead8c5] bg-white/85 shadow-[0_24px_60px_-45px_rgba(15,23,42,0.45)]";
+  const sectionTitleClass = "text-lg font-semibold text-[#3f2a1a]";
+  const subtleTextClass = "text-sm text-[#6b4b33]";
+  const chipBaseClass =
+    "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold tracking-wide";
+  const listingCardClass =
+    "group overflow-hidden rounded-2xl border border-[#ead8c5] bg-white/85 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:shadow-[0_30px_50px_-30px_rgba(15,23,42,0.5)]";
+
+  /* ================= MESSAGE CTA ================= */
 
   async function handleMessageSeller() {
     if (!listing || !id) return;
@@ -385,31 +570,11 @@ export default function ListingDetailPage() {
     try {
       setMsgCreating(true);
 
-      const convoId = await startConversation({
-        listing: {
-          id: id,
-          ownerId: listing.ownerId,
-          title: listing.title,
-          price: listing.price,
-          brandName: listing.brandName,
-          modelName: listing.modelName,
-          imageUrls: listing.imageUrls || [],
-        },
-        buyer: {
-          uid: user.uid,
-          displayName: user.displayName || currentUserDisplayName || "User",
-          avatarUrl: user.photoURL || "",
-        },
-        sellerProfile: {
-          id: listing.ownerId,
-          displayName: sellerDisplayName,
-          avatarUrl: seller?.avatarUrl || "",
-        },
-      });
-
-     router.push(`/my/messages/${convoId}`);
+      // ✅ Yeni davranış: direkt "new chat" sayfasına git
+      // Bu sayfa conversation oluşturma / duplicate kontrol işini tek yerden yapacak
+      router.push(`/my/messages/new?listingId=${encodeURIComponent(id)}&sellerId=${encodeURIComponent(listing.ownerId)}`);
     } catch (e: any) {
-      console.error("startConversation error:", e);
+      console.error("handleMessageSeller error:", e);
       setMsgError(e?.message || "Mesaj başlatılamadı. Tekrar dene.");
     } finally {
       setMsgCreating(false);
@@ -419,27 +584,50 @@ export default function ListingDetailPage() {
   /* ================= UI STATES ================= */
 
   if (loading) {
-    return <div className="p-10 text-center text-gray-500">Yükleniyor...</div>;
+    return (
+      <div className={`${pageWrapClass} px-4 py-12 flex items-center justify-center`}>
+        <div className="w-full max-w-md rounded-3xl border border-[#ead8c5] bg-white/85 p-6 text-center shadow-[0_24px_60px_-45px_rgba(15,23,42,0.45)]">
+          <div className="text-lg font-semibold text-[#3f2a1a]">Yükleniyor...</div>
+          <div className="mt-2 text-sm text-[#6b4b33]">
+            İlan bilgileri hazırlanıyor.
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="p-10 text-center">
-        <div className="text-red-700 font-medium mb-4">{error}</div>
-        <button onClick={() => router.push("/")} className="text-blue-600 underline">
-          Ana sayfaya dön
-        </button>
+      <div className={`${pageWrapClass} px-4 py-12 flex items-center justify-center`}>
+        <div className="w-full max-w-md rounded-3xl border border-red-200 bg-red-50 p-6 text-center shadow-[0_24px_60px_-45px_rgba(15,23,42,0.45)]">
+          <div className="text-red-700 font-semibold mb-2">Bir sorun oluştu</div>
+          <div className="text-sm text-red-700">{error}</div>
+          <button
+            onClick={() => router.push("/")}
+            className="mt-5 inline-flex items-center justify-center rounded-full border border-red-200 bg-white px-5 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 transition"
+          >
+            Ana sayfaya dön
+          </button>
+        </div>
       </div>
     );
   }
 
   if (!listing) {
     return (
-      <div className="p-10 text-center">
-        <p className="text-gray-500 mb-4">İlan bulunamadı.</p>
-        <button onClick={() => router.push("/")} className="text-blue-600 underline">
-          Ana sayfaya dön
-        </button>
+      <div className={`${pageWrapClass} px-4 py-12 flex items-center justify-center`}>
+        <div className="w-full max-w-md rounded-3xl border border-[#ead8c5] bg-white/85 p-6 text-center shadow-[0_24px_60px_-45px_rgba(15,23,42,0.45)]">
+          <div className="text-lg font-semibold text-[#3f2a1a]">İlan bulunamadı</div>
+          <div className="mt-2 text-sm text-[#6b4b33]">
+            Aradığın ilan yayından kaldırılmış olabilir.
+          </div>
+          <button
+            onClick={() => router.push("/")}
+            className="mt-5 inline-flex items-center justify-center rounded-full border border-[#ead8c5] bg-white px-5 py-2 text-sm font-semibold text-[#3f2a1a] hover:bg-[#fff7ed] transition"
+          >
+            Ana sayfaya dön
+          </button>
+        </div>
       </div>
     );
   }
@@ -447,498 +635,448 @@ export default function ListingDetailPage() {
   /* ================= UI ================= */
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-10">
-      {/* BREADCRUMB */}
-      <div className="text-sm text-gray-500 flex flex-wrap items-center gap-2">
-        <Link href="/" className="underline hover:text-gray-800">
-          Ana Sayfa
-        </Link>
-
-        <span>›</span>
-
-        {breadcrumbBrandHref ? (
-          <Link href={breadcrumbBrandHref} className="underline hover:text-gray-800">
-            {listing.brandName}
+    <div className={pageWrapClass}>
+      <div className="max-w-[1440px] mx-auto px-3 sm:px-5 py-8 sm:py-10 space-y-8">
+        {/* BREADCRUMB */}
+        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-[#7a634e]">
+          <Link href="/" className="font-semibold text-[#6b4b33] hover:text-[#3f2a1a]">
+            Ana Sayfa
           </Link>
-        ) : (
-          <span>{listing.brandName}</span>
-        )}
+          <span className="text-[#b79b84]">›</span>
+          {breadcrumbCategoryHref ? (
+            <Link href={breadcrumbCategoryHref} className="hover:text-[#3f2a1a]">
+              {listing.categoryName}
+            </Link>
+          ) : (
+            <span>{listing.categoryName}</span>
+          )}
+          <span className="text-[#b79b84]">›</span>
+          {breadcrumbSubCategoryHref ? (
+            <Link href={breadcrumbSubCategoryHref} className="hover:text-[#3f2a1a]">
+              {listing.subCategoryName}
+            </Link>
+          ) : (
+            <span>{listing.subCategoryName}</span>
+          )}
+          <span className="text-[#b79b84]">›</span>
+          <span className="text-[#3f2a1a] line-clamp-1">{listing.title}</span>
+        </div>
 
-        <span>›</span>
+        <div className="grid grid-cols-1 gap-8">
+          {/* LEFT */}
+          <div className="space-y-6">
+            {/* TITLE */}
+            <div className={`${cardClass} p-6 sm:p-8`}>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 space-y-3">
+                  <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#3f2a1a]">
+                    {listing.title}
+                  </h1>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`${chipBaseClass} border-[#ead8c5] bg-[#fff7ed] text-[#7a5a40]`}
+                    >
+                      {listing.categoryName} / {listing.subCategoryName}
+                    </span>
+                    {(listing.conditionLabel || listing.conditionKey) && (
+                      <span
+                        className={`${chipBaseClass} border-[#cfe4d7] bg-[#eff7f0] text-[#2f5b3a]`}
+                      >
+                        {listing.conditionLabel || listing.conditionKey}
+                      </span>
+                    )}
+                    {publishedAt && (
+                      <span
+                        className={`${chipBaseClass} border-[#ead8c5] bg-white text-[#7a5a40]`}
+                      >
+                        Yayın tarihi: {publishedAt}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-        {breadcrumbModelHref ? (
-          <Link href={breadcrumbModelHref} className="underline hover:text-gray-800">
-            {listing.modelName}
-          </Link>
-        ) : (
-          <span>{listing.modelName}</span>
-        )}
-
-        <span>›</span>
-
-        <span className="text-gray-700 line-clamp-1">{listing.title}</span>
-      </div>
-
-      {/* TOP: TITLE + GRID */}
-      <div className="grid grid-cols-1 lg:grid-cols-[66%_34%] gap-8">
-        {/* LEFT */}
-        <div className="space-y-8">
-          {/* TITLE */}
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold leading-tight">{listing.title}</h1>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="text-2xl text-green-700 font-semibold">
-                {fmtTL(Number(listing.price ?? 0))}
-              </div>
-
-              <div className="text-sm text-gray-600">
-                {listing.brandName} / {listing.modelName}
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl border border-[#ead8c5] bg-[#fff7ed] px-4 py-2 text-2xl sm:text-3xl font-semibold text-[#1f2a24]">
+                    {fmtTL(Number(listing.price ?? 0))}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* IMAGES */}
-          <div className="border rounded-2xl bg-white overflow-hidden">
-            <div className="p-5 border-b">
-              <div className="font-semibold text-lg">Fotoğraflar</div>
-              <div className="text-sm text-gray-500">
-                {hasImages ? `${listing.imageUrls!.length} fotoğraf` : "Fotoğraf yok"}
+            {/* MEDIA + DETAILS */}
+            <div className={`${cardClass} p-6`}>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className={sectionTitleClass}>Fotoğraflar</div>
+                  <div className="rounded-2xl overflow-hidden bg-[#f3e9db] aspect-[4/3]">
+                    {mainImage ? (
+                      <img
+                        src={mainImage}
+                        alt="main"
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[#9b7b5a]">
+                        Görsel yok
+                      </div>
+                    )}
+                  </div>
+
+                  {hasImages && (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                      {listing.imageUrls!.map((url, i) => (
+                        <button
+                          key={`${url}-${i}`}
+                          type="button"
+                          onClick={() => setMainImage(url)}
+                          className={`rounded-2xl overflow-hidden border transition ${
+                            mainImage === url
+                              ? "border-[#1f2a24] ring-1 ring-[#1f2a24]"
+                              : "border-[#ead8c5] hover:border-[#c7b199]"
+                          }`}
+                          title="Görseli büyüt"
+                        >
+                          <img
+                            src={url}
+                            alt={`thumb-${i}`}
+                            className="w-full h-24 object-cover"
+                            loading="lazy"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {boardGameInfoTags.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {boardGameInfoTags.map((tag) => (
+                        <span
+                          key={tag}
+                          className={`${chipBaseClass} border-[#ead8c5] bg-[#fff7ed] text-[#6b4b33]`}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-6">
+                  <div className="space-y-4">
+                    <div className={sectionTitleClass}>İlan Detayları</div>
+                    {isBoardGameCategory ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3 md:col-span-2">
+                          <div className="text-xs text-[#8a6a4f]">İlan başlığı</div>
+                          <div className="text-sm font-semibold text-[#3f2a1a]">
+                            {listing.title}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+                          <div className="text-xs text-[#8a6a4f]">Fiyat (TL)</div>
+                          <div className="text-sm font-semibold text-[#3f2a1a]">
+                            {fmtTL(Number(listing.price ?? 0))}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+                          <div className="text-xs text-[#8a6a4f]">Durum</div>
+                          <div className="text-sm font-semibold text-[#3f2a1a]">
+                            {listing.conditionLabel || listing.conditionKey || "Belirtilmemiş"}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+                          <div className="text-xs text-[#8a6a4f]">Dil</div>
+                          <div className="text-sm font-semibold text-[#3f2a1a]">
+                            {boardGameDetails.language || "Belirtilmemiş"}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+                          <div className="text-xs text-[#8a6a4f]">İçerik tam mı?</div>
+                          <div className="text-sm font-semibold text-[#3f2a1a]">
+                            {boardGameDetails.completeContent || "Belirtilmemiş"}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3 md:col-span-2">
+                          <div className="text-xs text-[#8a6a4f]">Sleeve kullanıldı mı?</div>
+                          <div className="text-sm font-semibold text-[#3f2a1a]">
+                            {boardGameDetails.sleeved || "Belirtilmemiş"}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3 md:col-span-2">
+                          <div className="text-xs text-[#8a6a4f]">Açıklama</div>
+                          <div className="text-sm text-[#5a4330] whitespace-pre-line">
+                            {listing.description || "Satıcı açıklama eklememiş."}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-3 text-sm text-[#5a4330]">
+                          {(listing.conditionLabel || listing.conditionKey) ? (
+                            <div>
+                              <span className="font-semibold">Ürün durumu:</span>{" "}
+                              {listing.conditionLabel || listing.conditionKey}
+                            </div>
+                          ) : (
+                            <div className="text-[#9b7b5a]">Ürün durumu belirtilmemiş.</div>
+                          )}
+
+                          <div className="pt-3 border-t border-[#ead8c5]">
+                            {listing.description ? (
+                              <p className="whitespace-pre-line">{listing.description}</p>
+                            ) : (
+                              <div className="text-[#9b7b5a]">Satıcı açıklama eklememiş.</div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className={sectionTitleClass}>Kategoriye Özel Bilgiler</div>
+                          {attributeRows.length === 0 ? (
+                            <div className={subtleTextClass}>
+                              Bu ilan için özel alan eklenmemiş.
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {attributeRows.map((r) => (
+                                <div
+                                  key={r.key}
+                                  className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3"
+                                >
+                                  <div className="text-xs text-[#8a6a4f]">{r.label}</div>
+                                  <div className="text-sm font-semibold text-[#3f2a1a]">
+                                    {r.value}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
-            {hasImages ? (
-              <div className="p-5 space-y-4">
-                <div className="w-full">
-                  {mainImage ? (
+            {/* SELLER CARD */}
+          <div className={`${cardClass} p-5`}>
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr_1fr] gap-5 items-start">
+              <div className="space-y-3 order-2 lg:order-1">
+                <div className="flex flex-col gap-2">
+                  {canMessageSeller ? (
+                    <button
+                      onClick={handleMessageSeller}
+                      disabled={msgCreating}
+                      className={`w-full font-semibold py-2.5 rounded-2xl text-center transition ${
+                        msgCreating
+                          ? "bg-[#b9c9bf] text-white cursor-not-allowed"
+                          : "bg-[#1f2a24] hover:bg-[#2b3b32] text-white"
+                      }`}
+                    >
+                      {msgCreating ? "Açılıyor..." : "Siteden mesaj gönder"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleMessageSeller}
+                      className="w-full border border-[#ead8c5] bg-white hover:bg-[#fff7ed] text-[#3f2a1a] font-semibold py-2.5 rounded-2xl text-center"
+                    >
+                      {currentUserId ? "Bu ilan senin" : "Mesaj için giriş yap"}
+                    </button>
+                  )}
+
+                  {msgError && (
+                    <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-2xl p-3">
+                      {msgError}
+                    </div>
+                  )}
+
+                  {currentUserId && seller?.phone && waLink && (
+                    <a
+                      href={waLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 rounded-2xl text-center"
+                    >
+                      WhatsApp ile yaz
+                    </a>
+                  )}
+
+                  {currentUserId && seller?.email && (
+                    <a
+                      href={`mailto:${seller.email}`}
+                      className="w-full border border-[#ead8c5] hover:bg-[#fff7ed] text-[#3f2a1a] font-semibold py-2.5 rounded-2xl text-center"
+                    >
+                      E-posta gönder
+                    </a>
+                  )}
+
+                  {seller?.websiteInstagram && (
+                    <a
+                      href={websiteInstagramLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full border border-[#ead8c5] hover:bg-[#fff7ed] text-[#3f2a1a] font-semibold py-2.5 rounded-2xl text-center"
+                    >
+                      Website / Instagram
+                    </a>
+                  )}
+
+                  <button
+                    onClick={() => router.push(`/seller/${listing.ownerId}`)}
+                    className="w-full border border-[#ead8c5] hover:bg-[#fff7ed] text-[#3f2a1a] font-semibold py-2.5 rounded-2xl text-center"
+                  >
+                    Satıcı profili →
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3 order-1 lg:order-2 lg:justify-self-center">
+                <div className="flex items-center gap-4">
+                  {seller?.avatarUrl ? (
                     <img
-                      src={mainImage}
-                      alt="main"
-                      className="w-full h-[460px] object-cover rounded-xl"
+                      src={seller.avatarUrl}
+                      alt="avatar"
+                      className="w-12 h-12 rounded-full object-cover border border-[#ead8c5]"
                       loading="lazy"
                     />
                   ) : (
-                    <div className="w-full h-[460px] rounded-xl bg-gray-100 flex items-center justify-center text-gray-400">
-                      Görsel yok
+                    <div className="w-12 h-12 rounded-full bg-[#fff7ed] border border-[#ead8c5] flex items-center justify-center text-[#9b7b5a] text-sm">
+                      —
                     </div>
                   )}
+
+                  <div className="min-w-0">
+                    <div className="font-semibold text-base text-[#3f2a1a]">
+                      {sellerDisplayName}
+                    </div>
+                    {seller?.bio ? (
+                      <div className="text-xs text-[#6b4b33] line-clamp-2">
+                        {seller.bio}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-[#9b7b5a]">
+                        Satıcı hakkında açıklama yok.
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                  {listing.imageUrls!.map((url, i) => (
-                    <button
-                      key={`${url}-${i}`}
-                      type="button"
-                      onClick={() => setMainImage(url)}
-                      className={`border rounded-xl overflow-hidden bg-white hover:shadow-sm transition ${
-                        mainImage === url ? "border-gray-900" : "border-gray-200"
-                      }`}
-                      title="Görseli büyüt"
+                <div className="space-y-2 text-xs">
+                  {!currentUserId ? (
+                    <div className="text-[#6b4b33] bg-[#fff7ed] border border-[#ead8c5] rounded-2xl p-3">
+                      İletişim bilgilerini görmek için giriş yapmalısın.
+                    </div>
+                  ) : (
+                    <>
+                      {seller?.email ? (
+                        <div className="text-[#5a4330]">
+                          <span className="font-semibold">E-posta:</span>{" "}
+                          <a href={`mailto:${seller.email}`} className="underline">
+                            {seller.email}
+                          </a>
+                        </div>
+                      ) : (
+                        <div className="text-[#9b7b5a]">E-posta bilgisi yok.</div>
+                      )}
+
+                      {seller?.phone ? (
+                        <div className="text-[#5a4330]">
+                          <span className="font-semibold">Telefon:</span>{" "}
+                          <span className="underline">{seller.phone}</span>
+                        </div>
+                      ) : (
+                        <div className="text-[#9b7b5a]">Telefon bilgisi yok.</div>
+                      )}
+
+                      {seller?.address ? (
+                        <div className="text-[#5a4330]">
+                          <span className="font-semibold">Adres:</span>{" "}
+                          <span className="whitespace-pre-line">{seller.address}</span>
+                        </div>
+                      ) : (
+                        <div className="text-[#9b7b5a]">Adres bilgisi yok.</div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3 order-3">
+                {seller?.address && (
+                  <div className="overflow-hidden rounded-2xl border border-[#ead8c5] bg-white">
+                    <iframe
+                      title="Adres haritası"
+                      src={`https://www.google.com/maps?q=${encodeURIComponent(
+                        seller.address
+                      )}&output=embed`}
+                      className="w-full h-40"
+                      loading="lazy"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+            <div className={`${cardClass} p-5 space-y-4`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className={sectionTitleClass}>Bu kişinin diğer ilanları</div>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/seller/${listing.ownerId}`)}
+                  className="text-xs font-semibold text-[#8a6a4f] hover:text-[#3f2a1a]"
+                >
+                  Tümünü gör
+                </button>
+              </div>
+
+              {sellerOtherListings.length === 0 ? (
+                <div className={subtleTextClass}>Henüz başka ilan yok.</div>
+              ) : (
+                <div className="space-y-3">
+                  {sellerOtherListings.map((item) => (
+                    <Link
+                      key={item.id}
+                      href={`/ilan/${item.id}`}
+                      className="flex items-center gap-3 rounded-2xl border border-[#ead8c5] bg-white/80 p-3 hover:bg-[#fff7ed] transition"
                     >
-                      <img src={url} alt={`thumb-${i}`} className="w-full h-28 object-cover" loading="lazy" />
-                    </button>
+                      <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#f3e9db] border border-[#ead8c5] flex-shrink-0">
+                        {item.imageUrls?.[0] ? (
+                          <img
+                            src={item.imageUrls[0]}
+                            alt={item.title}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-xs text-[#9b7b5a]">
+                            Görsel yok
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-[#3f2a1a] line-clamp-2">
+                          {item.title}
+                        </div>
+                        <div className="text-xs text-[#8a6a4f] line-clamp-1">
+                          {item.categoryName || "Kategori"} / {item.subCategoryName || "Alt kategori"}
+                        </div>
+                        <div className="text-sm font-semibold text-[#1f2a24]">
+                          {fmtTL(Number(item.price ?? 0))}
+                        </div>
+                      </div>
+                    </Link>
                   ))}
                 </div>
-              </div>
-            ) : (
-              <div className="p-6 text-gray-500">Bu ilanda fotoğraf yok.</div>
-            )}
+              )}
+            </div>
+
           </div>
 
-          {/* DETAILS */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* SAAT BİLGİLERİ */}
-            <div className="border rounded-2xl bg-white p-5 space-y-3">
-              <div className="font-semibold text-lg">Saat Bilgileri</div>
-
-              <div className="space-y-2 text-sm text-gray-700">
-                {listing.productionYear && (
-                  <div>
-                    <span className="font-medium">Üretim yılı:</span> {listing.productionYear}
-                  </div>
-                )}
-
-                {listing.gender && (
-                  <div>
-                    <span className="font-medium">Cinsiyet:</span> {listing.gender}
-                  </div>
-                )}
-
-                {listing.serialNumber && (
-                  <div>
-                    <span className="font-medium">Seri numarası:</span> {listing.serialNumber}
-                  </div>
-                )}
-
-                {listing.movementType && (
-                  <div>
-                    <span className="font-medium">Çalışma şekli:</span> {listing.movementType}
-                  </div>
-                )}
-
-                {!listing.productionYear && !listing.gender && !listing.serialNumber && !listing.movementType && (
-                  <div className="text-gray-500">Bu bölümde bilgi belirtilmemiş.</div>
-                )}
-              </div>
-            </div>
-
-            {/* KASA & KADRAN */}
-            <div className="border rounded-2xl bg-white p-5 space-y-3">
-              <div className="font-semibold text-lg">Kasa & Kadran</div>
-
-              <div className="space-y-2 text-sm text-gray-700">
-                {listing.caseType && (
-                  <div>
-                    <span className="font-medium">Kasa tipi:</span> {listing.caseType}
-                  </div>
-                )}
-
-                {listing.diameterMm !== null &&
-                  listing.diameterMm !== undefined &&
-                  safeText(listing.diameterMm) !== "" && (
-                    <div>
-                      <span className="font-medium">Çap:</span> {listing.diameterMm} mm
-                    </div>
-                  )}
-
-                {listing.dialColor && (
-                  <div>
-                    <span className="font-medium">Kadran rengi:</span> {listing.dialColor}
-                  </div>
-                )}
-
-                {!listing.caseType &&
-                  (listing.diameterMm === null ||
-                    listing.diameterMm === undefined ||
-                    safeText(listing.diameterMm) === "") &&
-                  !listing.dialColor && <div className="text-gray-500">Bu bölümde bilgi belirtilmemiş.</div>}
-              </div>
-            </div>
-
-            {/* KORDON */}
-            <div className="border rounded-2xl bg-white p-5 space-y-3">
-              <div className="font-semibold text-lg">Kordon</div>
-
-              <div className="space-y-2 text-sm text-gray-700">
-                {listing.braceletMaterial && (
-                  <div>
-                    <span className="font-medium">Malzeme:</span> {listing.braceletMaterial}
-                  </div>
-                )}
-
-                {listing.braceletColor && (
-                  <div>
-                    <span className="font-medium">Renk:</span> {listing.braceletColor}
-                  </div>
-                )}
-
-                {!listing.braceletMaterial && !listing.braceletColor && (
-                  <div className="text-gray-500">Bu bölümde bilgi belirtilmemiş.</div>
-                )}
-              </div>
-            </div>
-
-            {/* DURUM */}
-            <div className="border rounded-2xl bg-white p-5 space-y-3">
-              <div className="font-semibold text-lg">Durum</div>
-
-              <div className="space-y-2 text-sm text-gray-700">
-                <div>
-                  <span className="font-medium">Aşınma:</span> {listing.wearExists ? "Mevcut" : "Belirtilmemiş / Yok"}
-                </div>
-
-                {listing.accessories && (
-                  <div>
-                    <span className="font-medium">Aksesuar:</span> {accessoryLabel(listing.accessories)}
-                  </div>
-                )}
-
-                {!listing.accessories && <div className="text-gray-500">Aksesuar bilgisi belirtilmemiş.</div>}
-              </div>
-            </div>
           </div>
-
-          {/* DESCRIPTION */}
-          <div className="border rounded-2xl bg-white p-5 space-y-3">
-            <div className="font-semibold text-lg">Açıklama</div>
-
-            {listing.description ? (
-              <p className="whitespace-pre-line text-sm text-gray-700">{listing.description}</p>
-            ) : (
-              <div className="text-sm text-gray-500">Satıcı açıklama eklememiş.</div>
-            )}
-          </div>
-
-          {/* SELLER OTHER LISTINGS */}
-          <div className="space-y-4">
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <div className="font-semibold text-lg">Satıcının Diğer İlanları</div>
-                <div className="text-sm text-gray-500">
-                  {sellerOtherListings.length > 0
-                    ? `${sellerOtherListings.length} ilan gösteriliyor`
-                    : "Gösterilecek ilan yok"}
-                </div>
-              </div>
-
-              <button
-                onClick={() => router.push(`/seller/${listing.ownerId}`)}
-                className="text-sm underline text-gray-700 hover:text-gray-900"
-              >
-                Satıcı sayfasına git →
-              </button>
-            </div>
-
-            {sellerOtherListings.length === 0 ? (
-              <div className="text-gray-500">Bu satıcının başka ilanı yok.</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {sellerOtherListings.map((l) => {
-                  const thumb = l.imageUrls?.[0];
-
-                  return (
-                    <Link key={l.id} href={`/ilan/${l.id}`} className="block">
-                      <div className="border rounded-2xl overflow-hidden bg-white hover:shadow-md transition">
-                        {thumb ? (
-                          <img src={thumb} alt="thumb" className="w-full h-40 object-cover" loading="lazy" />
-                        ) : (
-                          <div className="w-full h-40 bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
-                            Görsel yok
-                          </div>
-                        )}
-
-                        <div className="p-4 space-y-1">
-                          <div className="font-semibold line-clamp-2">{l.title}</div>
-                          <div className="text-sm text-green-700 font-medium">{fmtTL(Number(l.price ?? 0))}</div>
-
-                          {(l.brandName || l.modelName) && (
-                            <div className="text-xs text-gray-500">
-                              {l.brandName || ""}
-                              {l.modelName ? ` / ${l.modelName}` : ""}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* SIMILAR */}
-          <div className="space-y-4">
-            <div>
-              <div className="font-semibold text-lg">Benzer İlanlar</div>
-              <div className="text-sm text-gray-500">
-                {similarListings.length > 0 ? `${similarListings.length} ilan gösteriliyor` : "Benzer ilan bulunamadı"}
-              </div>
-            </div>
-
-            {similarListings.length === 0 ? (
-              <div className="text-gray-500">Benzer ilan bulunamadı.</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {similarListings.map((l) => {
-                  const thumb = l.imageUrls?.[0];
-
-                  return (
-                    <Link key={l.id} href={`/ilan/${l.id}`} className="block">
-                      <div className="border rounded-2xl overflow-hidden bg-white hover:shadow-md transition">
-                        {thumb ? (
-                          <img src={thumb} alt="thumb" className="w-full h-40 object-cover" loading="lazy" />
-                        ) : (
-                          <div className="w-full h-40 bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
-                            Görsel yok
-                          </div>
-                        )}
-
-                        <div className="p-4 space-y-1">
-                          <div className="font-semibold line-clamp-2">{l.title}</div>
-                          <div className="text-sm text-green-700 font-medium">{fmtTL(Number(l.price ?? 0))}</div>
-
-                          {(l.brandName || l.modelName) && (
-                            <div className="text-xs text-gray-500">
-                              {l.brandName || ""}
-                              {l.modelName ? ` / ${l.modelName}` : ""}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* DEBUG */}
-          <div className="text-xs text-gray-400">İlan ID: {id}</div>
-        </div>
-
-        {/* RIGHT */}
-        <div className="space-y-6 lg:sticky lg:top-6 h-fit">
-          {/* SELLER CARD */}
-          <div className="border rounded-2xl bg-white p-6 space-y-4">
-            <div className="flex items-center gap-4">
-              {seller?.avatarUrl ? (
-                <img
-                  src={seller.avatarUrl}
-                  alt="avatar"
-                  className="w-14 h-14 rounded-full object-cover border"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="w-14 h-14 rounded-full bg-gray-100 border flex items-center justify-center text-gray-400 text-sm">
-                  —
-                </div>
-              )}
-
-              <div className="min-w-0">
-                <div className="font-semibold text-lg leading-tight">{sellerDisplayName}</div>
-                {seller?.bio ? (
-                  <div className="text-sm text-gray-600 line-clamp-2">{seller.bio}</div>
-                ) : (
-                  <div className="text-sm text-gray-400">Satıcı hakkında açıklama yok.</div>
-                )}
-              </div>
-            </div>
-
-            {/* CONTACT */}
-            <div className="space-y-2 text-sm">
-              {seller?.email ? (
-                <div className="text-gray-700">
-                  <span className="font-medium">E-posta:</span>{" "}
-                  <a href={`mailto:${seller.email}`} className="underline">
-                    {seller.email}
-                  </a>
-                </div>
-              ) : (
-                <div className="text-gray-500">E-posta bilgisi yok.</div>
-              )}
-
-              {seller?.phone ? (
-                <div className="text-gray-700">
-                  <span className="font-medium">Telefon:</span>{" "}
-                  <span className="underline">{seller.phone}</span>
-                </div>
-              ) : (
-                <div className="text-gray-500">Telefon bilgisi yok.</div>
-              )}
-
-              {seller?.address ? (
-                <div className="text-gray-700">
-                  <span className="font-medium">Adres:</span>{" "}
-                  <span className="whitespace-pre-line">{seller.address}</span>
-                </div>
-              ) : (
-                <div className="text-gray-500">Adres bilgisi yok.</div>
-              )}
-            </div>
-
-            {/* MAP */}
-            {seller?.address && (
-              <iframe
-                className="w-full h-44 rounded-xl border"
-                loading="lazy"
-                src={`https://www.google.com/maps?q=${encodeURIComponent(seller.address)}&output=embed`}
-              />
-            )}
-
-            {/* ACTIONS */}
-            <div className="flex flex-col gap-3 pt-2">
-            {canMessageSeller ? (
-                <button
-                  onClick={handleMessageSeller}
-                  disabled={msgCreating}
-                  className={`w-full font-semibold py-3 rounded-xl text-center transition ${
-                    msgCreating
-                      ? "bg-blue-300 text-white cursor-not-allowed"
-                      : "bg-blue-600 hover:bg-blue-700 text-white"
-                  }`}
-                >
-                  {msgCreating ? "Sohbet açılıyor..." : "Siteden mesaj gönder"}
-                </button>
-              ) : (
-                <div className="w-full border bg-gray-50 text-gray-500 font-semibold py-3 rounded-xl text-center">
-                  {currentUserId ? "Bu ilan senin (mesaj gönderemezsin)" : "Mesaj için giriş yap"}
-                </div>
-              )}
-
-            {msgError && (
-                <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3">
-                  {msgError}
-                </div>
-              )}
-
-              {seller?.phone && (
-                <a
-                  href={waLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-xl text-center"
-                >
-                  WhatsApp ile yaz
-                </a>
-              )}
-
-              {seller?.email && (
-                <a
-                  href={`mailto:${seller.email}`}
-                  className="w-full border hover:bg-gray-50 font-semibold py-3 rounded-xl text-center"
-                >
-                  E-posta gönder
-                </a>
-              )}
-
-              {seller?.websiteInstagram && (
-                <a
-                  href={websiteInstagramLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full border hover:bg-gray-50 font-semibold py-3 rounded-xl text-center"
-                >
-                  Website / Instagram
-                </a>
-              )}
-
-              <button
-                onClick={() => router.push(`/seller/${listing.ownerId}`)}
-                className="w-full border hover:bg-gray-50 font-semibold py-3 rounded-xl text-center"
-              >
-                Satıcı profili ve tüm ilanları →
-              </button>
-            </div>
-          </div>
-
-          {/* QUICK INFO */}
-          <div className="border rounded-2xl bg-white p-6 space-y-2">
-            <div className="font-semibold">Hızlı Bilgi</div>
-            <div className="text-sm text-gray-700">
-              <span className="font-medium">Marka/Model:</span> {listing.brandName} / {listing.modelName}
-            </div>
-
-            {listing.productionYear && (
-              <div className="text-sm text-gray-700">
-                <span className="font-medium">Üretim:</span> {listing.productionYear}
-              </div>
-            )}
-
-            {listing.diameterMm !== null &&
-              listing.diameterMm !== undefined &&
-              safeText(listing.diameterMm) !== "" && (
-                <div className="text-sm text-gray-700">
-                  <span className="font-medium">Çap:</span> {listing.diameterMm} mm
-                </div>
-              )}
-
-            {listing.movementType && (
-              <div className="text-sm text-gray-700">
-                <span className="font-medium">Mekanizma:</span> {listing.movementType}
-              </div>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

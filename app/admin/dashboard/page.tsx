@@ -132,14 +132,14 @@ function MiniBarRow(props: { label: string; value: number; max: number }) {
 
   return (
     <div className="flex items-center gap-2">
-      <div className="w-10 text-[11px] text-gray-500">{label}</div>
-      <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
+      <div className="w-10 text-[11px] text-slate-500">{label}</div>
+      <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
         <div
-          className="h-2 rounded-full bg-gray-900"
+          className="h-2 rounded-full bg-[#0f172a]"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="w-10 text-right text-[11px] text-gray-700">{value}</div>
+      <div className="w-10 text-right text-[11px] text-slate-700">{value}</div>
     </div>
   );
 }
@@ -159,19 +159,19 @@ function TrendDayCard(props: {
   const m = safeNum(day.newMessages, 0);
 
   return (
-    <div className="border rounded-2xl p-4 bg-white">
+    <div className="border border-slate-200/80 rounded-2xl p-4 bg-white/85 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-sm font-semibold text-gray-900">{day.dateKey}</div>
-        <span className="text-[11px] px-2 py-1 rounded-xl border bg-gray-50 text-gray-600">
+        <div className="text-sm font-semibold text-slate-900">{day.dateKey}</div>
+        <span className="text-[11px] px-2 py-1 rounded-xl border border-slate-200 bg-slate-50 text-slate-600">
           7 gün
         </span>
       </div>
 
       <div className="mt-3 space-y-2">
-        <MiniBarRow label="User" value={u} max={maxUsers} />
-        <MiniBarRow label="List" value={l} max={maxListings} />
-        <MiniBarRow label="Chat" value={c} max={maxConvos} />
-        <MiniBarRow label="Msg" value={m} max={maxMessages} />
+        <MiniBarRow label="Kullanıcı" value={u} max={maxUsers} />
+        <MiniBarRow label="İlan" value={l} max={maxListings} />
+        <MiniBarRow label="Sohbet" value={c} max={maxConvos} />
+        <MiniBarRow label="Mesaj" value={m} max={maxMessages} />
       </div>
     </div>
   );
@@ -341,13 +341,13 @@ export default function AdminDashboardPage() {
       showToast({
         type: "success",
         title: "Güncellendi",
-        text: "Dashboard verileri yenilendi (YOL B).",
+        text: "Kontrol paneli verileri yenilendi (YOL B).",
       });
     } catch {
       showToast({
         type: "error",
         title: "Hata",
-        text: "Dashboard verileri çekilemedi.",
+        text: "Kontrol paneli verileri çekilemedi.",
       });
     } finally {
       setLoading(false);
@@ -356,7 +356,6 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     loadDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const totals = {
@@ -386,17 +385,17 @@ export default function AdminDashboardPage() {
           <div className="min-w-0">
             <div className="text-xs text-gray-500">Admin</div>
             <div className="mt-1 text-xl font-semibold text-gray-900">
-              Dashboard
+              Kontrol Paneli
             </div>
             <div className="mt-1 text-sm text-gray-600">
               YOL B aktif ✅ (adminStats + daily + autoFlags)
             </div>
 
             <div className="mt-2 text-[11px] text-gray-500">
-              Bugün key: <span className="font-semibold">{todayKey}</span>
+              Bugün anahtarı: <span className="font-semibold">{todayKey}</span>
               {globalStats?.updatedAt ? (
                 <span className="ml-2">
-                  • global updated: {formatDateTR(globalStats.updatedAt)}
+                  • global güncelleme: {formatDateTR(globalStats.updatedAt)}
                 </span>
               ) : null}
             </div>
@@ -415,7 +414,7 @@ export default function AdminDashboardPage() {
             </button>
 
             <Link
-              href="/admin/brands"
+              href="/admin/categories"
               className="px-3 py-2 rounded-xl bg-gray-900 text-white hover:bg-black text-sm"
             >
               Kataloğa Git
@@ -530,7 +529,7 @@ export default function AdminDashboardPage() {
                 Alarm Merkezi
               </div>
               <div className="mt-1 text-xs text-gray-500">
-                autoFlags (open) + rapor özetleri
+                oto bayraklar (açık) + rapor özetleri
               </div>
             </div>
 
@@ -538,7 +537,7 @@ export default function AdminDashboardPage() {
               href="/admin/auto-flags"
               className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 active:bg-gray-100 text-sm"
             >
-              AutoFlags
+              Oto Bayraklar
             </Link>
           </div>
 
@@ -564,7 +563,7 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="border rounded-2xl p-4 bg-gray-50">
-              <div className="text-xs text-gray-500">Bugün AutoFlag</div>
+              <div className="text-xs text-gray-500">Bugün Oto Bayrak</div>
               <div className="mt-1 text-xl font-semibold text-gray-900">
                 {today.autoFlagsOpened}
               </div>
@@ -576,14 +575,14 @@ export default function AdminDashboardPage() {
 
           {/* Open Flags List */}
           <div className="mt-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-gray-900">
-                Açık AutoFlags (Son 10)
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-gray-900">
+                Açık Oto Bayraklar (Son 10)
+                </div>
+                <span className="text-[11px] px-2 py-1 rounded-xl border bg-gray-50 text-gray-600">
+                durum=açık
+                </span>
               </div>
-              <span className="text-[11px] px-2 py-1 rounded-xl border bg-gray-50 text-gray-600">
-                status=open
-              </span>
-            </div>
 
             <div className="mt-2 space-y-2">
               {openFlags.length === 0 ? (

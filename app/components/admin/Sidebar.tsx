@@ -24,10 +24,10 @@ function SideItem({
     <Link
       href={href}
       className={cx(
-        "w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm border transition",
+        "w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm border transition",
         active
-          ? "bg-gray-900 text-white border-gray-900"
-          : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50 active:bg-gray-100"
+          ? "bg-[#0f172a] text-white border-[#0f172a] shadow-[0_10px_25px_-18px_rgba(15,23,42,0.6)]"
+          : "bg-white/70 text-slate-700 border-slate-200 hover:bg-slate-50 active:bg-slate-100"
       )}
     >
       <span className="text-base">{icon}</span>
@@ -38,29 +38,33 @@ function SideItem({
 
 export default function Sidebar() {
   return (
-    <div className="border rounded-2xl bg-white p-3">
-      <div className="text-xs text-gray-500 px-1">Menü</div>
+    <div className="border border-slate-200/80 rounded-2xl bg-white/80 p-3 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
+      <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500 px-2">
+        Menü
+      </div>
 
       <div className="mt-2 space-y-2">
         {/* ✅ Dashboard'ı direkt dashboard route'una bağladık */}
-        <SideItem href="/admin/dashboard" label="Dashboard" icon="📊" />
+        <SideItem href="/admin/dashboard" label="Kontrol Paneli" icon="📊" />
 
-        <SideItem href="/admin/brands" label="Markalar" icon="🏷️" />
+        <SideItem href="/admin/categories" label="Kategoriler" icon="🏷️" />
         <SideItem href="/admin/users" label="Kullanıcılar" icon="👤" />
         <SideItem href="/admin/listings" label="İlanlar" icon="🕰️" />
         <SideItem href="/admin/reports" label="Raporlar" icon="🚨" />
 
         {/* ✅ NEW: AutoFlags */}
-        <SideItem href="/admin/auto-flags" label="AutoFlags" icon="🧠" />
+        <SideItem href="/admin/auto-flags" label="Oto Bayraklar" icon="🧠" />
 
         <SideItem href="/admin/logs" label="Loglar" icon="🧾" />
         <SideItem href="/admin/settings" label="Ayarlar" icon="⚙️" />
       </div>
 
-      <div className="mt-4 border-t pt-3">
-        <div className="text-xs text-gray-500 px-1">Katalog</div>
-        <div className="mt-2 text-[11px] text-gray-500">
-          Markalar içinden model yönetimi açılır.
+      <div className="mt-4 border-t border-slate-200/70 pt-3">
+        <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500 px-2">
+          Katalog
+        </div>
+        <div className="mt-2 text-[11px] text-slate-500 px-2">
+          Kategoriler içinden alt kategori yönetimi açılır.
         </div>
       </div>
     </div>

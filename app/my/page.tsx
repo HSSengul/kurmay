@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { Sora } from "next/font/google";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   collection,
@@ -8,11 +10,15 @@ import {
   where,
   getDocs,
   orderBy,
+  limit,
+  startAfter,
   deleteDoc,
   doc,
   getDoc,
   setDoc,
   serverTimestamp,
+  DocumentData,
+  QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -26,8 +32,8 @@ type Listing = {
   id: string;
   title: string;
   price: number;
-  brandName?: string;
-  modelName?: string;
+  categoryName?: string;
+  subCategoryName?: string;
   imageUrls?: string[];
   createdAt?: any;
 };
@@ -92,11 +98,56 @@ function getPhoneHint(phone: string) {
   return "";
 }
 
+function formatPriceTRY(v?: number) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  try {
+    return new Intl.NumberFormat("tr-TR", {
+      style: "currency",
+      currency: "TRY",
+      maximumFractionDigits: 0,
+    }).format(n);
+  } catch {
+    return `${n} ₺`;
+  }
+}
+
+function timeAgoTR(createdAt: any) {
+  try {
+    const d: Date =
+      createdAt?.toDate?.() instanceof Date
+        ? createdAt.toDate()
+        : createdAt instanceof Date
+        ? createdAt
+        : null;
+
+    if (!d) return "";
+
+    const diff = Date.now() - d.getTime();
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) return `${sec} sn önce`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min} dk önce`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr} sa önce`;
+    const day = Math.floor(hr / 24);
+    return `${day} gün önce`;
+  } catch {
+    return "";
+  }
+}
+
+const sora = Sora({
+  subsets: ["latin", "latin-ext"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
 /* =======================
    PAGE
 ======================= */
 
-export default function MyPage() {
+function MyPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -107,6 +158,12 @@ export default function MyPage() {
 
   const [userId, setUserId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [listingQuery, setListingQuery] = useState("");
+  const [listingSort, setListingSort] = useState<
+    "newest" | "price_asc" | "price_desc" | "title"
+  >("newest");
+
+  const MY_LISTINGS_PAGE_SIZE = 24;
 
   /* =======================
      PROFILE STATE
@@ -121,6 +178,7 @@ export default function MyPage() {
     avatarUrl: "",
     onboardingCompleted: false,
   });
+  const [profileSnapshot, setProfileSnapshot] = useState<PublicProfile | null>(null);
 
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -172,6 +230,130 @@ export default function MyPage() {
 
   const [listings, setListings] = useState<Listing[]>([]);
   const [listingsLoading, setListingsLoading] = useState(true);
+  const [listingsCursor, setListingsCursor] =
+    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [listingsHasMore, setListingsHasMore] = useState(false);
+  const [listingsLoadingMore, setListingsLoadingMore] = useState(false);
+
+  const filteredListings = useMemo(() => {
+    const q = normalizeSpaces(listingQuery).toLowerCase();
+    let arr = listings.slice();
+
+    if (q) {
+      arr = arr.filter((l) => {
+        const hay = [
+          l.title || "",
+          l.categoryName || "",
+          l.subCategoryName || "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    if (listingSort === "price_asc") {
+      arr.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+    } else if (listingSort === "price_desc") {
+      arr.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+    } else if (listingSort === "title") {
+      arr.sort((a, b) =>
+        (a.title || "").localeCompare(b.title || "", "tr", { sensitivity: "base" })
+      );
+    } else {
+      arr.sort((a, b) => {
+        const da = a.createdAt?.toDate?.() ? a.createdAt.toDate().getTime() : 0;
+        const dbb = b.createdAt?.toDate?.() ? b.createdAt.toDate().getTime() : 0;
+        return dbb - da;
+      });
+    }
+
+    return arr;
+  }, [listings, listingQuery, listingSort]);
+
+  const listingStats = useMemo(() => {
+    const total = listings.length;
+    const latest = listings.reduce<Listing | null>((acc, cur) => {
+      if (!acc) return cur;
+      const at = acc.createdAt?.toDate?.() ? acc.createdAt.toDate().getTime() : 0;
+      const ct = cur.createdAt?.toDate?.() ? cur.createdAt.toDate().getTime() : 0;
+      return ct > at ? cur : acc;
+    }, null);
+    return {
+      total,
+      latestLabel: latest ? timeAgoTR(latest.createdAt) : "—",
+    };
+  }, [listings]);
+
+  const hasListingQuery = normalizeSpaces(listingQuery).length > 0;
+
+  const loadMoreListings = async () => {
+    if (!userId) return;
+    if (!listingsHasMore) return;
+    if (!listingsCursor) return;
+    if (listingsLoadingMore) return;
+
+    setListingsLoadingMore(true);
+
+    try {
+      const q = query(
+        collection(db, "listings"),
+        where("ownerId", "==", userId),
+        orderBy("createdAt", "desc"),
+        startAfter(listingsCursor),
+        limit(MY_LISTINGS_PAGE_SIZE)
+      );
+
+      const snap = await getDocs(q);
+      const docs = snap.docs;
+      const data = docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<Listing, "id">),
+      }));
+
+      setListings((prev) => {
+        const seen = new Set(prev.map((x) => x.id));
+        const merged = [...prev];
+        for (const item of data) {
+          if (!seen.has(item.id)) {
+            merged.push(item);
+            seen.add(item.id);
+          }
+        }
+        return merged;
+      });
+
+      setListingsCursor(docs.length > 0 ? docs[docs.length - 1] : listingsCursor);
+      setListingsHasMore(docs.length === MY_LISTINGS_PAGE_SIZE);
+    } catch (e) {
+      console.error("loadMoreListings error:", e);
+    } finally {
+      setListingsLoadingMore(false);
+    }
+  };
+
+  const completion = useMemo(() => {
+    const total = 3;
+    let done = 0;
+    if (isValidName(profile.name || "")) done += 1;
+    if (isValidPhone(profile.phone || "")) done += 1;
+    if (isValidAddress(profile.address || "")) done += 1;
+    const percent = Math.round((done / total) * 100);
+    return { total, done, percent };
+  }, [profile.name, profile.phone, profile.address]);
+
+  const profileMessageTone = useMemo(() => {
+    if (!profileMessage) return "";
+    if (profileMessage.includes("❌")) {
+      return "bg-red-50 border-red-200 text-red-700";
+    }
+    if (profileMessage.includes("✅")) {
+      return "bg-emerald-50 border-emerald-200 text-emerald-700";
+    }
+    return "bg-slate-50 border-slate-200 text-slate-700";
+  }, [profileMessage]);
+
+  const greetingName = normalizeSpaces(profile.name || "").split(" ")[0];
 
   /* =======================
      AUTH + LOAD DATA
@@ -206,7 +388,7 @@ export default function MyPage() {
         });
 
         // Yeni oluşturduk; state de boş kalsın
-        setProfile({
+        const emptyProfile = {
           name: "",
           bio: "",
           address: "",
@@ -214,7 +396,10 @@ export default function MyPage() {
           websiteInstagram: "",
           avatarUrl: "",
           onboardingCompleted: false,
-        });
+        };
+
+        setProfile(emptyProfile);
+        setProfileSnapshot(emptyProfile);
 
         // İlk giriş onboarding zorla + düzenleme modunu aç
         setOnboardingForced(true);
@@ -232,6 +417,7 @@ export default function MyPage() {
         };
 
         setProfile(loadedProfile);
+        setProfileSnapshot(loadedProfile);
 
         // Onboarding gerekiyorsa kullanıcıyı düzenlemeye zorla
         if (!loadedProfile.onboardingCompleted || onboardingQuery) {
@@ -252,17 +438,21 @@ export default function MyPage() {
       const q = query(
         collection(db, "listings"),
         where("ownerId", "==", user.uid),
-        orderBy("createdAt", "desc")
+        orderBy("createdAt", "desc"),
+        limit(MY_LISTINGS_PAGE_SIZE)
       );
 
       const snap = await getDocs(q);
+      const docs = snap.docs;
 
-      const data = snap.docs.map((d) => ({
+      const data = docs.map((d) => ({
         id: d.id,
         ...(d.data() as Omit<Listing, "id">),
       }));
 
       setListings(data);
+      setListingsCursor(docs.length > 0 ? docs[docs.length - 1] : null);
+      setListingsHasMore(docs.length === MY_LISTINGS_PAGE_SIZE);
       setListingsLoading(false);
     });
 
@@ -365,6 +555,10 @@ export default function MyPage() {
 
       if (shouldCompleteOnboarding) {
         setProfile((p) => ({ ...p, onboardingCompleted: true }));
+        setProfileSnapshot({
+          ...normalized,
+          onboardingCompleted: true,
+        });
         setProfileMessage("Profil tamamlandı ✅ Artık ilan verebilirsin.");
         setEditingProfile(false);
         setOnboardingForced(false);
@@ -374,6 +568,7 @@ export default function MyPage() {
         router.replace("/my");
       } else {
         setProfileMessage("Profil kaydedildi ✅");
+        setProfileSnapshot(normalized);
         setEditingProfile(false);
       }
     } catch {
@@ -403,6 +598,25 @@ export default function MyPage() {
     setListings((prev) => prev.filter((l) => l.id !== id));
   };
 
+  const startEditingProfile = () => {
+    setProfileMessage("");
+    setProfileSnapshot({ ...profile });
+    setEditingProfile(true);
+  };
+
+  const cancelEditingProfile = () => {
+    if (profileSnapshot) setProfile(profileSnapshot);
+    setEditingProfile(false);
+  };
+
+  const handleNewListingClick = (e: React.MouseEvent) => {
+    if (!onboardingNeeded) return;
+    e.preventDefault();
+    startEditingProfile();
+    setProfileMessage("Önce profilini tamamlamalısın ❌");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   /* =======================
      BLOCK NAVIGATION (UX)
   ======================= */
@@ -428,7 +642,17 @@ export default function MyPage() {
   }, [onboardingNeeded, editingProfile]);
 
   if (profileLoading || listingsLoading) {
-    return <div className="p-8 text-center text-gray-500">Yükleniyor...</div>;
+    return (
+      <div className={`min-h-screen bg-[#f7f4ef] ${sora.className}`}>
+        <div className="max-w-5xl mx-auto px-6 py-16">
+          <div className="bg-white/90 rounded-2xl shadow p-8">
+            <div className="h-6 w-48 bg-gray-200 rounded mb-4" />
+            <div className="h-4 w-72 bg-gray-200 rounded mb-6" />
+            <div className="h-10 w-full bg-gray-200 rounded" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   /* =======================
@@ -436,77 +660,229 @@ export default function MyPage() {
   ======================= */
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
+    <div
+      className={`min-h-screen bg-[#f7f4ef] bg-[radial-gradient(circle_at_top,_#fff7ed,_#f7f4ef_55%)] text-[#1d1b16] ${sora.className}`}
+    >
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-5 sm:space-y-6">
+        <section className="bg-white/80 backdrop-blur border border-white/70 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-[0_25px_60px_-45px_rgba(15,23,42,0.45)] my-fade-up">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-[11px] sm:text-xs uppercase tracking-[0.28em] text-[#b07b4a]">
+                Hesabım
+              </div>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold mt-2 leading-tight tracking-tight">
+                Merhaba{greetingName ? ` ${greetingName}` : ""}
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-600 mt-2">
+                Profilini güncel tut, ilanların daha hızlı görünür.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/new"
+                onClick={handleNewListingClick}
+                className={`px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium border transition ${
+                  onboardingNeeded
+                    ? "border-slate-200 text-slate-400 bg-white cursor-not-allowed"
+                    : "border-[#caa07a] text-[#6b3c19] bg-white hover:bg-[#f7ede2]"
+                }`}
+                aria-disabled={onboardingNeeded}
+              >
+                Yeni ilan oluştur
+              </Link>
+              <button
+                onClick={startEditingProfile}
+                className="px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium bg-[#1f2a24] text-white hover:bg-[#2b3b32] transition"
+              >
+                {onboardingNeeded ? "Profili tamamla" : "Profili düzenle"}
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 sm:mt-6">
+            <div className="rounded-2xl border border-[#ead8c5] bg-[#f8f2e7] p-3 sm:p-4">
+              <div className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-[#a26b3c]">
+                Toplam ilan
+              </div>
+              <div className="text-xl sm:text-2xl font-semibold mt-2">
+                {listingStats.total}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-[#dbe5d9] bg-[#eef5f0] p-3 sm:p-4">
+              <div className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-[#4f7b63]">
+                Görünen ilan
+              </div>
+              <div className="text-xl sm:text-2xl font-semibold mt-2">
+                {filteredListings.length}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-[#e7dfe2] bg-[#f6f0f2] p-3 sm:p-4">
+              <div className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-[#8e5c69]">
+                Son ilan
+              </div>
+              <div className="text-xl sm:text-2xl font-semibold mt-2">
+                {listingStats.latestLabel || "-"}
+              </div>
+            </div>
+          </div>
+        </section>
       {/* ================= ONBOARDING BANNER ================= */}
       {onboardingNeeded && !onboardingBannerDismissed && (
-        <div className="mb-6 border border-yellow-300 bg-yellow-50 text-yellow-900 rounded-xl p-4">
-          <div className="flex items-start justify-between gap-4">
+        <section className="bg-amber-50/90 border border-amber-200/70 rounded-2xl sm:rounded-3xl p-4 sm:p-5 my-fade-up my-fade-delay-1">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
-              <div className="font-semibold">
+              <div className="text-[11px] sm:text-xs uppercase tracking-[0.28em] text-amber-700">
+                Profil tamamla
+              </div>
+              <div className="text-base sm:text-lg font-semibold mt-1">
                 İlan verebilmek için önce profilini tamamlamalısın
               </div>
-              <div className="text-sm mt-1">
+              <div className="text-xs sm:text-sm text-amber-900/80 mt-1">
                 Zorunlu alanlar: <b>İsim</b>, <b>Telefon</b>, <b>Adres</b>.
                 Profil tamamlanmadan ilanlar paneli kilitli kalır.
               </div>
               {onboardingErrors.length > 0 && (
-                <ul className="text-sm mt-2 list-disc pl-5">
+                <ul className="text-sm mt-3 list-disc pl-5 text-amber-900/80">
                   {onboardingErrors.map((x, i) => (
                     <li key={i}>{x}</li>
                   ))}
                 </ul>
               )}
             </div>
-
-            <button
-              onClick={() => setOnboardingBannerDismissed(true)}
-              className="text-sm underline whitespace-nowrap"
-            >
-              Kapat
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={startEditingProfile}
+                  className="px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium bg-amber-700 text-white hover:bg-amber-800 transition"
+              >
+                Profili tamamla
+              </button>
+              <button
+                onClick={() => setOnboardingBannerDismissed(true)}
+                className="text-xs underline text-amber-700"
+              >
+                Şimdilik kapat
+              </button>
+            </div>
           </div>
-        </div>
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-xs text-amber-800">
+              <span>Profil tamamlanma</span>
+              <span>
+                {completion.done}/{completion.total} alan
+              </span>
+            </div>
+            <div className="mt-2 h-2 rounded-full bg-white/70 overflow-hidden">
+              <div
+                className="h-full bg-amber-500"
+                style={{ width: `${completion.percent}%` }}
+              />
+            </div>
+          </div>
+        </section>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[65%_35%] gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-[65%_35%] gap-5 sm:gap-6 lg:gap-8">
         {/* ================= LEFT – MY LISTINGS ================= */}
-        <div className="relative">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold">Benim İlanlarım</h2>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => setViewMode("grid")}
-                disabled={onboardingNeeded}
-                className={`px-3 py-1 rounded ${
-                  viewMode === "grid" ? "bg-gray-800 text-white" : "border"
-                } ${onboardingNeeded ? "opacity-50 cursor-not-allowed" : ""}`}
-                title={
-                  onboardingNeeded ? "Önce profilini tamamlamalısın" : undefined
+        <div className="relative bg-white/90 border border-white/70 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-[0_25px_60px_-45px_rgba(15,23,42,0.45)] my-fade-up my-fade-delay-2">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-5 sm:mb-6">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-semibold">Benim ilanlarım</h2>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                Toplam {listingStats.total} ilan.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={listingQuery}
+                onChange={(e) => setListingQuery(e.target.value)}
+                placeholder="İlanlarda ara"
+                className="w-full sm:w-52 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#d8b18a]"
+              />
+              <select
+                value={listingSort}
+                onChange={(e) =>
+                  setListingSort(
+                    e.target.value as
+                      | "newest"
+                      | "price_asc"
+                      | "price_desc"
+                      | "title"
+                  )
                 }
+                className="rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm"
               >
-                Grid
-              </button>
-              <button
-                onClick={() => setViewMode("list")}
-                disabled={onboardingNeeded}
-                className={`px-3 py-1 rounded ${
-                  viewMode === "list" ? "bg-gray-800 text-white" : "border"
-                } ${onboardingNeeded ? "opacity-50 cursor-not-allowed" : ""}`}
-                title={
-                  onboardingNeeded ? "Önce profilini tamamlamalısın" : undefined
-                }
-              >
-                Liste
-              </button>
+                <option value="newest">En yeni</option>
+                <option value="price_asc">Fiyat (artan)</option>
+                <option value="price_desc">Fiyat (azalan)</option>
+                <option value="title">Başlık (A-Z)</option>
+              </select>
+              <div className="flex items-center rounded-full border border-slate-200 bg-white p-1">
+                <button
+                  onClick={() => setViewMode("grid")}
+                  disabled={onboardingNeeded}
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-medium transition ${
+                    viewMode === "grid"
+                      ? "bg-[#1f2a24] text-white"
+                      : "text-slate-600"
+                  } ${onboardingNeeded ? "opacity-50 cursor-not-allowed" : ""}`}
+                  title={
+                    onboardingNeeded ? "Önce profilini tamamlamalısın" : undefined
+                  }
+                >
+                  Kart
+                </button>
+                <button
+                  onClick={() => setViewMode("list")}
+                  disabled={onboardingNeeded}
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-medium transition ${
+                    viewMode === "list"
+                      ? "bg-[#1f2a24] text-white"
+                      : "text-slate-600"
+                  } ${onboardingNeeded ? "opacity-50 cursor-not-allowed" : ""}`}
+                  title={
+                    onboardingNeeded ? "Önce profilini tamamlamalısın" : undefined
+                  }
+                >
+                  Liste
+                </button>
+              </div>
             </div>
           </div>
 
           {listings.length === 0 ? (
-            <div className="text-gray-500">Henüz ilan eklemedin.</div>
+            <div className="border border-dashed border-slate-200 rounded-2xl p-5 sm:p-6 text-center bg-white/70">
+              <div className="text-base sm:text-lg font-semibold">
+                Henüz ilan eklemedin
+              </div>
+              <p className="text-xs sm:text-sm text-slate-500 mt-2">
+                İlk ilanını ekleyerek vitrine çık.
+              </p>
+              <Link
+                href="/new"
+                onClick={handleNewListingClick}
+                className={`mt-4 inline-flex items-center justify-center px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium border transition ${
+                  onboardingNeeded
+                    ? "border-slate-200 text-slate-400 bg-white cursor-not-allowed"
+                    : "border-[#1f2a24] text-[#1f2a24] hover:bg-[#1f2a24] hover:text-white"
+                }`}
+                aria-disabled={onboardingNeeded}
+              >
+                İlan oluştur
+              </Link>
+            </div>
+          ) : filteredListings.length === 0 ? (
+            <div className="border border-dashed border-slate-200 rounded-2xl p-5 sm:p-6 text-center bg-white/70">
+              <div className="text-base sm:text-lg font-semibold">
+                {hasListingQuery ? "Sonuç bulunamadı" : "İlan bulunamadı"}
+              </div>
+              <p className="text-xs sm:text-sm text-slate-500 mt-2">
+                {hasListingQuery
+                  ? "Aramana uygun ilan bulunamadı. Farklı bir anahtar kelime dene."
+                  : "Şu anda görünür ilan yok. Daha sonra tekrar kontrol edebilirsin."}
+              </p>
+            </div>
           ) : viewMode === "grid" ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {listings.map((l) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {filteredListings.map((l) => (
                 <div
                   key={l.id}
                   onClick={() => {
@@ -516,27 +892,35 @@ export default function MyPage() {
                     }
                     router.push(`/ilan/${l.id}`);
                   }}
-                  className={`relative border rounded-xl overflow-hidden bg-white cursor-pointer hover:shadow-md ${
+                  className={`group relative border border-slate-200 rounded-2xl overflow-hidden bg-white cursor-pointer transition hover:shadow-lg ${
                     onboardingNeeded ? "pointer-events-none opacity-60" : ""
                   }`}
                 >
                   {l.imageUrls?.[0] && (
                     <img
                       src={l.imageUrls[0]}
-                      className="w-full h-40 object-cover"
+                      alt={l.title ? `${l.title} görseli` : "İlan görseli"}
+                      className="w-full h-36 sm:h-40 object-cover transition duration-300 group-hover:scale-105"
                     />
                   )}
 
-                  <div className="p-4">
-                    <div className="font-semibold">{l.title}</div>
-                    <div className="text-sm text-gray-600">
-                      {l.brandName} / {l.modelName}
+                  <div className="p-3 sm:p-4">
+                    <div className="text-sm sm:text-base font-semibold">
+                      {l.title}
                     </div>
-                    <div className="font-semibold mt-1">{l.price} TL</div>
+                    <div className="text-[11px] sm:text-xs text-slate-500 mt-1">
+                      {timeAgoTR(l.createdAt) || "-"}
+                    </div>
+                    <div className="text-xs sm:text-sm text-slate-600 mt-1">
+                      {l.categoryName} / {l.subCategoryName}
+                    </div>
+                    <div className="font-semibold mt-2 text-sm sm:text-base">
+                      {formatPriceTRY(l.price)}
+                    </div>
 
                     <button
                       onClick={(e) => handleDelete(e, l.id)}
-                      className="mt-3 text-sm text-red-600 underline"
+                      className="mt-3 text-xs sm:text-sm text-red-600 underline"
                     >
                       Sil
                     </button>
@@ -551,7 +935,7 @@ export default function MyPage() {
                       }
                       router.push(`/ilan-duzenle/${l.id}`);
                     }}
-                    className="absolute bottom-3 right-3 bg-white border rounded-full w-8 h-8 flex items-center justify-center shadow hover:bg-gray-100"
+                    className="absolute bottom-3 right-3 bg-white border rounded-full w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center text-[11px] shadow hover:bg-gray-100"
                     title="İlanı düzenle"
                     disabled={onboardingNeeded}
                   >
@@ -561,8 +945,8 @@ export default function MyPage() {
               ))}
             </div>
           ) : (
-            <ul className="space-y-4">
-              {listings.map((l) => (
+            <ul className="space-y-3 sm:space-y-4">
+              {filteredListings.map((l) => (
                 <li
                   key={l.id}
                   onClick={() => {
@@ -572,29 +956,37 @@ export default function MyPage() {
                     }
                     router.push(`/ilan/${l.id}`);
                   }}
-                  className={`relative border rounded-lg p-4 flex justify-between items-center bg-white cursor-pointer hover:shadow-md ${
+                  className={`relative border border-slate-200 rounded-2xl p-3 sm:p-4 flex justify-between items-center bg-white cursor-pointer transition hover:shadow-lg ${
                     onboardingNeeded ? "pointer-events-none opacity-60" : ""
                   }`}
                 >
-                  <div className="flex gap-4 items-center">
+                  <div className="flex gap-3 sm:gap-4 items-center">
                     {l.imageUrls?.[0] && (
                       <img
                         src={l.imageUrls[0]}
-                        className="w-20 h-20 object-cover rounded"
+                        alt={l.title ? `${l.title} görseli` : "İlan görseli"}
+                        className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-xl"
                       />
                     )}
                     <div>
-                      <div className="font-semibold">{l.title}</div>
-                      <div className="text-sm text-gray-600">
-                        {l.brandName} / {l.modelName}
+                      <div className="text-sm sm:text-base font-semibold">
+                        {l.title}
                       </div>
-                      <div className="font-semibold">{l.price} TL</div>
+                      <div className="text-[11px] sm:text-xs text-slate-500 mt-1">
+                        {timeAgoTR(l.createdAt) || "-"}
+                      </div>
+                      <div className="text-xs sm:text-sm text-slate-600 mt-1">
+                        {l.categoryName} / {l.subCategoryName}
+                      </div>
+                      <div className="font-semibold mt-1 text-sm sm:text-base">
+                        {formatPriceTRY(l.price)}
+                      </div>
                     </div>
                   </div>
 
                   <button
                     onClick={(e) => handleDelete(e, l.id)}
-                    className="text-sm text-red-600 underline"
+                    className="text-xs sm:text-sm text-red-600 underline"
                   >
                     Sil
                   </button>
@@ -608,7 +1000,7 @@ export default function MyPage() {
                       }
                       router.push(`/ilan-duzenle/${l.id}`);
                     }}
-                    className="absolute bottom-3 right-3 bg-white border rounded-full w-8 h-8 flex items-center justify-center shadow hover:bg-gray-100"
+                    className="absolute bottom-3 right-3 bg-white border rounded-full w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center text-[11px] shadow hover:bg-gray-100"
                     title="İlanı düzenle"
                     disabled={onboardingNeeded}
                   >
@@ -619,19 +1011,32 @@ export default function MyPage() {
             </ul>
           )}
 
+          {listingsHasMore && (
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={loadMoreListings}
+                disabled={listingsLoadingMore}
+                className="px-4 py-2 rounded-full border border-slate-200 text-sm bg-white/80 hover:bg-white disabled:opacity-60"
+              >
+                {listingsLoadingMore ? "Yükleniyor…" : "Daha fazla ilan yükle"}
+              </button>
+            </div>
+          )}
+
           {/* ================= ONBOARDING OVERLAY (LISTINGS LOCK) ================= */}
           {onboardingNeeded && (
-            <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] rounded-xl flex items-center justify-center p-6">
-              <div className="max-w-md w-full bg-white border rounded-2xl shadow-lg p-6 text-center">
-                <div className="text-lg font-semibold">
+            <div className="absolute inset-0 bg-[#f7f4ef]/80 backdrop-blur-sm rounded-2xl flex items-center justify-center p-6">
+              <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-lg p-5 sm:p-6 text-center">
+                <div className="text-base sm:text-lg font-semibold">
                   Profilini tamamla, ilanların açılacak
                 </div>
-                <div className="text-sm text-gray-600 mt-2">
+                <div className="text-xs sm:text-sm text-slate-600 mt-2">
                   İlan sayfalarını görüntülemek ve düzenlemek için{" "}
                   <b>İsim + Telefon + Adres</b> bilgilerini kaydetmelisin.
                 </div>
 
-                <div className="mt-4 text-sm text-gray-700 bg-gray-50 border rounded-lg p-3 text-left">
+                <div className="mt-4 text-xs sm:text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3 text-left">
                   <div className="font-medium mb-2">Eksikler:</div>
                   <ul className="list-disc pl-5 space-y-1">
                     {!isValidName(profile.name || "") && (
@@ -647,15 +1052,10 @@ export default function MyPage() {
                 </div>
 
                 <button
-                  onClick={() => {
-                    setProfileMessage("");
-                    setEditingProfile(true);
-                    // Sağ panel visible, sadece kullanıcıya hatırlatma
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                  className="mt-5 w-full bg-blue-600 text-white py-2 rounded-lg"
+                  onClick={startEditingProfile}
+                  className="mt-5 w-full bg-[#1f2a24] text-white py-2 rounded-full text-xs sm:text-sm hover:bg-[#2b3b32] transition"
                 >
-                  Profili Tamamla
+                  Profili tamamla
                 </button>
               </div>
             </div>
@@ -663,51 +1063,67 @@ export default function MyPage() {
         </div>
 
         {/* ================= RIGHT – PROFILE ================= */}
-        <div className="bg-white border rounded-xl p-6 space-y-4 h-fit sticky top-6">
-          <h2 className="text-xl font-bold">Profil Bilgileri (Herkese Açık)</h2>
+        <div className="bg-white/90 border border-white/70 rounded-2xl sm:rounded-3xl p-4 sm:p-6 space-y-4 h-fit sticky top-6 my-fade-up my-fade-delay-3">
+          <h2 className="text-lg sm:text-xl font-semibold">Profil bilgileri</h2>
 
           {/* Onboarding durum etiketi */}
           {onboardingNeeded ? (
-            <div className="text-sm bg-yellow-50 border border-yellow-200 text-yellow-900 rounded-lg p-3">
-              <div className="font-semibold">Onboarding</div>
+            <div className="text-xs sm:text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-3">
+              <div className="font-semibold">Profil eksik</div>
               <div className="mt-1">
                 İlan vermek için profilini tamamlaman gerekiyor.
               </div>
             </div>
           ) : (
-            <div className="text-sm bg-green-50 border border-green-200 text-green-900 rounded-lg p-3">
+            <div className="text-xs sm:text-sm bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl p-3">
               <div className="font-semibold">Profil tamamlandı ✅</div>
               <div className="mt-1">Artık ilanlarını yönetebilirsin.</div>
             </div>
           )}
 
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 sm:p-4">
+            <div className="flex items-center justify-between text-[11px] sm:text-xs uppercase tracking-[0.2em] text-slate-500">
+              <span>Profil tamamlama</span>
+              <span>{completion.percent}%</span>
+            </div>
+            <div className="mt-2 h-2 rounded-full bg-white overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#d7a86e] to-[#c67b5b]"
+                style={{ width: `${completion.percent}%` }}
+              />
+            </div>
+            <div className="mt-2 text-[11px] sm:text-xs text-slate-500">
+              {completion.done}/{completion.total} zorunlu alan
+            </div>
+          </div>
+
           {/* ===== AVATAR (Profil Fotoğrafı) ===== */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4">
             {profile.avatarUrl ? (
               <img
                 src={profile.avatarUrl}
                 alt="Profil fotoğrafı"
-                className="w-20 h-20 rounded-full object-cover border"
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border"
               />
             ) : (
-              <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 border">
-                👤
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-slate-100 flex items-center justify-center text-base sm:text-lg font-semibold text-slate-500 border">
+                {(normalizeSpaces(profile.name || "") || "K")[0].toUpperCase()}
               </div>
             )}
 
             <div className="flex flex-col gap-1">
-              <div className="text-sm text-gray-600">
+              <div className="text-xs sm:text-sm text-slate-600">
                 Profil fotoğrafı (Herkese açık)
               </div>
 
               {!editingProfile ? (
-                <div className="text-xs text-gray-400">
+                <div className="text-[11px] sm:text-xs text-slate-400">
                   Düzenle modunda yükleyebilirsin.
                 </div>
               ) : (
                 <label
-                  className={`text-sm underline cursor-pointer select-none ${
-                    avatarUploading ? "text-gray-400" : "text-blue-700"
+                  className={`text-xs sm:text-sm underline cursor-pointer select-none ${
+                    avatarUploading ? "text-slate-400" : "text-[#1f2a24]"
                   }`}
                 >
                   {avatarUploading ? "Yükleniyor..." : "Fotoğraf Yükle"}
@@ -728,7 +1144,7 @@ export default function MyPage() {
               )}
 
               {editingProfile && (
-                <div className="text-xs text-gray-400">
+                <div className="text-[11px] sm:text-xs text-slate-400">
                   JPG/PNG/WEBP, max 2MB
                 </div>
               )}
@@ -737,10 +1153,10 @@ export default function MyPage() {
 
           <input
             disabled={!editingProfile}
-            className={`w-full border rounded-lg px-4 py-2 disabled:bg-gray-100 ${
+            className={`w-full border rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100 ${
               onboardingNeeded && editingProfile && !isValidName(profile.name || "")
                 ? "border-red-300"
-                : ""
+                : "border-slate-200"
             }`}
             value={profile.name}
             onChange={(e) => setProfile({ ...profile, name: e.target.value })}
@@ -750,7 +1166,7 @@ export default function MyPage() {
           <textarea
             disabled={!editingProfile}
             rows={3}
-            className="w-full border rounded-lg px-4 py-2 disabled:bg-gray-100"
+            className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
             value={profile.bio}
             onChange={(e) => setProfile({ ...profile, bio: e.target.value })}
             placeholder="Tanıtım"
@@ -758,12 +1174,12 @@ export default function MyPage() {
 
           <input
             disabled={!editingProfile}
-            className={`w-full border rounded-lg px-4 py-2 disabled:bg-gray-100 ${
+            className={`w-full border rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100 ${
               onboardingNeeded &&
               editingProfile &&
               !isValidAddress(profile.address || "")
                 ? "border-red-300"
-                : ""
+                : "border-slate-200"
             }`}
             value={profile.address}
             onChange={(e) =>
@@ -774,7 +1190,7 @@ export default function MyPage() {
 
           {profile.address && (
             <iframe
-              className="w-full h-40 rounded border"
+              className="w-full h-36 rounded-2xl border border-slate-200"
               src={`https://www.google.com/maps?q=${encodeURIComponent(
                 profile.address
               )}&output=embed`}
@@ -783,10 +1199,10 @@ export default function MyPage() {
 
           <input
             disabled={!editingProfile}
-            className={`w-full border rounded-lg px-4 py-2 disabled:bg-gray-100 ${
+            className={`w-full border rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100 ${
               onboardingNeeded && editingProfile && !isValidPhone(profile.phone || "")
                 ? "border-red-300"
-                : ""
+                : "border-slate-200"
             }`}
             value={profile.phone}
             onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
@@ -794,12 +1210,14 @@ export default function MyPage() {
           />
 
           {editingProfile && getPhoneHint(profile.phone || "") && (
-            <div className="text-xs text-gray-500">{getPhoneHint(profile.phone || "")}</div>
+            <div className="text-[11px] sm:text-xs text-slate-500">
+              {getPhoneHint(profile.phone || "")}
+            </div>
           )}
 
           <input
             disabled={!editingProfile}
-            className="w-full border rounded-lg px-4 py-2 disabled:bg-gray-100"
+            className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
             value={profile.websiteInstagram}
             onChange={(e) =>
               setProfile({ ...profile, websiteInstagram: e.target.value })
@@ -813,48 +1231,79 @@ export default function MyPage() {
                 setProfileMessage("");
                 setEditingProfile(true);
               }}
-              className="w-full border py-2 rounded"
+              className="w-full border border-slate-200 py-2 rounded-full text-xs sm:text-sm font-medium hover:border-slate-400 transition"
             >
               {onboardingNeeded ? "Profili Tamamla" : "Profili Düzenle"}
             </button>
           ) : (
-            <button
-              onClick={saveProfile}
-              disabled={
-                profileSaving ||
-                avatarUploading ||
-                (onboardingNeeded && !requiredOk)
-              }
-              className="w-full bg-blue-600 text-white py-2 rounded disabled:opacity-60"
-              title={
-                onboardingNeeded && !requiredOk
-                  ? "İsim + Telefon + Adres tamamlanmadan kaydedemezsin"
-                  : undefined
-              }
-            >
-              {profileSaving ? "Kaydediliyor..." : onboardingNeeded ? "Kaydet ve Devam Et" : "Kaydet"}
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                onClick={saveProfile}
+                disabled={
+                  profileSaving ||
+                  avatarUploading ||
+                  (onboardingNeeded && !requiredOk)
+                }
+                className="w-full bg-[#1f2a24] text-white py-2 rounded-full text-xs sm:text-sm font-medium disabled:opacity-60"
+                title={
+                  onboardingNeeded && !requiredOk
+                    ? "İsim + Telefon + Adres tamamlanmadan kaydedemezsin"
+                    : undefined
+                }
+              >
+                {profileSaving
+                  ? "Kaydediliyor..."
+                  : onboardingNeeded
+                  ? "Kaydet ve Devam Et"
+                  : "Kaydet"}
+              </button>
+              <button
+                onClick={cancelEditingProfile}
+                className="w-full border border-slate-200 py-2 rounded-full text-xs sm:text-sm font-medium hover:border-slate-400 transition"
+              >
+                Vazgeç
+              </button>
+            </div>
           )}
 
           {editingProfile && onboardingNeeded && !requiredOk && (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+            <div className="text-xs sm:text-sm text-red-700 bg-red-50 border border-red-200 rounded-2xl p-3">
               İlan verebilmek için zorunlu alanları doldur:{" "}
               <b>İsim</b>, <b>Telefon</b>, <b>Adres</b>.
             </div>
           )}
 
           {profileMessage && (
-            <div className="text-sm text-center">{profileMessage}</div>
+            <div
+              className={`text-xs sm:text-sm border rounded-2xl px-4 py-3 ${profileMessageTone}`}
+            >
+              {profileMessage}
+            </div>
           )}
 
           {/* Onboarding modunda kullanıcının “kaçmasını” engelleyen küçük not */}
           {onboardingNeeded && (
-            <div className="text-xs text-gray-500 text-center pt-2">
+            <div className="text-[11px] sm:text-xs text-slate-500 text-center pt-2">
               Profil tamamlanmadan ilanlarını yönetemezsin.
             </div>
           )}
         </div>
       </div>
+      </div>
     </div>
+  );
+}
+
+export default function MyPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center text-slate-600">
+          Yükleniyor...
+        </div>
+      }
+    >
+      <MyPageInner />
+    </Suspense>
   );
 }

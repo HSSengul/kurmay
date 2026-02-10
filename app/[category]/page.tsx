@@ -21,20 +21,21 @@ import {
   QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { getCategoriesCached, getSubCategoriesCached } from "@/lib/catalogCache";
 
 /* ================= TYPES ================= */
 
-type Brand = {
+type Category = {
   id: string;
   name: string;
   nameLower: string;
 };
 
-type Model = {
+type SubCategory = {
   id: string;
   name: string;
   nameLower: string;
-  brandId?: string;
+  categoryId?: string;
 };
 
 type Listing = {
@@ -42,11 +43,11 @@ type Listing = {
   title?: string;
   price?: number;
 
-  brandId?: string;
-  brandName?: string;
+  categoryId?: string;
+  categoryName?: string;
 
-  modelId?: string;
-  modelName?: string;
+  subCategoryId?: string;
+  subCategoryName?: string;
 
   productionYear?: string | null;
   gender?: string;
@@ -75,6 +76,16 @@ const safeText = (v?: string, fallback = "—") => {
 
 const normTR = (v?: string) =>
   normalizeSpaces(v || "").toLocaleLowerCase("tr-TR");
+
+const normTRAscii = (v?: string) =>
+  normTR(v)
+    .replaceAll("ı", "i")
+    .replaceAll("ş", "s")
+    .replaceAll("ğ", "g")
+    .replaceAll("ü", "u")
+    .replaceAll("ö", "o")
+    .replaceAll("ç", "c")
+    .replaceAll("İ", "i");
 
 const formatPriceTRY = (v?: number) => {
   const n = Number(v);
@@ -163,18 +174,20 @@ const cleanDigits = (v: string) => (v || "").replace(/[^\d]/g, "");
 
 /* ================= PAGE ================= */
 
-export default function BrandPage() {
-  const params = useParams<{ brand: string }>();
+export default function CategoryPage() {
+  const params = useParams<{ category: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
 
-  const brandSlug = params?.brand;
+  const categorySlug = params?.category
+    ? decodeURIComponent(params.category)
+    : "";
 
   /* ================= DATA ================= */
 
-  const [brand, setBrand] = useState<Brand | null>(null);
-  const [models, setModels] = useState<Model[]>([]);
+  const [category, setCategory] = useState<Category | null>(null);
+  const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
 
   // ✅ Pagination ile yüklenen ham ilanlar
   const [listingsRaw, setListingsRaw] = useState<Listing[]>([]);
@@ -215,7 +228,7 @@ export default function BrandPage() {
 
   /* ================= FILTER STATES ================= */
 
-  const [modelId, setModelId] = useState("");
+  const [subCategoryId, setSubCategoryId] = useState("");
 
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
@@ -224,12 +237,6 @@ export default function BrandPage() {
   const [yearMax, setYearMax] = useState("");
 
   const [gender, setGender] = useState("");
-  const [movementType, setMovementType] = useState("");
-  const [caseType, setCaseType] = useState("");
-  const [braceletMaterial, setBraceletMaterial] = useState("");
-
-  const [diaMin, setDiaMin] = useState("");
-  const [diaMax, setDiaMax] = useState("");
 
   const [wearFilter, setWearFilter] = useState<"" | "wear" | "noWear">("");
 
@@ -247,89 +254,28 @@ export default function BrandPage() {
     []
   );
 
-  const movementOptions = useMemo(
-    () => ["Otomatik", "Quartz", "Manual", "Diğer"],
-    []
-  );
-
-  const caseTypeOptions = useMemo(
-    () => [
-      "Çelik",
-      "Titanyum",
-      "Altın",
-      "Seramik",
-      "Karbon",
-      "Bronz",
-      "Gümüş",
-      "Platin",
-      "Diğer",
-    ],
-    []
-  );
-
-  const braceletMaterialOptions = useMemo(
-    () => [
-      "Çelik",
-      "Deri",
-      "Kauçuk",
-      "NATO",
-      "Titanyum",
-      "Tekstil",
-      "Seramik",
-      "Diğer",
-    ],
-    []
-  );
-
-  const diameterOptions = useMemo(() => {
-    return [
-      "28",
-      "30",
-      "32",
-      "34",
-      "35",
-      "36",
-      "37",
-      "38",
-      "39",
-      "40",
-      "41",
-      "42",
-      "43",
-      "44",
-      "45",
-      "46",
-      "48",
-    ];
-  }, []);
-
   /* ================= URL SYNC (INIT) ================= */
 
   const didInitFromUrl = useRef(false);
   const lastReplacedUrl = useRef<string>("");
 
-  // Brand slug değişince URL init’i tekrar izin ver
+  // Category slug değişince URL init’i tekrar izin ver
   useEffect(() => {
     didInitFromUrl.current = false;
-  }, [brandSlug]);
+  }, [categorySlug]);
 
   useEffect(() => {
-    if (!brandSlug) return;
+    if (!categorySlug) return;
     if (didInitFromUrl.current) return;
 
     // ✅ URL’den filtreleri state’e bas
     const q = searchParams.get("q") || "";
-    const model = searchParams.get("modelId") || "";
+    const subCategory = searchParams.get("subCategoryId") || "";
     const minP = searchParams.get("minPrice") || "";
     const maxP = searchParams.get("maxPrice") || "";
     const yMin = searchParams.get("yearMin") || "";
     const yMax = searchParams.get("yearMax") || "";
     const g = searchParams.get("gender") || "";
-    const mv = searchParams.get("movementType") || "";
-    const ct = searchParams.get("caseType") || "";
-    const bm = searchParams.get("braceletMaterial") || "";
-    const dMin = searchParams.get("diaMin") || "";
-    const dMax = searchParams.get("diaMax") || "";
     const wear = (searchParams.get("wear") || "") as "" | "wear" | "noWear";
 
     const sort = (searchParams.get("sort") || "newest") as
@@ -340,7 +286,7 @@ export default function BrandPage() {
     const view = (searchParams.get("view") || "grid") as "grid" | "list";
 
     setSearchText(q);
-    setModelId(model);
+    setSubCategoryId(subCategory);
 
     setMinPrice(cleanDigits(minP));
     setMaxPrice(cleanDigits(maxP));
@@ -349,12 +295,6 @@ export default function BrandPage() {
     setYearMax(cleanDigits(yMax));
 
     setGender(pickEnum(g, genderOptions));
-    setMovementType(pickEnum(mv, movementOptions));
-    setCaseType(pickEnum(ct, caseTypeOptions));
-    setBraceletMaterial(pickEnum(bm, braceletMaterialOptions));
-
-    setDiaMin(cleanDigits(dMin));
-    setDiaMax(cleanDigits(dMax));
 
     setWearFilter(wear === "wear" || wear === "noWear" ? wear : "");
 
@@ -365,14 +305,10 @@ export default function BrandPage() {
     setPageSize(24);
 
     didInitFromUrl.current = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    brandSlug,
+    categorySlug,
     searchParams,
     genderOptions,
-    movementOptions,
-    caseTypeOptions,
-    braceletMaterialOptions,
   ]);
 
   /* ================= URL SYNC (STATE → URL) ================= */
@@ -384,7 +320,7 @@ export default function BrandPage() {
     const sp = new URLSearchParams();
 
     if (searchText.trim()) sp.set("q", searchText.trim());
-    if (modelId) sp.set("modelId", modelId);
+    if (subCategoryId) sp.set("subCategoryId", subCategoryId);
 
     if (minPrice.trim()) sp.set("minPrice", minPrice.trim());
     if (maxPrice.trim()) sp.set("maxPrice", maxPrice.trim());
@@ -393,12 +329,6 @@ export default function BrandPage() {
     if (yearMax.trim()) sp.set("yearMax", yearMax.trim());
 
     if (gender.trim()) sp.set("gender", gender.trim());
-    if (movementType.trim()) sp.set("movementType", movementType.trim());
-    if (caseType.trim()) sp.set("caseType", caseType.trim());
-    if (braceletMaterial.trim()) sp.set("braceletMaterial", braceletMaterial.trim());
-
-    if (diaMin.trim()) sp.set("diaMin", diaMin.trim());
-    if (diaMax.trim()) sp.set("diaMax", diaMax.trim());
 
     if (wearFilter) sp.set("wear", wearFilter);
 
@@ -425,17 +355,12 @@ export default function BrandPage() {
     router,
     pathname,
     searchText,
-    modelId,
+    subCategoryId,
     minPrice,
     maxPrice,
     yearMin,
     yearMax,
     gender,
-    movementType,
-    caseType,
-    braceletMaterial,
-    diaMin,
-    diaMax,
     wearFilter,
     sortMode,
     viewMode,
@@ -444,17 +369,12 @@ export default function BrandPage() {
   /* ================= FILTER UTIL ================= */
 
   const clearFilters = () => {
-    setModelId("");
+    setSubCategoryId("");
     setMinPrice("");
     setMaxPrice("");
     setYearMin("");
     setYearMax("");
     setGender("");
-    setMovementType("");
-    setCaseType("");
-    setBraceletMaterial("");
-    setDiaMin("");
-    setDiaMax("");
     setWearFilter("");
     setSearchText("");
     setSortMode("newest");
@@ -464,34 +384,24 @@ export default function BrandPage() {
 
   const appliedFiltersCount = useMemo(() => {
     let c = 0;
-    if (modelId.trim()) c++;
+    if (subCategoryId.trim()) c++;
     if (minPrice.trim()) c++;
     if (maxPrice.trim()) c++;
     if (yearMin.trim()) c++;
     if (yearMax.trim()) c++;
     if (gender.trim()) c++;
-    if (movementType.trim()) c++;
-    if (caseType.trim()) c++;
-    if (braceletMaterial.trim()) c++;
-    if (diaMin.trim()) c++;
-    if (diaMax.trim()) c++;
     if (wearFilter) c++;
     if (searchText.trim()) c++;
     if (sortMode !== "newest") c++;
     if (viewMode !== "grid") c++;
     return c;
   }, [
-    modelId,
+    subCategoryId,
     minPrice,
     maxPrice,
     yearMin,
     yearMax,
     gender,
-    movementType,
-    caseType,
-    braceletMaterial,
-    diaMin,
-    diaMax,
     wearFilter,
     searchText,
     sortMode,
@@ -502,10 +412,10 @@ export default function BrandPage() {
 
   const LISTINGS_BATCH = 60;
 
-  const fetchFirstPage = async (brandId: string) => {
+  const fetchFirstPage = async (categoryId: string) => {
     const q = query(
       collection(db, "listings"),
-      where("brandId", "==", brandId),
+      where("categoryId", "==", categoryId),
       orderBy("createdAt", "desc"),
       limit(LISTINGS_BATCH)
     );
@@ -521,7 +431,7 @@ export default function BrandPage() {
     setListingsRaw(page);
   };
 
-  const fetchMore = async (brandId: string) => {
+  const fetchMore = async (categoryId: string) => {
     if (!hasMore) return;
     if (loadingMore) return;
 
@@ -535,7 +445,7 @@ export default function BrandPage() {
     try {
       const q = query(
         collection(db, "listings"),
-        where("brandId", "==", brandId),
+        where("categoryId", "==", categoryId),
         orderBy("createdAt", "desc"),
         startAfter(cursor),
         limit(LISTINGS_BATCH)
@@ -565,7 +475,7 @@ export default function BrandPage() {
   };
 
   useEffect(() => {
-    if (!brandSlug) return;
+    if (!categorySlug) return;
 
     let cancelled = false;
 
@@ -580,42 +490,49 @@ export default function BrandPage() {
         setHasMore(true);
         setTotalCount(null);
 
-        // 1) BRAND
-        const brandSnap = await getDocs(
-          query(collection(db, "brands"), where("nameLower", "==", brandSlug))
-        );
+        // 1) CATEGORY
+        const categoryDocs = (await getCategoriesCached()).map((d: any) => ({
+          id: d.id,
+          ...(d as any),
+        }));
+        const key = normTRAscii(categorySlug);
+        const matchCategory = categoryDocs.find((c) => {
+          const keys = [c.id, c.slug, c.nameLower, c.name].map((x) =>
+            normTRAscii(x)
+          );
+          return keys.includes(key);
+        });
 
-        if (brandSnap.empty) throw new Error("Marka bulunamadı.");
+        if (!matchCategory) throw new Error("Kategori bulunamadı.");
 
-        const bDoc = brandSnap.docs[0];
-        const b: Brand = {
-          id: bDoc.id,
-          name: bDoc.data().name,
-          nameLower: bDoc.data().nameLower,
+        const b: Category = {
+          id: matchCategory.id,
+          name: matchCategory.name,
+          nameLower: matchCategory.nameLower,
         };
 
         if (cancelled) return;
-        setBrand(b);
+        setCategory(b);
 
-        // 2) MODELS
-        const modelsSnap = await getDocs(
-          query(
-            collection(db, "models"),
-            where("brandId", "==", b.id),
-            orderBy("nameLower", "asc")
-          )
+        // 2) SUBCATEGORIES
+        const subDocs = (await getSubCategoriesCached()).filter(
+          (s: any) => s.categoryId === b.id
         );
 
         if (cancelled) return;
 
-        const ms = modelsSnap.docs.map((d) => ({
-          id: d.id,
-          name: d.data().name,
-          nameLower: d.data().nameLower,
-          brandId: d.data().brandId,
-        })) as Model[];
+        const ms = subDocs
+          .map((d: any) => ({
+            id: d.id,
+            name: d.name,
+            nameLower: d.nameLower,
+            categoryId: d.categoryId,
+          }))
+          .sort((a: any, b: any) =>
+            (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
+          ) as SubCategory[];
 
-        setModels(Array.isArray(ms) ? ms : []);
+        setSubCategories(Array.isArray(ms) ? ms : []);
 
         // 3) LISTINGS FIRST PAGE (pagination)
         await fetchFirstPage(b.id);
@@ -623,7 +540,7 @@ export default function BrandPage() {
         // 4) OPTIONAL COUNT (sessiz fail)
         try {
           const countSnap = await getCountFromServer(
-            query(collection(db, "listings"), where("brandId", "==", b.id))
+            query(collection(db, "listings"), where("categoryId", "==", b.id))
           );
           if (!cancelled) setTotalCount(countSnap.data().count);
         } catch (e) {
@@ -642,29 +559,29 @@ export default function BrandPage() {
     return () => {
       cancelled = true;
     };
-  }, [brandSlug]);
+  }, [categorySlug]);
 
   /* ================= MODEL COUNTS (popülerlik) ================= */
 
-  const modelCounts = useMemo(() => {
+  const subCategoryCounts = useMemo(() => {
     const acc: Record<string, number> = {};
     listingsRaw.forEach((l) => {
-      if (!l.modelId) return;
-      acc[l.modelId] = (acc[l.modelId] || 0) + 1;
+      if (!l.subCategoryId) return;
+      acc[l.subCategoryId] = (acc[l.subCategoryId] || 0) + 1;
     });
     return acc;
   }, [listingsRaw]);
 
-  const popularModels = useMemo(() => {
-    const arr = [...models];
+  const popularSubCategories = useMemo(() => {
+    const arr = [...subCategories];
     arr.sort((a, b) => {
-      const ac = modelCounts[a.id] || 0;
-      const bc = modelCounts[b.id] || 0;
+      const ac = subCategoryCounts[a.id] || 0;
+      const bc = subCategoryCounts[b.id] || 0;
       if (bc !== ac) return bc - ac;
       return (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr");
     });
     return arr;
-  }, [models, modelCounts]);
+  }, [subCategories, subCategoryCounts]);
 
   /* ================= FILTER + SORT + LIMIT ================= */
 
@@ -675,25 +592,18 @@ export default function BrandPage() {
     const yMin = toIntOrNull(yearMin);
     const yMax = toIntOrNull(yearMax);
 
-    const dMin = toNumOrNull(diaMin);
-    const dMax = toNumOrNull(diaMax);
-
     const g = normTR(gender);
-    const mv = normTR(movementType);
-    const ct = normTR(caseType);
-    const bm = normTR(braceletMaterial);
-
     const q = normTR(searchDebounced);
 
     return listingsRaw.filter((l) => {
-      // model
-      if (modelId) {
-        if ((l.modelId || "") !== modelId) return false;
+      // subCategory
+      if (subCategoryId) {
+        if ((l.subCategoryId || "") !== subCategoryId) return false;
       }
 
       // search
       if (q) {
-        const hay = `${l.title || ""} ${l.modelName || ""} ${l.brandName || ""}`
+        const hay = `${l.title || ""} ${l.subCategoryName || ""} ${l.categoryName || ""}`
           .toLocaleLowerCase("tr-TR")
           .trim();
         if (!hay.includes(q)) return false;
@@ -725,36 +635,6 @@ export default function BrandPage() {
         if (lg !== g) return false;
       }
 
-      // movement
-      if (mv) {
-        const lm = normTR(l.movementType || "");
-        if (!lm) return false;
-        if (lm !== mv) return false;
-      }
-
-      // case type
-      if (ct) {
-        const lc = normTR(l.caseType || "");
-        if (!lc) return false;
-        if (lc !== ct && !lc.includes(ct)) return false;
-      }
-
-      // bracelet material
-      if (bm) {
-        const lbm = normTR(l.braceletMaterial || "");
-        if (!lbm) return false;
-        if (lbm !== bm && !lbm.includes(bm)) return false;
-      }
-
-      // diameter
-      const dia = getDiaNumber(l.diameterMm ?? null);
-      if (dMin !== null) {
-        if (dia === null || dia < dMin) return false;
-      }
-      if (dMax !== null) {
-        if (dia === null || dia > dMax) return false;
-      }
-
       // wear
       if (wearFilter === "wear") {
         if (l.wearExists !== true) return false;
@@ -767,17 +647,12 @@ export default function BrandPage() {
     });
   }, [
     listingsRaw,
-    modelId,
+    subCategoryId,
     minPrice,
     maxPrice,
     yearMin,
     yearMax,
     gender,
-    movementType,
-    caseType,
-    braceletMaterial,
-    diaMin,
-    diaMax,
     wearFilter,
     searchDebounced,
   ]);
@@ -825,39 +700,23 @@ export default function BrandPage() {
 
   // ✅ kullanıcı daha fazla isterse, ham veriyi de büyüt
   useEffect(() => {
-    if (!brand?.id) return;
+    if (!category?.id) return;
     if (!hasMore) return;
     if (loadingMore) return;
 
     // pageSize > listingsRaw.length ise Firestore’dan yeni sayfa çek
     if (pageSize > listingsRaw.length) {
-      fetchMore(brand.id);
+      fetchMore(category.id);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageSize, listingsRaw.length, brand?.id, hasMore, loadingMore]);
+  }, [pageSize, listingsRaw.length, category?.id, hasMore, loadingMore]);
 
   /* ================= PRESETS (Hızlı Filtreler) ================= */
 
   const applyPreset = (p: string) => {
-    if (p === "auto") {
-      setMovementType("Otomatik");
-      setSortMode("newest");
-      return;
-    }
-    if (p === "quartz") {
-      setMovementType("Quartz");
-      setSortMode("newest");
-      return;
-    }
     if (p === "year2020") {
       setYearMin("2020");
       setYearMax("");
       setSortMode("newest");
-      return;
-    }
-    if (p === "size3640") {
-      setDiaMin("36");
-      setDiaMax("40");
       return;
     }
     if (p === "noWear") {
@@ -874,16 +733,16 @@ export default function BrandPage() {
 
   /* ================= ACTIVE FILTER BADGES ================= */
 
-  const selectedModel = modelId ? models.find((m) => m.id === modelId) : null;
+  const selectedSubCategory = subCategoryId ? subCategories.find((m) => m.id === subCategoryId) : null;
 
   const activeBadges = useMemo(() => {
     const items: { key: string; label: string; onClear: () => void }[] = [];
 
-    if (selectedModel) {
+    if (selectedSubCategory) {
       items.push({
-        key: "model",
-        label: `Model: ${selectedModel.name}`,
-        onClear: () => setModelId(""),
+        key: "subCategory",
+        label: `Alt kategori: ${selectedSubCategory.name}`,
+        onClear: () => setSubCategoryId(""),
       });
     }
 
@@ -935,46 +794,6 @@ export default function BrandPage() {
       });
     }
 
-    if (movementType.trim()) {
-      items.push({
-        key: "movement",
-        label: `Çalışma: ${movementType}`,
-        onClear: () => setMovementType(""),
-      });
-    }
-
-    if (caseType.trim()) {
-      items.push({
-        key: "caseType",
-        label: `Kasa: ${caseType}`,
-        onClear: () => setCaseType(""),
-      });
-    }
-
-    if (braceletMaterial.trim()) {
-      items.push({
-        key: "bracelet",
-        label: `Kordon: ${braceletMaterial}`,
-        onClear: () => setBraceletMaterial(""),
-      });
-    }
-
-    if (diaMin.trim()) {
-      items.push({
-        key: "diaMin",
-        label: `Çap ≥ ${diaMin}mm`,
-        onClear: () => setDiaMin(""),
-      });
-    }
-
-    if (diaMax.trim()) {
-      items.push({
-        key: "diaMax",
-        label: `Çap ≤ ${diaMax}mm`,
-        onClear: () => setDiaMax(""),
-      });
-    }
-
     if (wearFilter) {
       items.push({
         key: "wear",
@@ -1004,18 +823,13 @@ export default function BrandPage() {
 
     return items;
   }, [
-    selectedModel,
+    selectedSubCategory,
     searchText,
     minPrice,
     maxPrice,
     yearMin,
     yearMax,
     gender,
-    movementType,
-    caseType,
-    braceletMaterial,
-    diaMin,
-    diaMax,
     wearFilter,
     sortMode,
     viewMode,
@@ -1062,7 +876,7 @@ export default function BrandPage() {
     );
   }
 
-  if (!brand) return null;
+  if (!category) return null;
 
   const loadedCount = listingsRaw.length;
   const totalShow = totalCount === null ? `${loadedCount}` : `${totalCount}`;
@@ -1078,16 +892,16 @@ export default function BrandPage() {
             Ana sayfa
           </Link>
           <span className="mx-2">/</span>
-          <span className="text-gray-900 font-medium">{brand.name}</span>
+          <span className="text-gray-900 font-medium">{category.name}</span>
         </div>
 
         {/* ================= HERO ================= */}
         <div className="bg-white rounded-2xl shadow p-6 sm:p-8">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
             <div className="space-y-2">
-              <h1 className="text-2xl sm:text-3xl font-bold">{brand.name}</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold">{category.name}</h1>
               <div className="text-gray-600">
-                {brand.name} ilanlarını keşfet. Model seç, filtrele, sırala.
+                {category.name} ilanlarını keşfet. Alt kategori seç, filtrele, sırala.
               </div>
 
               <div className="text-sm text-gray-500 mt-2">
@@ -1099,11 +913,11 @@ export default function BrandPage() {
                 <span className="font-semibold text-gray-800">
                   {sortedListings.length}
                 </span>
-                {selectedModel ? (
+                {selectedSubCategory ? (
                   <>
-                    {"  "}• Model:{" "}
+                    {"  "}• Alt kategori:{" "}
                     <span className="font-semibold text-gray-800">
-                      {selectedModel.name}
+                      {selectedSubCategory.name}
                     </span>
                   </>
                 ) : null}
@@ -1151,12 +965,12 @@ export default function BrandPage() {
           {/* ================= SEARCH + MODEL ================= */}
           <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-3">
             <div className="lg:col-span-2">
-              <div className="text-xs text-gray-500 mb-1">Marka içinde ara</div>
+              <div className="text-xs text-gray-500 mb-1">Kategori içinde ara</div>
               <input
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 className="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-200"
-                placeholder="İlan başlığı, model adı..."
+                placeholder="İlan başlığı, subCategory adı..."
               />
               <div className="text-[11px] text-gray-500 mt-1">
                 URL senkron ✅ (paylaşılabilir link).
@@ -1164,58 +978,58 @@ export default function BrandPage() {
             </div>
 
             <div>
-              <div className="text-xs text-gray-500 mb-1">Model seç</div>
+              <div className="text-xs text-gray-500 mb-1">Alt kategori seç</div>
               <select
-                value={modelId}
-                onChange={(e) => setModelId(e.target.value)}
+                value={subCategoryId}
+                onChange={(e) => setSubCategoryId(e.target.value)}
                 className="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-200"
               >
-                <option value="">Tüm modeller</option>
-                {models.map((m) => (
+                <option value="">Tüm subCategoryler</option>
+                {subCategories.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name} ({modelCounts[m.id] || 0})
+                    {m.name} ({subCategoryCounts[m.id] || 0})
                   </option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* Popüler model chips */}
-          {popularModels.length > 0 && (
+          {/* Popüler subCategory chips */}
+          {popularSubCategories.length > 0 && (
             <div className="mt-4 flex items-center gap-2 overflow-x-auto pb-1">
               <button
                 type="button"
-                onClick={() => setModelId("")}
+                onClick={() => setSubCategoryId("")}
                 className={`shrink-0 px-4 py-2 rounded-full border text-sm transition ${
-                  modelId === "" ? "bg-gray-100 font-semibold" : "hover:bg-gray-50"
+                  subCategoryId === "" ? "bg-gray-100 font-semibold" : "hover:bg-gray-50"
                 }`}
               >
                 Tümü{" "}
                 <span className="ml-1 text-xs text-gray-500">{loadedCount}</span>
               </button>
 
-              {popularModels.slice(0, 14).map((m) => (
+              {popularSubCategories.slice(0, 14).map((m) => (
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => setModelId(m.id)}
+                  onClick={() => setSubCategoryId(m.id)}
                   className={`shrink-0 px-4 py-2 rounded-full border text-sm transition ${
-                    modelId === m.id ? "bg-gray-100 font-semibold" : "hover:bg-gray-50"
+                    subCategoryId === m.id ? "bg-gray-100 font-semibold" : "hover:bg-gray-50"
                   }`}
                 >
                   {m.name}
                   <span className="ml-2 text-xs text-gray-500">
-                    {modelCounts[m.id] || 0}
+                    {subCategoryCounts[m.id] || 0}
                   </span>
                 </button>
               ))}
 
-              {selectedModel && (
+              {selectedSubCategory && (
                 <Link
-                  href={`/${brand.nameLower}/${selectedModel.nameLower}`}
+                  href={`/${category.nameLower}/${selectedSubCategory.nameLower}`}
                   className="shrink-0 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"
                 >
-                  Modele git →
+                  Alt kategoriye git →
                 </Link>
               )}
             </div>
@@ -1312,31 +1126,10 @@ export default function BrandPage() {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => applyPreset("auto")}
-                className="px-3 py-2 rounded-full border text-sm hover:bg-gray-50"
-              >
-                Otomatik
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset("quartz")}
-                className="px-3 py-2 rounded-full border text-sm hover:bg-gray-50"
-              >
-                Quartz
-              </button>
-              <button
-                type="button"
                 onClick={() => applyPreset("year2020")}
                 className="px-3 py-2 rounded-full border text-sm hover:bg-gray-50"
               >
                 2020+
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset("size3640")}
-                className="px-3 py-2 rounded-full border text-sm hover:bg-gray-50"
-              >
-                36–40mm
               </button>
               <button
                 type="button"
@@ -1353,11 +1146,11 @@ export default function BrandPage() {
                 50K altı
               </button>
 
-              {brand?.id && hasMore && (
+              {category?.id && hasMore && (
                 <button
                   type="button"
                   disabled={loadingMore}
-                  onClick={() => fetchMore(brand.id)}
+                  onClick={() => fetchMore(category.id)}
                   className={`px-3 py-2 rounded-full border text-sm ${
                     loadingMore ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
                   }`}
@@ -1422,18 +1215,18 @@ export default function BrandPage() {
                 </summary>
 
                 <div className="mt-3 space-y-3">
-                  {/* Model */}
+                  {/* Alt kategori */}
                   <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Model</div>
+                    <div className="text-xs text-gray-500">Alt kategori</div>
                     <select
-                      value={modelId}
-                      onChange={(e) => setModelId(e.target.value)}
+                      value={subCategoryId}
+                      onChange={(e) => setSubCategoryId(e.target.value)}
                       className="w-full border rounded-xl px-3 py-2 text-sm"
                     >
                       <option value="">Hepsi</option>
-                      {models.map((m) => (
+                      {subCategories.map((m) => (
                         <option key={m.id} value={m.id}>
-                          {m.name} ({modelCounts[m.id] || 0})
+                          {m.name} ({subCategoryCounts[m.id] || 0})
                         </option>
                       ))}
                     </select>
@@ -1492,37 +1285,6 @@ export default function BrandPage() {
                     </div>
                   </div>
 
-                  {/* Diameter */}
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Çap (mm)</div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <select
-                        value={diaMin}
-                        onChange={(e) => setDiaMin(cleanDigits(e.target.value))}
-                        className="w-full border rounded-xl px-3 py-2 text-sm"
-                      >
-                        <option value="">Min</option>
-                        {diameterOptions.map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </select>
-
-                      <select
-                        value={diaMax}
-                        onChange={(e) => setDiaMax(cleanDigits(e.target.value))}
-                        className="w-full border rounded-xl px-3 py-2 text-sm"
-                      >
-                        <option value="">Max</option>
-                        {diameterOptions.map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
                 </div>
               </details>
 
@@ -1542,57 +1304,6 @@ export default function BrandPage() {
                     >
                       <option value="">Hepsi</option>
                       {genderOptions.map((x) => (
-                        <option key={x} value={x}>
-                          {x}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Movement */}
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Çalışma şekli</div>
-                    <select
-                      value={movementType}
-                      onChange={(e) => setMovementType(e.target.value)}
-                      className="w-full border rounded-xl px-3 py-2 text-sm"
-                    >
-                      <option value="">Hepsi</option>
-                      {movementOptions.map((x) => (
-                        <option key={x} value={x}>
-                          {x}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Case */}
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Kasa tipi</div>
-                    <select
-                      value={caseType}
-                      onChange={(e) => setCaseType(e.target.value)}
-                      className="w-full border rounded-xl px-3 py-2 text-sm"
-                    >
-                      <option value="">Hepsi</option>
-                      {caseTypeOptions.map((x) => (
-                        <option key={x} value={x}>
-                          {x}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Bracelet */}
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Kordon malzemesi</div>
-                    <select
-                      value={braceletMaterial}
-                      onChange={(e) => setBraceletMaterial(e.target.value)}
-                      className="w-full border rounded-xl px-3 py-2 text-sm"
-                    >
-                      <option value="">Hepsi</option>
-                      {braceletMaterialOptions.map((x) => (
                         <option key={x} value={x}>
                           {x}
                         </option>
@@ -1659,11 +1370,11 @@ export default function BrandPage() {
                 Filtreleri sıfırla
               </button>
 
-              {brand?.id && hasMore && (
+              {category?.id && hasMore && (
                 <button
                   type="button"
                   disabled={loadingMore}
-                  onClick={() => fetchMore(brand.id)}
+                  onClick={() => fetchMore(category.id)}
                   className={`border rounded-xl px-6 py-3 font-semibold ${
                     loadingMore ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
                   }`}
@@ -1680,7 +1391,6 @@ export default function BrandPage() {
               const ago = timeAgoTR(l.createdAt);
 
               const y = getYearNumber(l.productionYear);
-              const dia = getDiaNumber(l.diameterMm ?? null);
 
               return (
                 <Link key={l.id} href={`/ilan/${l.id}`} className="block">
@@ -1708,8 +1418,8 @@ export default function BrandPage() {
                       </div>
 
                       <div className="text-xs text-gray-500">
-                        {safeText(l.brandName, brand.name)}
-                        {l.modelName ? ` / ${l.modelName}` : ""}
+                        {safeText(l.categoryName, category.name)}
+                        {l.subCategoryName ? ` / ${l.subCategoryName}` : ""}
                       </div>
 
                       <div className="text-xs text-gray-600 flex flex-wrap gap-2">
@@ -1725,24 +1435,6 @@ export default function BrandPage() {
                           </span>
                         ) : null}
 
-                        {l.movementType ? (
-                          <span className="px-2 py-1 rounded-full bg-gray-100">
-                            {compactLabel(l.movementType)}
-                          </span>
-                        ) : null}
-
-                        {dia ? (
-                          <span className="px-2 py-1 rounded-full bg-gray-100">
-                            {dia}mm
-                          </span>
-                        ) : null}
-
-                        {l.braceletMaterial ? (
-                          <span className="px-2 py-1 rounded-full bg-gray-100">
-                            {compactLabel(l.braceletMaterial)}
-                          </span>
-                        ) : null}
-
                         {l.wearExists === true ? (
                           <span className="px-2 py-1 rounded-full bg-red-50 text-red-700">
                             Aşınma var
@@ -1755,7 +1447,7 @@ export default function BrandPage() {
                       </div>
 
                       <div className="text-xs text-gray-400 flex items-center justify-between">
-                        <div className="truncate">{safeText(l.modelName, "")}</div>
+                        <div className="truncate">{safeText(l.subCategoryName, "")}</div>
                         <div className="shrink-0">{ago}</div>
                       </div>
                     </div>
@@ -1771,7 +1463,6 @@ export default function BrandPage() {
                 const img = firstImage(l.imageUrls);
                 const ago = timeAgoTR(l.createdAt);
                 const y = getYearNumber(l.productionYear);
-                const dia = getDiaNumber(l.diameterMm ?? null);
 
                 return (
                   <Link
@@ -1799,18 +1490,13 @@ export default function BrandPage() {
                         </div>
 
                         <div className="text-sm text-gray-600 truncate">
-                          {brand.name}
-                          {l.modelName ? ` / ${l.modelName}` : ""}
+                          {category.name}
+                          {l.subCategoryName ? ` / ${l.subCategoryName}` : ""}
                         </div>
 
                         <div className="text-xs text-gray-500 flex flex-wrap gap-2">
                           {y ? <span>{y}</span> : null}
                           {l.gender ? <span>• {l.gender}</span> : null}
-                          {l.movementType ? <span>• {l.movementType}</span> : null}
-                          {dia ? <span>• {dia}mm</span> : null}
-                          {l.braceletMaterial ? (
-                            <span>• {l.braceletMaterial}</span>
-                          ) : null}
                           {l.wearExists === true ? (
                             <span className="text-red-600">• Aşınma var</span>
                           ) : l.wearExists === false ? (
@@ -1844,11 +1530,11 @@ export default function BrandPage() {
             </button>
           )}
 
-          {brand?.id && hasMore && (
+          {category?.id && hasMore && (
             <button
               type="button"
               disabled={loadingMore}
-              onClick={() => fetchMore(brand.id)}
+              onClick={() => fetchMore(category.id)}
               className={`border rounded-xl px-6 py-3 font-semibold ${
                 loadingMore ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
               }`}
@@ -1866,18 +1552,18 @@ export default function BrandPage() {
 
         {/* ================= BRAND INFO ================= */}
         <div className="bg-white rounded-2xl shadow p-8 space-y-4">
-          <h2 className="text-xl font-bold">{brand.name} hakkında</h2>
+          <h2 className="text-xl font-bold">{category.name} hakkında</h2>
 
           <div className="text-gray-700 leading-relaxed">
-            Bu sayfada {brand.name} markasına ait ilanları görürsün. Üstten model seçebilir,
-            filtre panelinden üretim yılı, fiyat, mekanizma, çap gibi kriterlerle listeyi
+            Bu sayfada {category.name} kategorisine ait ilanları görürsün. Üstten alt kategori seçebilir,
+            filtre panelinden üretim yılı, fiyat, cinsiyet ve kullanım durumu gibi kriterlerle listeyi
             özelleştirebilirsin. Filtreler URL’e yazıldığı için linki birine atabilirsin.
           </div>
 
           <div className="border rounded-xl p-4 bg-gray-50 text-sm text-gray-700">
             <div className="font-semibold mb-2">Hızlı kullanım</div>
             <ul className="list-disc pl-5 space-y-1">
-              <li>Popüler modellerden birine tıklayarak modele özel sayfaya geç.</li>
+              <li>Popüler subCategorylerden birine tıklayarak subCategorye özel sayfaya geç.</li>
               <li>Filtrele ile aradığın özellikleri seçip listeyi daralt.</li>
               <li>Linki kopyala ile filtreli aramayı paylaş.</li>
               <li>İlan az görünüyorsa “Firestore’dan yeni ilanlar yükle” ile genişlet.</li>

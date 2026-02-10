@@ -70,8 +70,8 @@ type Conversation = {
     title?: string;
     price?: number;
     imageUrl?: string | null;
-    brandName?: string;
-    modelName?: string;
+    categoryName?: string;
+    subCategoryName?: string;
     city?: string;
     district?: string;
     condition?: string;
@@ -204,9 +204,9 @@ function getLastMessagePreview(c: Conversation) {
 }
 
 function getListingTitleLine(c: Conversation) {
-  const brand = safeString(c.listingSnapshot?.brandName, "").trim();
-  const model = safeString(c.listingSnapshot?.modelName, "").trim();
-  if (brand || model) return `${brand} ${model}`.trim();
+  const category = safeString(c.listingSnapshot?.categoryName, "").trim();
+  const subCategory = safeString(c.listingSnapshot?.subCategoryName, "").trim();
+  if (category || subCategory) return `${category} ${subCategory}`.trim();
   const title = safeString(c.listingSnapshot?.title, "").trim();
   if (title) return title.slice(0, 60);
   return "İlan";
@@ -259,23 +259,23 @@ function getVisibleMessageCount(c: Conversation, userId: string) {
 
 function SkeletonRow() {
   return (
-    <div className="border rounded-lg p-3 sm:p-4 bg-white">
+    <div className="border border-[#ead8c5] rounded-2xl p-3 sm:p-4 bg-white/80">
       <div className="flex gap-3">
-        <div className="w-14 h-14 sm:w-16 sm:h-16 bg-gray-200 rounded animate-pulse" />
+        <div className="w-14 h-14 sm:w-16 sm:h-16 bg-[#f3e7d8] rounded-xl animate-pulse" />
         <div className="flex-1">
-          <div className="h-4 bg-gray-200 rounded w-2/3 animate-pulse" />
-          <div className="mt-2 h-3 bg-gray-200 rounded w-1/3 animate-pulse" />
-          <div className="mt-2 h-3 bg-gray-200 rounded w-5/6 animate-pulse" />
+          <div className="h-4 bg-[#f3e7d8] rounded w-2/3 animate-pulse" />
+          <div className="mt-2 h-3 bg-[#f3e7d8] rounded w-1/3 animate-pulse" />
+          <div className="mt-2 h-3 bg-[#f3e7d8] rounded w-5/6 animate-pulse" />
           <div className="mt-2 flex gap-2">
-            <div className="h-5 bg-gray-200 rounded w-16 animate-pulse" />
-            <div className="h-5 bg-gray-200 rounded w-20 animate-pulse" />
-            <div className="h-5 bg-gray-200 rounded w-14 animate-pulse" />
+            <div className="h-5 bg-[#f3e7d8] rounded w-16 animate-pulse" />
+            <div className="h-5 bg-[#f3e7d8] rounded w-20 animate-pulse" />
+            <div className="h-5 bg-[#f3e7d8] rounded w-14 animate-pulse" />
           </div>
         </div>
         <div className="w-20 sm:w-28 flex flex-col items-end gap-2">
-          <div className="h-4 bg-gray-200 rounded w-16 animate-pulse" />
-          <div className="h-3 bg-gray-200 rounded w-12 animate-pulse" />
-          <div className="h-6 bg-gray-200 rounded w-10 animate-pulse" />
+          <div className="h-4 bg-[#f3e7d8] rounded w-16 animate-pulse" />
+          <div className="h-3 bg-[#f3e7d8] rounded w-12 animate-pulse" />
+          <div className="h-6 bg-[#f3e7d8] rounded w-10 animate-pulse" />
         </div>
       </div>
     </div>
@@ -602,10 +602,14 @@ export default function MessagesPage() {
 
   if (!userId) {
     return (
-      <div className="max-w-3xl mx-auto p-4">
-        <div className="border rounded-lg p-4 bg-white">
-          <div className="text-lg font-semibold">Mesajlar</div>
-          <div className="mt-2 text-gray-600">Bu sayfayı görmek için giriş yapmalısın.</div>
+      <div className="min-h-screen bg-[#f7f4ef] bg-[radial-gradient(circle_at_top,_#fff7ed,_#f7f4ef_55%)]">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+          <div className="border border-[#ead8c5] rounded-2xl p-6 bg-white/80 shadow-[0_20px_50px_-40px_rgba(15,23,42,0.45)]">
+            <div className="text-lg font-semibold text-[#3f2a1a]">Mesajlar</div>
+            <div className="mt-2 text-sm text-[#6b4b33]">
+              Bu sayfayı görmek için giriş yapmalısın.
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -615,38 +619,44 @@ export default function MessagesPage() {
   const totalUnread = computed.totalUnread;
 
   return (
-    <div className="max-w-3xl mx-auto p-3 sm:p-4">
+    <div className="min-h-screen bg-[#f7f4ef] bg-[radial-gradient(circle_at_top,_#fff7ed,_#f7f4ef_55%)]">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-4">
       {toast && (
         <div
           className={cx(
             "fixed z-50 left-1/2 -translate-x-1/2 top-4",
-            "px-4 py-2 rounded-lg shadow border text-sm",
-            toast.type === "success" && "bg-green-50 border-green-200 text-green-800",
-            toast.type === "error" && "bg-red-50 border-red-200 text-red-800",
-            toast.type === "info" && "bg-blue-50 border-blue-200 text-blue-800"
+            "px-4 py-2 rounded-full shadow border text-sm",
+            toast.type === "success" &&
+              "bg-emerald-50 border-emerald-200 text-emerald-800",
+            toast.type === "error" &&
+              "bg-rose-50 border-rose-200 text-rose-800",
+            toast.type === "info" &&
+              "bg-amber-50 border-amber-200 text-amber-900"
           )}
         >
           {toast.text}
         </div>
       )}
 
-      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b -mx-3 sm:-mx-4 px-3 sm:px-4 py-3">
+      <div className="sticky top-[calc(var(--app-header-height,0px)+12px)] z-10 bg-[#fffaf3]/95 backdrop-blur border border-[#ead8c5] rounded-2xl px-4 sm:px-5 py-4 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.45)] my-fade-up">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-xl sm:text-2xl font-semibold leading-tight">Mesajlar</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold leading-tight tracking-tight text-[#3f2a1a]">
+              Mesajlar
+            </h1>
 
-            <div className="text-xs sm:text-sm text-gray-600">
+            <div className="text-xs sm:text-sm text-[#6b4b33]">
               {loading ? (
                 "Yükleniyor…"
               ) : (
                 <>
                   {list.length} sohbet
                   {totalUnread > 0 ? (
-                    <span className="ml-2 text-gray-900 font-medium">
-                      • {totalUnread} okunmamış
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[#1f2a24] text-white px-2 py-0.5 text-[11px]">
+                      {totalUnread} okunmamış
                     </span>
                   ) : (
-                    <span className="ml-2 text-gray-500">• okunmamış yok</span>
+                    <span className="ml-2 text-[#9b7b5a]">• okunmamış yok</span>
                   )}
                 </>
               )}
@@ -657,7 +667,7 @@ export default function MessagesPage() {
             <button
               type="button"
               onClick={() => setNowTick(Date.now())}
-              className="text-sm px-3 py-2 rounded-md border hover:bg-gray-50 active:bg-gray-100"
+              className="text-xs sm:text-sm px-3 py-2 rounded-full border border-[#ead8c5] text-[#3f2a1a] hover:bg-[#f7ede2] active:bg-[#f1e0cd]"
               title="Zaman bilgisini yenile"
             >
               <span aria-hidden>⟳</span>
@@ -667,7 +677,7 @@ export default function MessagesPage() {
             <button
               type="button"
               onClick={() => showToast({ type: "info", text: "Mesajlar anlık güncelleniyor." })}
-              className="text-sm px-3 py-2 rounded-md border hover:bg-gray-50 active:bg-gray-100"
+              className="text-xs sm:text-sm px-3 py-2 rounded-full border border-[#ead8c5] text-[#3f2a1a] hover:bg-[#f7ede2] active:bg-[#f1e0cd]"
               title="Bilgi"
             >
               <span aria-hidden>ℹ️</span>
@@ -683,15 +693,15 @@ export default function MessagesPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="İlan, kişi, mesaj, konum veya fiyat içinde ara…"
-                className="w-full border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-200"
+                className="w-full border border-[#ead8c5] rounded-full px-3.5 py-2 text-sm bg-white/70 text-[#3f2a1a] placeholder:text-[#9b7b5a] outline-none focus:ring-2 focus:ring-[#e7c49b]"
               />
-              <div className="mt-1 text-[11px] text-gray-500">
-                Örn: “Rolex”, “Kadıköy”, “125000”, “fotoğraf”
+              <div className="mt-1 text-[11px] text-[#9b7b5a]">
+                Örn: “Lego”, “Kadıköy”, “125000”, “fotoğraf”
               </div>
             </div>
 
             <div className="flex gap-2 sm:flex-col sm:w-[220px]">
-              <label className="flex items-center gap-2 border rounded-md px-3 py-2 text-sm bg-white">
+              <label className="flex items-center gap-2 border border-[#ead8c5] rounded-full px-3 py-2 text-sm bg-white/70 text-[#3f2a1a]">
                 <input
                   type="checkbox"
                   checked={onlyUnread}
@@ -703,7 +713,7 @@ export default function MessagesPage() {
               <select
                 value={sortMode}
                 onChange={(e) => setSortMode(e.target.value as any)}
-                className="border rounded-md px-3 py-2 text-sm bg-white"
+                className="border border-[#ead8c5] rounded-full px-3 py-2 text-sm bg-white/70 text-[#3f2a1a]"
                 title="Sıralama"
               >
                 <option value="lastMessageDesc">Son mesaja göre</option>
@@ -714,33 +724,33 @@ export default function MessagesPage() {
             </div>
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#9b7b5a]">
             <span className="inline-flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-600" /> Okunmamış
+              <span className="w-1.5 h-1.5 rounded-full bg-[#1f2a24]" /> Okunmamış
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-gray-400" /> Okundu (💬 toplam mesaj)
+              <span className="w-1.5 h-1.5 rounded-full bg-[#caa07a]" /> Okundu (💬 toplam mesaj)
             </span>
           </div>
         </div>
       </div>
 
       {loadError && (
-        <div className="mt-4 border rounded-lg p-4 bg-red-50">
-          <div className="font-semibold text-red-700">Mesajlar yüklenemedi</div>
-          <div className="mt-1 text-sm text-red-700">{loadError}</div>
+        <div className="mt-4 border border-rose-200 rounded-2xl p-4 bg-rose-50/80">
+          <div className="font-semibold text-rose-800">Mesajlar yüklenemedi</div>
+          <div className="mt-1 text-sm text-rose-700">{loadError}</div>
           <div className="mt-3 flex gap-2">
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="px-3 py-2 rounded-md bg-red-600 text-white text-sm hover:bg-red-700"
+              className="px-3 py-2 rounded-full bg-[#a03a2e] text-white text-sm hover:bg-[#8f2f25]"
             >
               Yeniden dene
             </button>
             <button
               type="button"
               onClick={() => setLoadError(null)}
-              className="px-3 py-2 rounded-md border text-sm hover:bg-white"
+              className="px-3 py-2 rounded-full border border-rose-200 text-sm text-rose-800 hover:bg-rose-50"
             >
               Kapat
             </button>
@@ -760,14 +770,16 @@ export default function MessagesPage() {
       )}
 
       {!loading && !loadError && list.length === 0 && (
-        <div className="mt-6 border rounded-lg p-6 bg-white">
-          <div className="text-lg font-semibold">Henüz mesajın yok</div>
-          <div className="mt-2 text-gray-600">
+        <div className="mt-6 border border-[#ead8c5] rounded-2xl p-6 bg-white/80 shadow-[0_20px_50px_-40px_rgba(15,23,42,0.45)]">
+          <div className="text-lg font-semibold text-[#3f2a1a]">
+            Henüz mesajın yok
+          </div>
+          <div className="mt-2 text-sm text-[#6b4b33]">
             Bir ilana girip satıcıya mesaj atarak sohbet başlatabilirsin.
           </div>
 
           {search.trim().length > 0 && (
-            <div className="mt-3 text-sm text-gray-500">
+            <div className="mt-3 text-sm text-[#9b7b5a]">
               Arama filtresi nedeniyle görünmüyor olabilir.{" "}
               <button type="button" className="underline" onClick={() => setSearch("")}>
                 Aramayı temizle
@@ -777,7 +789,7 @@ export default function MessagesPage() {
           )}
 
           {onlyUnread && (
-            <div className="mt-3 text-sm text-gray-500">
+            <div className="mt-3 text-sm text-[#9b7b5a]">
               “Sadece okunmamış” açık olduğu için görünmüyor olabilir.{" "}
               <button type="button" className="underline" onClick={() => setOnlyUnread(false)}>
                 Filtreyi kapat
@@ -789,7 +801,7 @@ export default function MessagesPage() {
       )}
 
       {!loading && !loadError && list.length > 0 && (
-        <div className="mt-4 space-y-2">
+        <div className="mt-5 space-y-3 my-fade-up">
           {list.map((c) => {
             const info = getCounterpartyInfo(c, userId);
 
@@ -821,9 +833,11 @@ export default function MessagesPage() {
                 key={c.id}
                 href={`/my/messages/${c.id}`}
                 className={cx(
-                  "block border rounded-lg bg-white transition group",
-                  hasUnread ? "border-blue-400 ring-1 ring-blue-200" : "border-gray-200",
-                  "hover:bg-gray-50 active:bg-gray-100"
+                  "block border rounded-2xl bg-white/85 transition group shadow-[0_12px_30px_-24px_rgba(15,23,42,0.25)]",
+                  hasUnread
+                    ? "border-[#caa07a] ring-1 ring-[#ead8c5]"
+                    : "border-[#ead8c5]",
+                  "hover:bg-[#fff7ed] hover:shadow-[0_20px_45px_-30px_rgba(15,23,42,0.3)] active:bg-[#f7ede2]"
                 )}
               >
                 <div className="flex gap-3 p-3 sm:p-4">
@@ -833,16 +847,16 @@ export default function MessagesPage() {
                         src={imageUrl}
                         alt="İlan görseli"
                         className={cx(
-                          "w-full h-full object-cover rounded",
-                          hasUnread && "ring-2 ring-blue-300"
+                          "w-full h-full object-cover rounded-xl",
+                          hasUnread && "ring-2 ring-[#caa07a]"
                         )}
                         loading="lazy"
                       />
                     ) : (
                       <div
                         className={cx(
-                          "w-full h-full rounded bg-gray-200 flex items-center justify-center text-gray-500 text-xs",
-                          hasUnread && "ring-2 ring-blue-300"
+                          "w-full h-full rounded-xl bg-[#f3e7d8] flex items-center justify-center text-[#9b7b5a] text-xs",
+                          hasUnread && "ring-2 ring-[#caa07a]"
                         )}
                       >
                         Görsel
@@ -850,7 +864,7 @@ export default function MessagesPage() {
                     )}
 
                     {hasUnread && (
-                      <span className="absolute -top-1 -left-1 w-3 h-3 rounded-full bg-blue-600 ring-2 ring-white" />
+                      <span className="absolute -top-1 -left-1 w-3 h-3 rounded-full bg-[#1f2a24] ring-2 ring-white" />
                     )}
                   </div>
 
@@ -861,8 +875,8 @@ export default function MessagesPage() {
                           className={cx(
                             "text-sm sm:text-base truncate",
                             hasUnread
-                              ? "font-semibold text-gray-900"
-                              : "font-medium text-gray-900"
+                              ? "font-semibold text-[#3f2a1a]"
+                              : "font-medium text-[#3f2a1a]"
                           )}
                           title={listingLine}
                         >
@@ -873,7 +887,7 @@ export default function MessagesPage() {
                           <div
                             className={cx(
                               "text-xs sm:text-sm truncate",
-                              hasUnread ? "text-gray-700" : "text-gray-600"
+                              hasUnread ? "text-[#5a4330]" : "text-[#6b4b33]"
                             )}
                             title={subLine}
                           >
@@ -887,22 +901,26 @@ export default function MessagesPage() {
                           className={cx(
                             "text-sm sm:text-base",
                             hasUnread
-                              ? "font-semibold text-gray-900"
-                              : "font-medium text-gray-900"
+                              ? "font-semibold text-[#3f2a1a]"
+                              : "font-medium text-[#3f2a1a]"
                           )}
                           title={priceStr}
                         >
                           {priceStr}
                         </div>
-                        <div className="mt-0.5 text-xs text-gray-500">{timeAgo}</div>
+                        <div className="mt-0.5 text-xs text-[#9b7b5a]">{timeAgo}</div>
                       </div>
                     </div>
 
-                    <div className="mt-1 text-xs sm:text-sm text-gray-700 truncate">
-                      <span className="text-gray-500">{info.counterpartyRoleLabel}:</span>{" "}
+                    <div className="mt-1 text-xs sm:text-sm text-[#5a4330] truncate">
+                      <span className="text-[#9b7b5a]">
+                        {info.counterpartyRoleLabel}:
+                      </span>{" "}
                       <span
                         className={cx(
-                          hasUnread ? "font-semibold text-gray-800" : "font-medium"
+                          hasUnread
+                            ? "font-semibold text-[#3f2a1a]"
+                            : "font-medium text-[#3f2a1a]"
                         )}
                       >
                         {info.counterpartyName}
@@ -912,13 +930,15 @@ export default function MessagesPage() {
                         const ageLabel = getAccountAgeLabel(info.counterpartyCreatedAt);
                         if (!ageLabel) return null;
                         return (
-                          <span className="ml-2 text-[11px] text-gray-500">• {ageLabel}</span>
+                          <span className="ml-2 text-[11px] text-[#9b7b5a]">
+                            • {ageLabel}
+                          </span>
                         );
                       })()}
                     </div>
 
                     {locationLine && (
-                      <div className="mt-1 text-[11px] sm:text-xs text-gray-500 truncate">
+                      <div className="mt-1 text-[11px] sm:text-xs text-[#9b7b5a] truncate">
                         📍 {locationLine}
                       </div>
                     )}
@@ -927,10 +947,10 @@ export default function MessagesPage() {
                       className={cx(
                         "mt-2 text-xs sm:text-sm truncate",
                         otherTyping
-                          ? "text-gray-800 font-semibold"
+                          ? "text-[#3f2a1a] font-semibold"
                           : hasUnread
-                          ? "text-gray-800 font-medium"
-                          : "text-gray-500"
+                          ? "text-[#3f2a1a] font-medium"
+                          : "text-[#8b6b52]"
                       )}
                       title={lastMsg}
                     >
@@ -940,11 +960,11 @@ export default function MessagesPage() {
 
                   <div className="shrink-0 flex flex-col items-end justify-between gap-2">
                     {hasUnread ? (
-                      <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-1 rounded-full text-xs font-semibold bg-blue-600 text-white">
+                      <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-1 rounded-full text-xs font-semibold bg-[#1f2a24] text-white">
                         {unreadCount}
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600 border">
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-[#f7ede2] text-[#5a4330] border border-[#ead8c5]">
                         💬 {totalMsgBubble}
                       </span>
                     )}
@@ -958,9 +978,9 @@ export default function MessagesPage() {
                       }}
                       className={cx(
                         "inline-flex items-center justify-center",
-                        "h-9 w-9 rounded-md border bg-white",
-                        "hover:bg-red-50 hover:border-red-200 active:bg-red-100",
-                        "text-gray-600 hover:text-red-700",
+                        "h-9 w-9 rounded-full border border-[#ead8c5] bg-white",
+                        "hover:bg-[#fdeeee] hover:border-[#f1b7b0] active:bg-[#f9d7d2]",
+                        "text-[#8b6b52] hover:text-[#a03a2e]",
                         "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                       )}
                       title="Sohbeti sil"
@@ -981,7 +1001,7 @@ export default function MessagesPage() {
           <button
             type="button"
             onClick={() => setPageSize((p) => clampInt(p + 20, 10, 200))}
-            className="px-4 py-2 rounded-md border hover:bg-gray-50 active:bg-gray-100 text-sm"
+            className="px-4 py-2 rounded-full border border-[#ead8c5] text-sm text-[#3f2a1a] hover:bg-[#f7ede2] active:bg-[#f1e0cd]"
           >
             Daha fazla yükle
           </button>
@@ -989,7 +1009,7 @@ export default function MessagesPage() {
       )}
 
       {!loading && !loadError && conversations.length > 0 && (
-        <div className="mt-6 text-xs text-gray-500 space-y-1">
+        <div className="mt-6 text-xs text-[#9b7b5a] space-y-1">
           <div>Not: Mesajlar son mesaja göre otomatik sıralanır (default).</div>
           <div>
             Okunmamış yokken görünen 💬 sayısı artık{" "}
@@ -1001,6 +1021,7 @@ export default function MessagesPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

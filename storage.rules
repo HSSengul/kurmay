@@ -1,0 +1,62 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function listingDoc(listingId) {
+      return firestore.get(/databases/(default)/documents/listings/$(listingId));
+    }
+
+    function isListingOwner(listingId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/listings/$(listingId))
+        && listingDoc(listingId).data.ownerId == request.auth.uid;
+    }
+
+    function conversationDoc(conversationId) {
+      return firestore.get(/databases/(default)/documents/conversations/$(conversationId));
+    }
+
+    function isConversationParticipant(conversationId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/conversations/$(conversationId))
+        && (
+          (request.auth.uid in conversationDoc(conversationId).data.participants)
+          || request.auth.uid == conversationDoc(conversationId).data.buyerId
+          || request.auth.uid == conversationDoc(conversationId).data.sellerId
+        );
+    }
+
+    match /avatars/{uid}/{fileName} {
+      allow read: if true;
+      allow write: if signedIn()
+        && request.auth.uid == uid
+        && request.resource != null
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /listings/{listingId}/{fileName} {
+      allow read: if true;
+      allow write: if isListingOwner(listingId)
+        && request.resource != null
+        && request.resource.size < 3 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /chatImages/{conversationId}/{fileName} {
+      allow read: if isConversationParticipant(conversationId);
+      allow write: if isConversationParticipant(conversationId)
+        && request.resource != null
+        && request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
