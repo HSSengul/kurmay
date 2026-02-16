@@ -19,6 +19,8 @@ import { getToken as getAppCheckToken } from "firebase/app-check";
 import { appCheck, auth, db, storage } from "@/lib/firebase";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { getCategoriesCached } from "@/lib/catalogCache";
+import { devError, devWarn, getFriendlyErrorMessage } from "@/lib/logger";
+import { buildListingPath } from "@/lib/listingUrl";
 
 /* ================= TYPES ================= */
 
@@ -613,7 +615,7 @@ export default function NewListingPage() {
 
         setGateAllowed(true);
       } catch (err) {
-        console.error(err);
+        devError("Profile gate check error", err);
         setGateAllowed(false);
         setError(
           "Profil kontrolü sırasında hata oluştu. Lütfen /my sayfasına gidip profilini kontrol et."
@@ -750,7 +752,7 @@ export default function NewListingPage() {
         // ✅ subcategory değişince attributes reset (en temiz)
         setAttributes({});
       } catch (err) {
-        console.error("Schema load error:", err);
+        devError("Schema load error:", err);
         setSchemaExists(false);
         setSchemaFields([]);
         setSchemaVersion(1);
@@ -1001,7 +1003,7 @@ export default function NewListingPage() {
 
   const resizeToTarget = async (file: File) => {
     const bitmap = await readImageBitmap(file);
-    let { width, height } = bitmap;
+    const { width, height } = bitmap;
 
     const maxDim = Math.max(width, height);
     let scale = maxDim > MAX_IMAGE_DIM ? MAX_IMAGE_DIM / maxDim : 1;
@@ -1074,7 +1076,7 @@ export default function NewListingPage() {
 
       setNewFiles((prev) => [...prev, ...prepared]);
     } catch (err: any) {
-      setError(err?.message || "Görsel hazırlanırken hata oluştu.");
+      setError(getFriendlyErrorMessage(err, "Görsel hazırlanırken hata oluştu."));
     } finally {
       setPreparingImages(false);
       setPrepareProgress(0);
@@ -1258,7 +1260,7 @@ export default function NewListingPage() {
         try {
           await auth.currentUser.getIdToken(true);
         } catch (e) {
-          console.warn("Token refresh failed:", e);
+        devWarn("Token refresh failed:", e);
         }
       }
 
@@ -1318,9 +1320,9 @@ export default function NewListingPage() {
         return;
       }
 
+      const profileData = profileSnap.exists() ? (profileSnap.data() as any) : null;
       const profileOk =
-        profileSnap.exists() &&
-        profileSnap.data()?.onboardingCompleted === true;
+        profileSnap.exists() && profileData?.onboardingCompleted === true;
       const userData = userSnap.exists() ? (userSnap.data() as any) : null;
       const banUntilDate = userData?.banUntil?.toDate?.()
         ? userData.banUntil.toDate()
@@ -1403,6 +1405,14 @@ export default function NewListingPage() {
         return;
       }
 
+      const rawOwnerName =
+        profileData?.displayName ||
+        profileData?.name ||
+        userData?.name ||
+        auth.currentUser?.displayName ||
+        (auth.currentUser?.email ? auth.currentUser.email.split("@")[0] : "");
+      const safeOwnerName = String(rawOwnerName || "").trim().slice(0, 120);
+
       basePayload = {
         title: safeTitle,
         price: priceNumber,
@@ -1411,6 +1421,7 @@ export default function NewListingPage() {
         subCategoryId: safeSubCategoryId,
         subCategoryName: safeSubCategoryName,
         ownerId,
+        ownerName: safeOwnerName,
         imageUrls: [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -1438,9 +1449,9 @@ export default function NewListingPage() {
         updatedAt: serverTimestamp(),
       });
 
-      router.push(`/ilan/${listingRef.id}`);
+      router.push(buildListingPath(listingRef.id, cleanTitle));
     } catch (err: any) {
-      console.error(err);
+      devError("Create listing error", err);
 
       const code = err?.code || "";
       const errMessage =

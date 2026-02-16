@@ -18,6 +18,7 @@ import {
 
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { devError } from "@/lib/logger";
 
 /* =========================
    TYPES
@@ -191,7 +192,7 @@ export default function AdminListingSchemasPage() {
 
         if (!adminOk) router.replace("/");
       } catch (e: any) {
-        console.error("Admin check error:", e);
+        devError("Admin check error:", e);
         setIsAdmin(false);
         setAuthChecking(false);
         router.replace("/");
@@ -222,7 +223,7 @@ export default function AdminListingSchemasPage() {
         }
       },
       (err) => {
-        console.error("categories onSnapshot error:", err);
+        devError("categories onSnapshot error:", err);
         setCategories([]);
       }
     );
@@ -288,7 +289,7 @@ export default function AdminListingSchemasPage() {
         setFields(normalized);
         setSchemaMeta({ createdAt: (d as any)?.createdAt, updatedAt: (d as any)?.updatedAt });
       } catch (e: any) {
-        console.error("load schema error:", e);
+        devError("load schema error:", e);
         setSchemaExists(false);
         setSchemaVersion(1);
         setFields([]);
@@ -492,7 +493,7 @@ export default function AdminListingSchemasPage() {
       setSchemaExists(true);
       showOk("Kaydedildi ✅");
     } catch (e: any) {
-      console.error("saveSchema error:", e);
+      devError("saveSchema error:", e);
       const code = e?.code || "";
       if (code === "permission-denied") {
         setError("Yetki hatası (permission-denied). Admin olarak giriş yaptığından emin ol.");
@@ -524,7 +525,7 @@ export default function AdminListingSchemasPage() {
 
       showOk("Silindi ✅");
     } catch (e: any) {
-      console.error("deleteSchema error:", e);
+      devError("deleteSchema error:", e);
       setError(e?.message || "Silme sırasında hata oluştu.");
     } finally {
       setDeleting(false);

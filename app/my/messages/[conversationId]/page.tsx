@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db, storage } from "@/lib/firebase";
+import { devError, getFriendlyErrorMessage } from "@/lib/logger";
+import { buildListingPath } from "@/lib/listingUrl";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
@@ -117,6 +119,7 @@ export default function ChatPage() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
+  const [sendImageError, setSendImageError] = useState<string | null>(null);
 
   const [nowTick, setNowTick] = useState<number>(Date.now());
   const [liveCounterpartyProfile, setLiveCounterpartyProfile] = useState<any>(null);
@@ -302,7 +305,7 @@ export default function ChatPage() {
         setConversation(snap.data());
       },
       (err) => {
-        console.error("Conversation snapshot error:", err);
+        devError("Conversation snapshot error:", err);
         setConvoLoaded(true);
         setConversation(null);
       }
@@ -388,7 +391,7 @@ export default function ChatPage() {
         });
       },
       (err) => {
-        console.error("Messages snapshot error:", err);
+        devError("Messages snapshot error:", err);
       }
     );
 
@@ -482,7 +485,7 @@ export default function ChatPage() {
         el.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
       });
     } catch (err) {
-      console.error("fetchOlder error:", err);
+      devError("fetchOlder error:", err);
     } finally {
       fetchingOlderRef.current = false;
     }
@@ -578,7 +581,7 @@ export default function ChatPage() {
 
       setText("");
     } catch (err) {
-      console.error("sendText error:", err);
+      devError("sendText error:", err);
     } finally {
       sendTextInFlightRef.current = false;
     }
@@ -590,12 +593,13 @@ export default function ChatPage() {
     // ✅ size guard (8MB)
     const maxBytes = 8 * 1024 * 1024;
     if (file.size > maxBytes) {
-      alert("Fotoğraf çok büyük. Lütfen 8MB altı bir görsel yükle.");
+      setSendImageError("Fotoğraf çok büyük. Lütfen 8MB altı bir görsel yükle.");
       return;
     }
 
     if (sendImageInFlightRef.current) return;
     sendImageInFlightRef.current = true;
+    setSendImageError(null);
 
     try {
       const now = Timestamp.now();
@@ -632,7 +636,8 @@ export default function ChatPage() {
         "deletedFor.seller": false,
       });
     } catch (err) {
-      console.error("sendImage error:", err);
+      devError("sendImage error:", err);
+      setSendImageError(getFriendlyErrorMessage(err, "Fotoğraf yüklenemedi."));
     } finally {
       sendImageInFlightRef.current = false;
     }
@@ -644,7 +649,28 @@ export default function ChatPage() {
   }
 
   if (!convoLoaded) {
-    return <div className="p-6">Yükleniyor...</div>;
+    return (
+      <div className="min-h-screen bg-[#f7f4ef] px-4 py-8">
+        <div className="max-w-5xl mx-auto space-y-6 animate-pulse">
+          <div className="bg-white/90 rounded-3xl border border-slate-200/70 shadow-sm p-5 flex items-center gap-4">
+            <div className="h-12 w-12 rounded-2xl bg-slate-200" />
+            <div className="flex-1">
+              <div className="h-4 w-48 bg-slate-200 rounded mb-2" />
+              <div className="h-3 w-32 bg-slate-200 rounded" />
+            </div>
+            <div className="h-9 w-24 bg-slate-200 rounded-full" />
+          </div>
+          <div className="space-y-3">
+            <div className="h-16 bg-slate-200 rounded-2xl w-2/3" />
+            <div className="h-16 bg-slate-200 rounded-2xl w-1/2" />
+            <div className="h-16 bg-slate-200 rounded-2xl w-3/5" />
+          </div>
+          <div className="bg-white/90 rounded-3xl border border-slate-200/70 shadow-sm p-4">
+            <div className="h-10 w-full bg-slate-200 rounded-full" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!conversation) {
@@ -751,7 +777,10 @@ export default function ChatPage() {
 
               <button
                 onClick={() => {
-                  if (listingId) router.push(`/ilan/${listingId}`);
+                  if (listingId) {
+                    const listingTitle = conversation?.listingSnapshot?.title;
+                    router.push(buildListingPath(listingId, listingTitle));
+                  }
                 }}
                 className="self-start sm:self-center rounded-2xl border border-[#ead8c5] bg-white px-4 py-2 text-sm font-semibold text-[#3f2a1a] hover:bg-[#fff2e6] transition shadow-sm"
               >
@@ -875,6 +904,7 @@ export default function ChatPage() {
                   className="hidden"
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
+                      setSendImageError(null);
                       sendImage(e.target.files[0]);
                       e.currentTarget.value = "";
                     }
@@ -895,6 +925,9 @@ export default function ChatPage() {
                 Gönder
               </button>
             </div>
+            {sendImageError && (
+              <div className="px-3 text-xs text-rose-700">{sendImageError}</div>
+            )}
           </div>
         </div>
       </div>

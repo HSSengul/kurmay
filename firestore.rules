@@ -56,8 +56,19 @@ service cloud.firestore {
       return v is string && v.size() > 0 && v.size() <= max;
     }
 
+    function validImageUrl(v) {
+      return v is string && v.size() > 0 && v.size() <= 2000;
+    }
+
     function validImages(arr) {
-      return !(arr is list) || arr.size() <= 5;
+      return (arr is list)
+        && (arr.size() >= 1)
+        && (arr.size() <= 5)
+        && validImageUrl(arr[0])
+        && (arr.size() < 2 || validImageUrl(arr[1]))
+        && (arr.size() < 3 || validImageUrl(arr[2]))
+        && (arr.size() < 4 || validImageUrl(arr[3]))
+        && (arr.size() < 5 || validImageUrl(arr[4]));
     }
 
     // ✅ NEW: optional string helper ("" olabilir)
@@ -300,8 +311,18 @@ service cloud.firestore {
         && nonEmptyString(request.resource.data.subCategoryName, 120)
         && validImages(request.resource.data.imageUrls);
 
-      // ✏️ İlan güncelleme: sadece onboarding tamamlayan kullanıcı
-      allow update: if signedIn()
+      // ✏️ İlan güncelleme: admin veya sahibinin kendisi
+      allow update: if (
+        isAdmin()
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly([
+            "adminStatus",
+            "adminNote",
+            "adminReviewedAt",
+            "adminReviewedBy"
+          ])
+      ) || (
+        signedIn()
         && onboardingCompleted()
         && !isUserBanned(request.auth.uid)
         && !isUserBlockedListings(request.auth.uid)
@@ -313,7 +334,8 @@ service cloud.firestore {
         && nonEmptyString(request.resource.data.title, 120)
         && request.resource.data.price is number
         && request.resource.data.price >= 0
-        && validImages(request.resource.data.imageUrls);
+        && validImages(request.resource.data.imageUrls)
+      );
 
       allow delete: if signedIn()
         && resource.data.ownerId == request.auth.uid;
@@ -459,6 +481,10 @@ service cloud.firestore {
     }
 
     match /adminSettings/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /adminLogs/{logId} {
       allow read, write: if isAdmin();
     }
 

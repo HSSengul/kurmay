@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Sora } from "next/font/google";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -13,9 +14,13 @@ import {
   startAfter,
   DocumentData,
   QueryDocumentSnapshot,
+  where,
+  documentId,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { buildListingPath } from "@/lib/listingUrl";
 import { getCategoriesCached } from "@/lib/catalogCache";
+import { devError, devWarn, getFriendlyErrorMessage } from "@/lib/logger";
 
 /* =======================
    TYPES
@@ -32,10 +37,13 @@ type Listing = {
   subCategoryId?: string;
   subCategoryName?: string;
 
+  ownerId?: string;
   imageUrls?: string[];
   createdAt?: any;
 
   movementType?: string;
+  attributes?: Record<string, any>;
+  ownerName?: string;
 };
 
 type Category = {
@@ -78,6 +86,7 @@ const firstImage = (urls?: string[]) => {
   if (!Array.isArray(urls)) return "";
   return urls[0] || "";
 };
+
 
 const toSlugTR = (s: string) => {
   return s
@@ -183,6 +192,20 @@ function HomeInner() {
   // UI visible limit
   const [displayLimit, setDisplayLimit] = useState<number>(24);
 
+  const categoryTrackRef = useRef<HTMLDivElement>(null);
+  const scrollCategories = (dir: "prev" | "next") => {
+    const track = categoryTrackRef.current;
+    if (!track) return;
+    const firstCard = track.querySelector<HTMLElement>("[data-cat-card]");
+    const cardWidth = firstCard?.offsetWidth || 220;
+    const gap = 16;
+    const delta = (cardWidth + gap) * 4;
+    track.scrollBy({
+      left: dir === "next" ? delta : -delta,
+      behavior: "smooth",
+    });
+  };
+
   /* =======================
      FILTER STATE
   ======================= */
@@ -196,6 +219,8 @@ function HomeInner() {
   const [priceMax, setPriceMax] = useState<string>("");
 
   const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]>("newest");
+
+  const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
 
   const resetFilters = () => {
     setSearchText("");
@@ -339,10 +364,13 @@ function HomeInner() {
         setLastListingDoc(newLast);
         setHasMoreListings(lSnap.docs.length === LISTINGS_PAGE_SIZE);
       } catch (e: any) {
-        console.error("Home load error:", e);
+        devError("Home load error:", e);
         if (!cancelled) {
           setFatalError(
-            e?.message || "Anasayfa verileri yüklenirken hata oluştu."
+            getFriendlyErrorMessage(
+              e,
+              "Anasayfa verileri yüklenirken hata oluştu."
+            )
           );
         }
       } finally {
@@ -401,7 +429,7 @@ function HomeInner() {
         return merged;
       });
     } catch (e) {
-      console.error("loadMoreListings error:", e);
+      devError("loadMoreListings error:", e);
     } finally {
       setLoadingMoreListings(false);
     }
@@ -542,6 +570,67 @@ function HomeInner() {
     return filteredListings.slice(0, displayLimit);
   }, [filteredListings, displayLimit]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const idsToFetch = Array.from(
+      new Set(
+        gridListings
+          .map((l) => l.ownerId || "")
+          .filter((id) => !!id)
+          .filter((id) => !ownerNames[id])
+          .filter((id) => {
+            const listing = gridListings.find((l) => l.ownerId === id);
+            return !listing?.ownerName;
+          })
+      )
+    );
+
+    if (idsToFetch.length === 0) return;
+
+    const chunk = <T,>(arr: T[], size: number) => {
+      const out: T[][] = [];
+      for (let i = 0; i < arr.length; i += size) {
+        out.push(arr.slice(i, i + size));
+      }
+      return out;
+    };
+
+    async function fetchOwnerNames() {
+      try {
+        const chunks = chunk(idsToFetch, 10);
+        const updates: Record<string, string> = {};
+
+        for (const ids of chunks) {
+          const q = query(
+            collection(db, "publicProfiles"),
+            where(documentId(), "in", ids)
+          );
+          const snap = await getDocs(q);
+          snap.forEach((d) => {
+            const data = d.data() as any;
+            const name = String(
+              data?.displayName || data?.name || ""
+            ).trim();
+            if (name) updates[d.id] = name;
+          });
+        }
+
+        if (!cancelled && Object.keys(updates).length > 0) {
+          setOwnerNames((prev) => ({ ...prev, ...updates }));
+        }
+      } catch (e) {
+        devWarn("owner name fetch failed:", e);
+      }
+    }
+
+    fetchOwnerNames();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [gridListings, ownerNames]);
+
   const totalFound = filteredListings.length;
 
   /* =======================
@@ -618,6 +707,11 @@ function HomeInner() {
         ["--market-accent-strong" as any]: "#0b5e57",
       }}
     >
+      <style jsx global>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-emerald-200/40 blur-3xl" />
         <div className="absolute top-32 -left-28 h-80 w-80 rounded-full bg-amber-200/40 blur-3xl" />
@@ -629,24 +723,34 @@ function HomeInner() {
            ✅ KATEGORİLER
         ====================================================== */}
         <section className="bg-white/90 backdrop-blur border border-white/70 rounded-2xl shadow-[0_10px_30px_rgba(15,23,42,0.08)] p-5 sm:p-6">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg sm:text-xl font-semibold tracking-tight">
-                Kategoriler
-              </h2>
-              <div className="text-xs text-[color:var(--market-muted)] mt-1">
-                Aktif kategoriler · Kaydırarak gez
-              </div>
-            </div>
-          </div>
-
           {activeMainCategories.length === 0 ? (
             <div className="mt-4 text-sm text-[color:var(--market-muted)]">
               Henüz aktif kategori yok.
             </div>
           ) : (
-            <div className="mt-4 relative">
-              <div className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 -mx-4 px-4">
+            <div className="relative mt-2 overflow-hidden px-10 sm:px-12">
+              <button
+                type="button"
+                onClick={() => scrollCategories("prev")}
+                className="absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 z-10 h-8 w-8 sm:h-9 sm:w-9 rounded-full border border-slate-200/80 bg-white/90 text-slate-600 hover:bg-white shadow-sm"
+                aria-label="Önceki kategoriler"
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollCategories("next")}
+                className="absolute right-1 sm:right-2 top-1/2 -translate-y-1/2 z-10 h-8 w-8 sm:h-9 sm:w-9 rounded-full border border-slate-200/80 bg-white/90 text-slate-600 hover:bg-white shadow-sm"
+                aria-label="Sonraki kategoriler"
+              >
+                →
+              </button>
+
+              <div
+                ref={categoryTrackRef}
+                className="no-scrollbar flex gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-3 px-0"
+                style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+              >
                 {activeMainCategories.map((cat) => {
                   const slug = cat.nameLower || toSlugTR(cat.name);
                   const fallbackIcon = cat.icon || "📁";
@@ -655,7 +759,8 @@ function HomeInner() {
                     <Link
                       key={cat.id}
                       href={`/${slug}`}
-                      className="group relative h-36 w-[240px] shrink-0 snap-start rounded-2xl overflow-hidden border border-white/60 bg-slate-900"
+                      data-cat-card
+                      className="group relative h-32 shrink-0 snap-start rounded-2xl overflow-hidden border border-white/60 bg-slate-900 w-[calc((100%-16px)/2)] sm:w-[calc((100%-48px)/4)]"
                     >
                       {cat.imageUrl ? (
                         <img
@@ -683,17 +788,17 @@ function HomeInner() {
           )}
 
           <div className="mt-4 border border-slate-200/70 rounded-2xl bg-white/80 p-3">
-            <div className="text-xs text-[color:var(--market-muted)] mb-2">
-              Filtre ve sıralama
-            </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-2 px-2">
-              <div className="flex items-center gap-2 min-w-max">
+            <div
+              className="no-scrollbar flex items-center gap-2 -mx-2 px-2 whitespace-nowrap overflow-x-auto sm:overflow-visible"
+              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            >
+              <div className="flex items-center gap-2 min-w-max flex-nowrap">
                 <input
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                   placeholder="Ara..."
                   aria-label="Arama"
-                  className="h-10 min-w-[200px] rounded-full border border-slate-200/80 bg-white/90 px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  className="h-9 sm:h-10 w-[130px] sm:w-[160px] rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                 />
 
                 <select
@@ -704,7 +809,7 @@ function HomeInner() {
                     if (subCategoryFilter) setSubCategoryFilter("");
                   }}
                   aria-label="Kategori"
-                  className="h-10 min-w-[170px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  className="h-9 sm:h-10 w-[120px] sm:w-[140px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                 >
                   <option value="">Kategori</option>
                   {activeMainCategories.map((cat) => (
@@ -719,7 +824,7 @@ function HomeInner() {
                   onChange={(e) => setSubCategoryFilter(e.target.value)}
                   aria-label="Alt kategori"
                   disabled={filteredSubCategories.length === 0}
-                  className="h-10 min-w-[190px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)] disabled:opacity-60"
+                  className="h-9 sm:h-10 w-[150px] sm:w-[170px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)] disabled:opacity-60"
                 >
                   <option value="">Alt kategori</option>
                   {filteredSubCategories.map((sub) => (
@@ -733,7 +838,7 @@ function HomeInner() {
                   type="number"
                   value={priceMin}
                   onChange={(e) => setPriceMin(e.target.value)}
-                  className="h-10 min-w-[110px] rounded-full border border-slate-200/80 bg-white/90 px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  className="h-9 sm:h-10 w-[80px] sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                   placeholder="Min TL"
                   aria-label="Minimum fiyat"
                   min={0}
@@ -743,7 +848,7 @@ function HomeInner() {
                   type="number"
                   value={priceMax}
                   onChange={(e) => setPriceMax(e.target.value)}
-                  className="h-10 min-w-[110px] rounded-full border border-slate-200/80 bg-white/90 px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  className="h-9 sm:h-10 w-[80px] sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                   placeholder="Max TL"
                   aria-label="Maksimum fiyat"
                   min={0}
@@ -755,7 +860,7 @@ function HomeInner() {
                     setSortBy(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
                   }
                   aria-label="Sıralama"
-                  className="h-10 min-w-[160px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  className="h-9 sm:h-10 w-[120px] sm:w-[135px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                 >
                   <option value="newest">En yeni</option>
                   <option value="price_asc">Fiyat (artan)</option>
@@ -765,7 +870,7 @@ function HomeInner() {
                 <button
                   type="button"
                   onClick={resetFilters}
-                  className="h-10 rounded-full border border-slate-200/80 px-4 text-sm text-slate-700 bg-white/70 hover:bg-white shadow-sm"
+                  className="h-9 sm:h-10 rounded-full border border-slate-200/80 px-3 sm:px-4 text-sm text-slate-700 bg-white/70 hover:bg-white shadow-sm"
                 >
                   Sıfırla
                 </button>
@@ -818,23 +923,46 @@ function HomeInner() {
             </div>
           ) : (
             <>
-              <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {gridListings.map((l) => {
                   const thumb = firstImage(l.imageUrls);
                   const category = safeText(l.categoryName, "");
                   const subCategory = safeText(l.subCategoryName, "");
                   const ago = timeAgoTR(l.createdAt);
+                  const attrs = (l as any)?.attributes || {};
+                  const sellerName =
+                    l.ownerName ||
+                    ownerNames[l.ownerId || ""] ||
+                    (l as any)?.ownerDisplayName ||
+                    (l as any)?.sellerName ||
+                    "";
+                  const officialNameRaw =
+                    attrs.gameName ||
+                    attrs.consoleModel ||
+                    attrs.modelName ||
+                    attrs.model ||
+                    "";
+                  const officialName =
+                    officialNameRaw || safeText(l.subCategoryName, "—");
 
                   return (
-                    <Link key={l.id} href={`/ilan/${l.id}`} className="block">
+                    <Link
+                      key={l.id}
+                      href={buildListingPath(l.id, l.title)}
+                      className="block"
+                    >
                       <div className="border border-slate-200/70 rounded-2xl overflow-hidden bg-white/90 hover:shadow-[0_12px_30px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5">
                         {thumb ? (
-                          <img
-                            src={thumb}
-                            alt={safeText(l.title, "İlan")}
-                            className="w-full h-44 object-cover"
-                            loading="lazy"
-                          />
+                          <div className="relative w-full h-44">
+                            <Image
+                              src={thumb}
+                              alt={safeText(l.title, "İlan")}
+                              fill
+                              sizes="(max-width: 640px) 75vw, (max-width: 1024px) 40vw, 300px"
+                              quality={45}
+                              className="object-cover"
+                            />
+                          </div>
                         ) : (
                           <div className="w-full h-44 bg-slate-100 flex items-center justify-center text-slate-400 text-sm">
                             Görsel yok
@@ -842,20 +970,30 @@ function HomeInner() {
                         )}
 
                         <div className="p-4 space-y-2">
-                          <div className="font-semibold line-clamp-2">
+                          <div className="font-semibold line-clamp-2 text-[15px]">
                             {safeText(l.title, "İlan")}
                           </div>
 
-                          <div className="text-sm text-[color:var(--market-accent)] font-semibold">
-                            {formatPriceTRY(l.price)}
+                          <div className="flex items-center justify-between gap-2 text-sm">
+                            <div className="text-slate-600 line-clamp-1">
+                              {officialName}
+                            </div>
+                            <div className="text-[color:var(--market-accent)] font-semibold text-[18px] shrink-0">
+                              {formatPriceTRY(l.price)}
+                            </div>
                           </div>
 
-                          <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-                            <div className="truncate">
-                              {category}
-                              {subCategory ? ` / ${subCategory}` : ""}
+                          <div className="pt-1 text-xs text-slate-400 space-y-1">
+                            <div className="text-slate-500">
+                              {sellerName || "Satıcı"}
                             </div>
-                            <div className="shrink-0">{ago}</div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="truncate">
+                                {category}
+                                {subCategory ? ` / ${subCategory}` : ""}
+                              </div>
+                              <div className="shrink-0 text-right">{ago}</div>
+                            </div>
                           </div>
                         </div>
                       </div>

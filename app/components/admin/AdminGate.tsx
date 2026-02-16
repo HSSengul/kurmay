@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, firebaseConfigReady } from "@/lib/firebase";
+import { getFriendlyErrorMessage } from "@/lib/logger";
 
 export default function AdminGate({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -36,6 +37,10 @@ export default function AdminGate({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!firebaseConfigReady || !auth || !db) {
+      setChecking(false);
+      return;
+    }
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         router.push("/login");
@@ -52,7 +57,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
           router.push("/my");
           return;
         }
-      } catch {
+      } catch (err) {
         router.push("/my");
         return;
       } finally {
@@ -68,6 +73,22 @@ export default function AdminGate({ children }: { children: ReactNode }) {
       <div className="min-h-screen flex items-center justify-center bg-[#f5f7fb] bg-[radial-gradient(circle_at_top,_#ffffff,_#f5f7fb_55%)] px-4">
         <div className="w-full max-w-sm rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-4 text-sm text-slate-600 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.45)]">
           Kontrol ediliyor...
+        </div>
+      </div>
+    );
+  }
+
+  if (!firebaseConfigReady || !auth || !db) {
+    return (
+      <div className="min-h-screen bg-[#f7f4ef] px-4 py-10">
+        <div className="max-w-3xl mx-auto bg-white/90 rounded-3xl border border-rose-200 shadow-sm p-8 text-center">
+          <div className="text-rose-700 font-semibold mb-2">Firebase yapılandırması eksik</div>
+          <div className="text-slate-700">
+            {getFriendlyErrorMessage(
+              null,
+              "Vercel ortam değişkenlerini kontrol et: NEXT_PUBLIC_FIREBASE_* alanları eksik olabilir."
+            )}
+          </div>
         </div>
       </div>
     );

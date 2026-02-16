@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 
 import { auth, db } from "@/lib/firebase";
+import { devError, getFriendlyErrorMessage } from "@/lib/logger";
 
 function safeText(v: any, fallback = "") {
   if (v === null || v === undefined) return fallback;
@@ -35,18 +36,17 @@ export default function NewConversationClient() {
 
   const listingId = searchParams.get("listingId") || "";
   const sellerId = searchParams.get("sellerId") || "";
+  const missingParams = !listingId || !sellerId;
 
-  const [error, setError] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>(
+    missingParams ? "Eksik bilgi: ilan veya satıcı bulunamadı." : ""
+  );
+  const [loading, setLoading] = useState(!missingParams);
 
   useEffect(() => {
     let cancelled = false;
 
-    if (!listingId || !sellerId) {
-      setError("Eksik bilgi: ilan veya satıcı bulunamadı.");
-      setLoading(false);
-      return;
-    }
+    if (missingParams) return;
 
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -163,9 +163,9 @@ export default function NewConversationClient() {
           router.replace(`/my/messages/${docRef.id}`);
         }
       } catch (e: any) {
-        console.error("NewConversationPage error:", e);
+        devError("NewConversationPage error:", e);
         if (!cancelled) {
-          setError(e?.message || "Sohbet başlatılamadı.");
+          setError(getFriendlyErrorMessage(e, "Sohbet başlatılamadı."));
           setLoading(false);
         }
       }
@@ -175,7 +175,7 @@ export default function NewConversationClient() {
       cancelled = true;
       unsub();
     };
-  }, [listingId, sellerId, router]);
+  }, [listingId, sellerId, router, missingParams]);
 
   if (loading) {
     return (

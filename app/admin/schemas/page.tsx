@@ -12,6 +12,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { devError } from "@/lib/logger";
 
 import {
   ToastView,
@@ -622,7 +623,7 @@ export default function AdminSchemasPage() {
         text: `Şema yükleme tamamlandı. Oluşturulan: ${created}, Güncellenen: ${updated}, Yedeklenen: ${archived}, Atlanan: ${skipped}.`,
       });
     } catch (e: any) {
-      console.error("seedAllSchemasSingleButton error:", e);
+      devError("seedAllSchemasSingleButton error:", e);
       showToast({
         type: "error",
         title: "Hata",

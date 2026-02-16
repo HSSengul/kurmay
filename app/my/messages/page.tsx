@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { devError, getFriendlyErrorMessage } from "@/lib/logger";
 import {
   collection,
   doc,
@@ -416,10 +417,10 @@ export default function MessagesPage() {
         setLoadError(null);
       },
       (err) => {
-        console.error("MessagesPage onSnapshot error:", err);
+        devError("MessagesPage onSnapshot error:", err);
         setLoading(false);
         setHasMore(false);
-        setLoadError(err?.message || "Mesajlar yüklenemedi.");
+        setLoadError(getFriendlyErrorMessage(err, "Mesajlar yüklenemedi."));
       }
     );
 
@@ -545,8 +546,11 @@ export default function MessagesPage() {
 
       showToast({ type: "success", text: "Sohbet silindi." });
     } catch (err: any) {
-      console.error("hideConversation error:", err);
-      showToast({ type: "error", text: err?.message || "Sohbet silinemedi." });
+      devError("hideConversation error:", err);
+      showToast({
+        type: "error",
+        text: getFriendlyErrorMessage(err, "Sohbet silinemedi."),
+      });
     } finally {
       hideInFlightRef.current[conversationId] = false;
     }
@@ -577,8 +581,11 @@ export default function MessagesPage() {
 
       showToast({ type: "success", text: "Okundu olarak işaretlendi." });
     } catch (err: any) {
-      console.error("markConversationAsRead error:", err);
-      showToast({ type: "error", text: err?.message || "Okundu işaretlenemedi." });
+      devError("markConversationAsRead error:", err);
+      showToast({
+        type: "error",
+        text: getFriendlyErrorMessage(err, "Okundu işaretlenemedi."),
+      });
     } finally {
       markReadInFlightRef.current[conversationId] = false;
     }

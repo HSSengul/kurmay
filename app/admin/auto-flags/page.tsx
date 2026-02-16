@@ -17,6 +17,7 @@ import {
 
 import { db } from "@/lib/firebase";
 import { ToastView, useToast, cx, formatDateTR } from "@/app/components/admin/ui";
+import { devError } from "@/lib/logger";
 
 type AutoFlagStatus = "open" | "investigating" | "resolved";
 
@@ -165,7 +166,7 @@ export default function AdminAutoFlagsPage() {
         text: `Oto Bayraklar listesi yenilendi (${status}).`,
       });
     } catch (e) {
-      console.error(e);
+      devError("Auto flags load error", e);
       setRows([]);
       showToast({
         type: "error",
@@ -198,7 +199,7 @@ export default function AdminAutoFlagsPage() {
       // aktif filtreye göre listeden çıkar
       setRows((prev) => prev.filter((x) => x.id !== flagId));
     } catch (e) {
-      console.error(e);
+      devError("Auto flag status update error", e);
       showToast({
         type: "error",
         title: "Hata",

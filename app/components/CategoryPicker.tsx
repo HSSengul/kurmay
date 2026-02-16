@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getCategoriesCached } from "@/lib/catalogCache";
+import { getFriendlyErrorMessage } from "@/lib/logger";
 
 /* =========================
    TYPES
@@ -65,7 +66,7 @@ export default function CategoryPicker({
         .filter((x) => x.enabled !== false);
       setAll(rows);
     } catch (e: any) {
-      setErr(e?.message || "Kategoriler yüklenemedi.");
+      setErr(getFriendlyErrorMessage(e, "Kategoriler yüklenemedi."));
     } finally {
       setLoading(false);
     }

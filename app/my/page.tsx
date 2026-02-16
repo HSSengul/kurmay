@@ -4,6 +4,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { Sora } from "next/font/google";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { devError } from "@/lib/logger";
+import { buildListingPath } from "@/lib/listingUrl";
 import {
   collection,
   query,
@@ -326,7 +328,7 @@ function MyPageInner() {
       setListingsCursor(docs.length > 0 ? docs[docs.length - 1] : listingsCursor);
       setListingsHasMore(docs.length === MY_LISTINGS_PAGE_SIZE);
     } catch (e) {
-      console.error("loadMoreListings error:", e);
+      devError("loadMoreListings error:", e);
     } finally {
       setListingsLoadingMore(false);
     }
@@ -890,7 +892,7 @@ function MyPageInner() {
                       setProfileMessage("Önce profilini tamamlamalısın ❌");
                       return;
                     }
-                    router.push(`/ilan/${l.id}`);
+                    router.push(buildListingPath(l.id, l.title));
                   }}
                   className={`group relative border border-slate-200 rounded-2xl overflow-hidden bg-white cursor-pointer transition hover:shadow-lg ${
                     onboardingNeeded ? "pointer-events-none opacity-60" : ""
@@ -954,7 +956,7 @@ function MyPageInner() {
                       setProfileMessage("Önce profilini tamamlamalısın ❌");
                       return;
                     }
-                    router.push(`/ilan/${l.id}`);
+                    router.push(buildListingPath(l.id, l.title));
                   }}
                   className={`relative border border-slate-200 rounded-2xl p-3 sm:p-4 flex justify-between items-center bg-white cursor-pointer transition hover:shadow-lg ${
                     onboardingNeeded ? "pointer-events-none opacity-60" : ""
@@ -1298,8 +1300,21 @@ export default function MyPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center text-slate-600">
-          Yükleniyor...
+        <div className="min-h-screen bg-[#f7f4ef] px-4 py-10">
+          <div className="max-w-5xl mx-auto space-y-6 animate-pulse">
+            <div className="bg-white/90 rounded-3xl border border-slate-200/70 shadow-sm p-6">
+              <div className="h-6 w-40 bg-slate-200 rounded mb-2" />
+              <div className="h-4 w-64 bg-slate-200 rounded" />
+            </div>
+            <div className="bg-white/90 rounded-3xl border border-slate-200/70 shadow-sm p-6">
+              <div className="h-4 w-32 bg-slate-200 rounded mb-4" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="h-56 bg-slate-200 rounded-2xl" />
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       }
     >

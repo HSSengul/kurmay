@@ -13,9 +13,25 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() || "http://localhost:3000";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "İlan Sitesi",
   description: "Basit ilan platformu",
+  openGraph: {
+    title: "İlan Sitesi",
+    description: "Basit ilan platformu",
+    url: siteUrl,
+    images: [{ url: `${siteUrl}/opengraph-image` }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "İlan Sitesi",
+    description: "Basit ilan platformu",
+    images: [`${siteUrl}/opengraph-image`],
+  },
 };
 
 export default function RootLayout({

@@ -1,1192 +1,263 @@
-"use client";
+import type { Metadata } from "next";
+import { notFound, permanentRedirect } from "next/navigation";
+import SubCategoryClient from "./SubCategoryClient";
+import { listCollection, normTRAscii, runQueryByField } from "@/lib/firestoreRest";
+import { slugifyTR } from "@/lib/listingUrl";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  useParams,
-  useRouter,
-  usePathname,
-  useSearchParams,
-} from "next/navigation";
-import Link from "next/link";
+export const revalidate = 300;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  limit,
-  startAfter,
-  DocumentData,
-  QueryDocumentSnapshot,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase";
-import { getCategoriesCached } from "@/lib/catalogCache";
-
-/* ================= TYPES ================= */
-
-type Category = {
+type CategoryDoc = {
   id: string;
   name: string;
-  nameLower: string;
+  nameLower?: string;
+  slug?: string;
+  parentId?: string | null;
 };
 
-type SubCategory = {
+type SubCategoryDoc = {
   id: string;
   name: string;
-  nameLower: string;
-  categoryId: string;
+  nameLower?: string;
+  slug?: string;
+  categoryId?: string;
+  parentId?: string | null;
 };
 
-type Listing = {
-  id: string;
+type ListingDoc = {
   title?: string;
   price?: number;
-
   categoryId?: string;
   categoryName?: string;
   subCategoryId?: string;
   subCategoryName?: string;
-
-  productionYear?: string | null;
-  gender?: string;
-  serialNumber?: string;
-  movementType?: string;
-
-  caseType?: string;
-  diameterMm?: number | null;
-  dialColor?: string;
-
-  braceletMaterial?: string;
-  braceletColor?: string;
-
-  wearExists?: boolean;
-  accessories?: string;
-
-  description?: string;
-
-  createdAt?: any;
   imageUrls?: string[];
-
-  ownerId?: string;
+  createdAt?: any;
 };
 
-/* ================= HELPERS ================= */
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() || "http://localhost:3000";
 
-const normalizeSpaces = (v: string) => (v || "").replace(/\s+/g, " ").trim();
-
-const safeText = (v?: string, fallback = "—") => {
-  const t = normalizeSpaces(v || "");
-  return t ? t : fallback;
+const clampMeta = (v: string, max = 160) => {
+  const t = (v || "").replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  return t.length > max ? `${t.slice(0, max - 1).trim()}…` : t;
 };
 
-const normTR = (v?: string) =>
-  normalizeSpaces(v || "").toLocaleLowerCase("tr-TR");
+const LISTINGS_BATCH = 60;
 
-const normTRAscii = (v?: string) =>
-  normTR(v)
-    .replaceAll("ı", "i")
-    .replaceAll("ş", "s")
-    .replaceAll("ğ", "g")
-    .replaceAll("ü", "u")
-    .replaceAll("ö", "o")
-    .replaceAll("ç", "c")
-    .replaceAll("İ", "i");
-
-const formatPriceTRY = (v?: number) => {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return "—";
-  try {
-    return new Intl.NumberFormat("tr-TR", {
-      style: "currency",
-      currency: "TRY",
-      maximumFractionDigits: 0,
-    }).format(n);
-  } catch {
-    return `${n} TL`;
-  }
-};
-
-const firstImage = (urls?: string[]) => {
-  if (!Array.isArray(urls)) return "";
-  return urls[0] || "";
-};
-
-const timeAgoTR = (createdAt: any) => {
-  try {
-    const d: Date =
-      createdAt?.toDate?.() instanceof Date
-        ? createdAt.toDate()
-        : createdAt instanceof Date
-        ? createdAt
-        : null;
-
-    if (!d) return "";
-
-    const diff = Date.now() - d.getTime();
-    const sec = Math.floor(diff / 1000);
-    if (sec < 60) return `${sec} sn önce`;
-    const min = Math.floor(sec / 60);
-    if (min < 60) return `${min} dk önce`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr} sa önce`;
-    const day = Math.floor(hr / 24);
-    return `${day} gün önce`;
-  } catch {
-    return "";
-  }
-};
-
-const toIntOrNull = (v: string) => {
-  const t = (v || "").trim();
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
-};
-
-const toNumOrNull = (v: string) => {
-  const t = (v || "").trim();
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-};
-
-const getYearNumber = (v?: string | null) => {
-  const s = (v || "").trim();
-  if (!s) return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
-};
-
-const getDiaNumber = (v?: number | null) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
-const toMillis = (v: any) => {
-  const d: Date =
-    v?.toDate?.() instanceof Date
-      ? v.toDate()
-      : v instanceof Date
-      ? v
-      : null;
-  return d ? d.getTime() : 0;
-};
-
-const compactLabel = (s?: string) => {
-  const t = normalizeSpaces(s || "");
-  return t.length > 18 ? t.slice(0, 18) + "…" : t;
-};
-
-const clampInt = (n: number, min: number, max: number) =>
-  Math.max(min, Math.min(max, Math.trunc(n)));
-
-/* ================= URL HELPERS (✅ pickEnum fix) ================= */
-
-function pickEnum<T extends string>(
-  raw: string | null | undefined,
-  allowed: readonly T[],
-  fallback: T
-): T {
-  if (!raw) return fallback;
-  return allowed.includes(raw as T) ? (raw as T) : fallback;
-}
-
-function pickPageSize(raw: string | null | undefined, fallback: 24 | 48 | 96) {
-  const n = Number(raw);
-  if (n === 24 || n === 48 || n === 96) return n;
-  return fallback;
-}
-
-function cleanParam(v: string) {
-  return normalizeSpaces(v || "");
-}
-
-/* ================= CONSTS ================= */
-
-const SORT_OPTIONS = ["newest", "priceAsc", "priceDesc"] as const;
-const VIEW_OPTIONS = ["grid", "list"] as const;
-
-/* ================= PAGE ================= */
-
-export default function SubCategoryPage() {
-  const params = useParams<{ category: string; subCategory: string }>();
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
-  const categorySlug = params?.category
-    ? decodeURIComponent(params.category)
-    : "";
-  const subCategorySlug = params?.subCategory
-    ? decodeURIComponent(params.subCategory)
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ category: string; subCategory: string }> | { category: string; subCategory: string };
+}): Promise<Metadata> {
+  const resolved = await params;
+  const categorySlug = resolved.category ? decodeURIComponent(resolved.category) : "";
+  const subCategorySlug = resolved.subCategory
+    ? decodeURIComponent(resolved.subCategory)
     : "";
 
-  const [category, setCategory] = useState<Category | null>(null);
-  const [subCategory, setSubCategory] = useState<SubCategory | null>(null);
+  const categories = await listCollection<CategoryDoc>("categories");
+  const subCategories = await listCollection<SubCategoryDoc>("subCategories");
+  const subCategoriesFallback: SubCategoryDoc[] = categories
+    .filter((c) => !!c.parentId)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      nameLower: c.nameLower,
+      slug: c.slug,
+      categoryId: c.parentId || undefined,
+      parentId: c.parentId || undefined,
+    }));
 
-  // ✅ Firestore pagination listings
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [lastDoc, setLastDoc] =
-    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [hasMore, setHasMore] = useState(true);
-
-  const [loading, setLoading] = useState(true); // initial
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  /* ================= UI STATES ================= */
-
-  const [viewMode, setViewMode] = useState<(typeof VIEW_OPTIONS)[number]>("grid");
-
-  const [sortMode, setSortMode] = useState<(typeof SORT_OPTIONS)[number]>("newest");
-
-  // fetch size per page
-  const [pageSize, setPageSize] = useState<24 | 48 | 96>(24);
-
-  const [filterOpen, setFilterOpen] = useState(false);
-
-  /* ================= FILTER STATES ================= */
-
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-
-  const [yearMin, setYearMin] = useState("");
-  const [yearMax, setYearMax] = useState("");
-
-  const [gender, setGender] = useState("");
-
-  const [wearFilter, setWearFilter] = useState<"" | "wear" | "noWear">("");
-
-  /* ================= OPTIONS ================= */
-
-  const yearOptions = useMemo(() => {
-    const now = new Date().getFullYear();
-    const years: string[] = [];
-    for (let y = now; y >= 1950; y--) years.push(String(y));
-    return years;
-  }, []);
-
-  const genderOptions = useMemo(
-    () => ["Erkek", "Kadın", "Unisex", "Diğer"],
-    []
-  );
-
-  const clearFilters = () => {
-    setMinPrice("");
-    setMaxPrice("");
-    setYearMin("");
-    setYearMax("");
-    setGender("");
-    setWearFilter("");
-  };
-
-  const appliedFiltersCount = useMemo(() => {
-    let c = 0;
-    if (minPrice.trim()) c++;
-    if (maxPrice.trim()) c++;
-    if (yearMin.trim()) c++;
-    if (yearMax.trim()) c++;
-    if (gender.trim()) c++;
-    if (wearFilter) c++;
-    return c;
-  }, [
-    minPrice,
-    maxPrice,
-    yearMin,
-    yearMax,
-    gender,
-    wearFilter,
-  ]);
-
-  /* ================= URL INIT (✅ URL’den filtre oku) ================= */
-
-  const urlHydratingRef = useRef(false);
-  const urlReadyRef = useRef(false);
-
-  useEffect(() => {
-    if (!categorySlug || !subCategorySlug) return;
-
-    // Her route değişiminde URL init tekrar yapılır
-    urlHydratingRef.current = true;
-    urlReadyRef.current = false;
-
-    const sp = new URLSearchParams(searchParams?.toString() || "");
-
-    setSortMode(pickEnum(sp.get("sort"), SORT_OPTIONS, "newest"));
-    setViewMode(pickEnum(sp.get("view"), VIEW_OPTIONS, "grid"));
-    setPageSize(pickPageSize(sp.get("ps"), 24));
-
-    setMinPrice(cleanParam(sp.get("minPrice") || "").replace(/[^\d]/g, ""));
-    setMaxPrice(cleanParam(sp.get("maxPrice") || "").replace(/[^\d]/g, ""));
-
-    setYearMin(cleanParam(sp.get("yearMin") || ""));
-    setYearMax(cleanParam(sp.get("yearMax") || ""));
-
-    setGender(cleanParam(sp.get("gender") || ""));
-
-    setWearFilter(pickEnum(sp.get("wear"), ["", "wear", "noWear"] as const, ""));
-
-    // ✅ URL hazır
-    setTimeout(() => {
-      urlHydratingRef.current = false;
-      urlReadyRef.current = true;
-    }, 0);
-  }, [categorySlug, subCategorySlug, searchParams]);
-
-  /* ================= URL SYNC (✅ filtreler değişince URL yaz) ================= */
-
-  useEffect(() => {
-    if (!pathname) return;
-    if (!urlReadyRef.current) return;
-    if (urlHydratingRef.current) return;
-
-    const sp = new URLSearchParams();
-
-    // defaults yazma -> URL temiz kalsın
-    if (sortMode !== "newest") sp.set("sort", sortMode);
-    if (viewMode !== "grid") sp.set("view", viewMode);
-    if (pageSize !== 24) sp.set("ps", String(pageSize));
-
-    if (minPrice.trim()) sp.set("minPrice", minPrice.trim());
-    if (maxPrice.trim()) sp.set("maxPrice", maxPrice.trim());
-
-    if (yearMin.trim()) sp.set("yearMin", yearMin.trim());
-    if (yearMax.trim()) sp.set("yearMax", yearMax.trim());
-
-    if (gender.trim()) sp.set("gender", gender.trim());
-    if (wearFilter) sp.set("wear", wearFilter);
-
-    const nextQs = sp.toString();
-    const curQs = searchParams?.toString() || "";
-
-    if (nextQs === curQs) return;
-
-    const nextUrl = nextQs ? `${pathname}?${nextQs}` : pathname;
-    router.replace(nextUrl, { scroll: false });
-  }, [
-    pathname,
-    router,
-    searchParams,
-    sortMode,
-    viewMode,
-    pageSize,
-    minPrice,
-    maxPrice,
-    yearMin,
-    yearMax,
-    gender,
-    wearFilter,
-  ]);
-
-  /* ================= LOAD CATEGORY + SUBCATEGORY ================= */
-
-  useEffect(() => {
-    if (!categorySlug || !subCategorySlug) return;
-
-    let cancelled = false;
-
-    async function loadCategorySubCategory() {
-      setLoading(true);
-      setError(null);
-
-      try {
-        // CATEGORY
-        const categoryDocs = (await getCategoriesCached()).map((d: any) => ({
-          id: d.id,
-          ...(d as any),
-        }));
-        const categoryKey = normTRAscii(categorySlug);
-        const matchCategory = categoryDocs.find((c) => {
-          const keys = [
-            c.id,
-            c.slug,
-            c.nameLower,
-            c.name,
-          ].map((x) => normTRAscii(x));
-          return keys.includes(categoryKey);
-        });
-        if (!matchCategory) throw new Error("Kategori bulunamadı.");
-
-        const b: Category = {
-          id: matchCategory.id,
-          name: matchCategory.name,
-          nameLower: matchCategory.nameLower,
-        };
-
-        if (cancelled) return;
-        setCategory(b);
-
-        // SUBCATEGORY (categories parentId)
-        const subDocs = categoryDocs.filter((d) => d.parentId === b.id);
-        const subKey = normTRAscii(subCategorySlug);
-        const matchSub = subDocs.find((s) => {
-          const keys = [
-            s.id,
-            s.slug,
-            s.nameLower,
-            s.name,
-          ].map((x) => normTRAscii(x));
-          return keys.includes(subKey);
-        });
-        if (!matchSub) throw new Error("Alt kategori bulunamadı.");
-
-        const m: SubCategory = {
-          id: matchSub.id,
-          name: matchSub.name,
-          nameLower: matchSub.nameLower,
-          categoryId: matchSub.parentId,
-        };
-
-        if (cancelled) return;
-        setSubCategory(m);
-      } catch (e: any) {
-        console.error(e);
-        if (!cancelled) setError(e?.message || "Bir hata oluştu.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadCategorySubCategory();
-
-    return () => {
-      cancelled = true;
+  const categoryKey = normTRAscii(categorySlug);
+  const matchCategory = categories.find((c) => {
+    const keys = [c.id, c.slug, c.nameLower, c.name].map((x) =>
+      normTRAscii(String(x || ""))
+    );
+    return keys.includes(categoryKey);
+  });
+  if (!matchCategory) {
+    return {
+      title: "Kategori bulunamadı",
+      robots: { index: false, follow: false },
     };
-  }, [categorySlug, subCategorySlug]);
+  }
 
-  /* ================= FIRESTORE PAGINATION (✅ 2000 ilan uçurur) ================= */
-
-  const serverQueryKey = useMemo(() => {
-    // server tarafında gerçekten query değiştirip reset gerektiren şeyler:
-    // sortMode, pageSize, wearFilter, gender
-    // (min/max price sadece price sıralamasında server tarafına eklenir)
-    const priceKey =
-      sortMode === "priceAsc" || sortMode === "priceDesc"
-        ? `${minPrice || ""}-${maxPrice || ""}`
-        : ""; // newest'te fiyat range client-side
-
-    return [
-      subCategory?.id || "",
-      sortMode,
-      String(pageSize),
-      wearFilter || "",
-      gender || "",
-      priceKey,
-    ].join("|");
-  }, [
-    subCategory?.id,
-    sortMode,
-    pageSize,
-    wearFilter,
-    gender,
-    minPrice,
-    maxPrice,
-  ]);
-
-  const isIndexError = (e: any) => {
-    const msg = String(e?.message || "");
-    return msg.includes("requires an index");
-  };
-
-  const fetchPage = async (reset: boolean) => {
-    if (!subCategory?.id) return;
-    if (reset) {
-      setLoading(true);
-      setHasMore(true);
-      setLastDoc(null);
-      setListings([]);
-    } else {
-      if (loadingMore) return;
-      setLoadingMore(true);
-    }
-
-    try {
-      const baseConstraints: any[] = [
-        where("subCategoryId", "==", subCategory.id),
-        orderBy("createdAt", "desc"),
-        limit(pageSize),
-      ];
-
-      const cursor = reset ? null : lastDoc;
-      if (cursor) baseConstraints.push(startAfter(cursor));
-
-      let snap;
-      try {
-        snap = await getDocs(query(collection(db, "listings"), ...baseConstraints));
-      } catch (e: any) {
-        if (!isIndexError(e)) throw e;
-        // fallback: index yoksa orderBy olmadan dene
-        const fallback: any[] = [
-          where("subCategoryId", "==", subCategory.id),
-          limit(pageSize),
-        ];
-        if (cursor) fallback.push(startAfter(cursor));
-        snap = await getDocs(query(collection(db, "listings"), ...fallback));
-      }
-
-      const items = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as any),
-      })) as Listing[];
-
-      const newLast =
-        snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
-
-      setLastDoc(newLast);
-      setHasMore(snap.docs.length === pageSize);
-
-      if (reset) {
-        // ✅ reset’te direkt yaz
-        setListings(items);
-      } else {
-        // ✅ append’te dedupe (duplicate key fix)
-        setListings((prev) => {
-          const seen = new Set(prev.map((x) => x.id));
-          const merged = [...prev];
-          for (const it of items) {
-            if (!seen.has(it.id)) {
-              merged.push(it);
-              seen.add(it.id);
-            }
-          }
-          return merged;
-        });
-      }
-    } catch (e: any) {
-      console.error(e);
-      setError(e?.message || "Liste yüklenemedi.");
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  };
-
-  // ✅ query değişince reset + ilk sayfa çek
-  useEffect(() => {
-    if (!subCategory?.id) return;
-    if (!urlReadyRef.current) return;
-    if (urlHydratingRef.current) return;
-
-    fetchPage(true);
-  }, [serverQueryKey, subCategory?.id]);
-
-  /* ================= CLIENT FILTER (year vb.) ================= */
-
-  const filteredListings = useMemo(() => {
-    const yMin = toIntOrNull(yearMin);
-    const yMax = toIntOrNull(yearMax);
-
-    const minP = toNumOrNull(minPrice);
-    const maxP = toNumOrNull(maxPrice);
-
-    let next = listings.filter((l) => {
-      const y = getYearNumber(l.productionYear);
-      if (yMin !== null) {
-        if (y === null || y < yMin) return false;
-      }
-      if (yMax !== null) {
-        if (y === null || y > yMax) return false;
-      }
-
-      if (wearFilter === "wear" && l.wearExists !== true) return false;
-      if (wearFilter === "noWear" && l.wearExists !== false) return false;
-
-      if (gender.trim() && (l.gender || "") !== gender.trim()) return false;
-      if (minP !== null) {
-        const p = Number(l.price);
-        if (!Number.isFinite(p) || p < minP) return false;
-      }
-      if (maxP !== null) {
-        const p = Number(l.price);
-        if (!Number.isFinite(p) || p > maxP) return false;
-      }
-
-      return true;
-    });
-
-    if (sortMode === "priceAsc") {
-      next = [...next].sort((a, b) => {
-        const ap = Number(a.price);
-        const bp = Number(b.price);
-        if (Number.isFinite(ap) && Number.isFinite(bp) && ap !== bp) {
-          return ap - bp;
-        }
-        return toMillis(b.createdAt) - toMillis(a.createdAt);
-      });
-    } else if (sortMode === "priceDesc") {
-      next = [...next].sort((a, b) => {
-        const ap = Number(a.price);
-        const bp = Number(b.price);
-        if (Number.isFinite(ap) && Number.isFinite(bp) && ap !== bp) {
-          return bp - ap;
-        }
-        return toMillis(b.createdAt) - toMillis(a.createdAt);
-      });
-    } else {
-      next = [...next].sort(
-        (a, b) => toMillis(b.createdAt) - toMillis(a.createdAt)
+  const subKey = normTRAscii(subCategorySlug);
+  const matchSub =
+    subCategories.find((s) => {
+      if ((s.categoryId || s.parentId) !== matchCategory.id) return false;
+      const keys = [s.id, s.slug, s.nameLower, s.name].map((x) =>
+        normTRAscii(String(x || ""))
       );
-    }
-
-    return next;
-  }, [
-    listings,
-    yearMin,
-    yearMax,
-    wearFilter,
-    gender,
-    minPrice,
-    maxPrice,
-    sortMode,
-  ]);
-
-  /* ================= UI STATES ================= */
-
-  if (loading && !category && !subCategory) {
-    return (
-      <div className="min-h-screen bg-gray-100 px-4 py-10">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="bg-white rounded-2xl shadow p-8">
-            <div className="h-6 w-60 bg-gray-200 rounded mb-3" />
-            <div className="h-4 w-96 bg-gray-200 rounded" />
-          </div>
-
-          <div className="bg-white rounded-2xl shadow p-6">
-            <div className="h-5 w-40 bg-gray-200 rounded mb-4" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="h-64 bg-gray-200 rounded-2xl" />
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+      return keys.includes(subKey);
+    }) ||
+    subCategoriesFallback.find((s) => {
+      if (s.parentId !== matchCategory.id) return false;
+      const keys = [s.id, s.slug, s.nameLower, s.name].map((x) =>
+        normTRAscii(String(x || ""))
+      );
+      return keys.includes(subKey);
+    });
+  if (!matchSub) {
+    return {
+      title: "Alt kategori bulunamadı",
+      robots: { index: false, follow: false },
+    };
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-100 px-4 py-10">
-        <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-8 text-center">
-          <div className="text-red-700 font-semibold mb-2">Hata</div>
-          <div className="text-gray-700 mb-6">{error}</div>
-          <button
-            onClick={() => router.push("/")}
-            className="underline text-blue-600"
-          >
-            Ana sayfaya dön
-          </button>
-        </div>
-      </div>
+  const canonicalCategorySlug = slugifyTR(
+    matchCategory.slug || matchCategory.nameLower || matchCategory.name
+  );
+  const canonicalSubSlug = slugifyTR(
+    matchSub.slug || matchSub.nameLower || matchSub.name
+  );
+  const title = `${matchSub.name} | ${matchCategory.name}`;
+  const description = clampMeta(
+    `${matchCategory.name} › ${matchSub.name} ilanlarını keşfet.`
+  );
+  const ogImage = `${siteUrl}/opengraph-image`;
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: `${siteUrl}/${encodeURIComponent(
+        canonicalCategorySlug
+      )}/${encodeURIComponent(canonicalSubSlug)}`,
+    },
+    openGraph: {
+      title,
+      description,
+      url: `${siteUrl}/${encodeURIComponent(
+        canonicalCategorySlug
+      )}/${encodeURIComponent(canonicalSubSlug)}`,
+      images: [{ url: ogImage }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [ogImage],
+    },
+  };
+}
+
+export default async function SubCategoryPage({
+  params,
+}: {
+  params: Promise<{ category: string; subCategory: string }> | { category: string; subCategory: string };
+}) {
+  const resolved = await params;
+  const categorySlug = resolved.category ? decodeURIComponent(resolved.category) : "";
+  const subCategorySlug = resolved.subCategory
+    ? decodeURIComponent(resolved.subCategory)
+    : "";
+
+  const categories = await listCollection<CategoryDoc>("categories");
+  const subCategoriesAll = await listCollection<SubCategoryDoc>("subCategories");
+  const subCategoriesFallback: SubCategoryDoc[] = categories
+    .filter((c) => !!c.parentId)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      nameLower: c.nameLower,
+      slug: c.slug,
+      categoryId: c.parentId || undefined,
+      parentId: c.parentId || undefined,
+    }));
+
+  const categoryKey = normTRAscii(categorySlug);
+  const matchCategory = categories.find((c) => {
+    const keys = [c.id, c.slug, c.nameLower, c.name].map((x) =>
+      normTRAscii(String(x || ""))
     );
+    return keys.includes(categoryKey);
+  });
+  if (!matchCategory) notFound();
+
+  const subKey = normTRAscii(subCategorySlug);
+  const matchSub =
+    subCategoriesAll.find((s) => {
+      if ((s.categoryId || s.parentId) !== matchCategory.id) return false;
+      const keys = [s.id, s.slug, s.nameLower, s.name].map((x) =>
+        normTRAscii(String(x || ""))
+      );
+      return keys.includes(subKey);
+    }) ||
+    subCategoriesFallback.find((s) => {
+      if (s.parentId !== matchCategory.id) return false;
+      const keys = [s.id, s.slug, s.nameLower, s.name].map((x) =>
+        normTRAscii(String(x || ""))
+      );
+      return keys.includes(subKey);
+    });
+  if (!matchSub) notFound();
+
+  const canonicalCategorySlug = slugifyTR(
+    matchCategory.slug || matchCategory.nameLower || matchCategory.name
+  );
+  const canonicalSubSlug = slugifyTR(
+    matchSub.slug || matchSub.nameLower || matchSub.name
+  );
+  const currentCategorySlug = slugifyTR(categorySlug);
+  const currentSubSlug = slugifyTR(subCategorySlug);
+  if (
+    canonicalCategorySlug &&
+    canonicalSubSlug &&
+    (canonicalCategorySlug !== currentCategorySlug ||
+      canonicalSubSlug !== currentSubSlug)
+  ) {
+    permanentRedirect(`/${canonicalCategorySlug}/${canonicalSubSlug}`);
   }
 
-  if (!category || !subCategory) return null;
+  const category = {
+    id: matchCategory.id,
+    name: matchCategory.name,
+    nameLower: matchCategory.nameLower || normTRAscii(matchCategory.name),
+  };
 
-  /* ================= UI ================= */
+  const subCategory = {
+    id: matchSub.id,
+    name: matchSub.name,
+    nameLower: matchSub.nameLower || normTRAscii(matchSub.name),
+    categoryId: (matchSub as any).categoryId || (matchSub as any).parentId || matchCategory.id,
+  };
+
+  const subCategoriesSource = subCategoriesAll.length
+    ? subCategoriesAll
+    : subCategoriesFallback;
+
+  const subCategories = subCategoriesSource
+    .filter((s) => (s.categoryId || s.parentId) === matchCategory.id)
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      nameLower: s.nameLower || normTRAscii(s.name),
+      categoryId: (s as any).categoryId || (s as any).parentId,
+    }))
+    .sort((a, b) =>
+      (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
+    );
+
+  const listings = await runQueryByField<ListingDoc>({
+    collectionId: "listings",
+    fieldPath: "subCategoryId",
+    value: matchSub.id,
+    orderByField: "createdAt",
+    direction: "DESCENDING",
+    limit: LISTINGS_BATCH,
+  });
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <div className="max-w-7xl mx-auto px-4 py-10 space-y-8">
-        {/* ================= BREADCRUMB ================= */}
-        <div className="text-sm text-gray-600">
-          <Link href="/" className="hover:underline">
-            Ana sayfa
-          </Link>
-          <span className="mx-2">/</span>
-          <Link href={`/${category.nameLower}`} className="hover:underline">
-            {category.name}
-          </Link>
-          <span className="mx-2">/</span>
-          <span className="text-gray-900 font-medium">{subCategory.name}</span>
-        </div>
-
-        {/* ================= HERO ================= */}
-        <div className="bg-white rounded-2xl shadow p-8">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-            <div className="space-y-2">
-              <h1 className="text-3xl font-bold">
-                {category.name} / {subCategory.name}
-              </h1>
-              <div className="text-gray-600">
-                Bu subCategory için ilanlar. Filtrele, sırala, sayfalı yükle.
-              </div>
-
-              <div className="text-sm text-gray-500 mt-2">
-                Yüklendi:{" "}
-                <span className="font-semibold text-gray-800">
-                  {listings.length}
-                </span>
-                {"  "}
-                • Filtre sonucu (yüklenen içinde):{" "}
-                <span className="font-semibold text-gray-800">
-                  {filteredListings.length}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Link
-                href="/new"
-                className="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-3 rounded-xl text-center"
-              >
-                + İlan Ver
-              </Link>
-
-              <Link
-                href={`/${category.nameLower}`}
-                className="border rounded-xl px-5 py-3 font-semibold hover:bg-gray-50 text-center"
-              >
-                ← Kategoriye dön
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        {/* ================= TOOLBAR ================= */}
-        <div className="bg-white rounded-2xl shadow p-4">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setFilterOpen(true)}
-                className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50"
-              >
-                Filtrele
-                {appliedFiltersCount > 0 ? (
-                  <span className="ml-2 inline-flex items-center justify-center text-xs bg-gray-900 text-white px-2 py-1 rounded-full">
-                    {appliedFiltersCount}
-                  </span>
-                ) : null}
-              </button>
-
-              {appliedFiltersCount > 0 && (
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50 text-red-600"
-                >
-                  Temizle
-                </button>
-              )}
-
-              <div className="text-sm text-gray-600">
-                Gösteriliyor:{" "}
-                <span className="font-semibold text-gray-800">
-                  {filteredListings.length}
-                </span>
-                {hasMore ? (
-                  <span className="ml-2 text-xs text-gray-400">
-                    (daha fazlası var)
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3">
-              {/* Sort */}
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-gray-500">Sıralama</div>
-                <select
-                  value={sortMode}
-                  onChange={(e) =>
-                    setSortMode(
-                      pickEnum(e.target.value, SORT_OPTIONS, "newest")
-                    )
-                  }
-                  className="border rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="newest">En yeni</option>
-                  <option value="priceAsc">Fiyat (artan)</option>
-                  <option value="priceDesc">Fiyat (azalan)</option>
-                </select>
-              </div>
-
-              {/* Page size */}
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-gray-500">Sayfa</div>
-                <select
-                  value={pageSize}
-                  onChange={(e) =>
-                    setPageSize(pickPageSize(e.target.value, 24))
-                  }
-                  className="border rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value={24}>24</option>
-                  <option value={48}>48</option>
-                  <option value={96}>96</option>
-                </select>
-              </div>
-
-              {/* View mode */}
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-gray-500">Görünüm</div>
-                <div className="flex border rounded-lg overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("grid")}
-                    className={`px-3 py-2 text-sm ${
-                      viewMode === "grid"
-                        ? "bg-gray-100 font-semibold"
-                        : "hover:bg-gray-50"
-                    }`}
-                  >
-                    Grid
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("list")}
-                    className={`px-3 py-2 text-sm ${
-                      viewMode === "list"
-                        ? "bg-gray-100 font-semibold"
-                        : "hover:bg-gray-50"
-                    }`}
-                  >
-                    Liste
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ================= FILTER PANEL ================= */}
-        {filterOpen && (
-          <div
-            className="fixed inset-0 bg-black/40 z-40 flex justify-end"
-            onClick={() => setFilterOpen(false)}
-          >
-            <div
-              className="bg-white w-full sm:w-[420px] h-full p-6 space-y-5 overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="font-semibold text-lg">Filtreler</div>
-                  <div className="text-xs text-gray-500">
-                    Filtre sonucu:{" "}
-                    <span className="font-semibold">{filteredListings.length}</span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setFilterOpen(false)}
-                  className="px-2 py-1 rounded hover:bg-gray-100"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Price */}
-              <div className="border rounded-2xl p-4 space-y-3">
-                <div className="font-semibold">Fiyat</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Min</div>
-                    <input
-                      value={minPrice}
-                      onChange={(e) =>
-                        setMinPrice(e.target.value.replace(/[^\d]/g, ""))
-                      }
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                      placeholder="0"
-                      inputMode="numeric"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Max</div>
-                    <input
-                      value={maxPrice}
-                      onChange={(e) =>
-                        setMaxPrice(e.target.value.replace(/[^\d]/g, ""))
-                      }
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                      placeholder="500000"
-                      inputMode="numeric"
-                    />
-                  </div>
-                </div>
-
-                <div className="text-xs text-gray-500">
-                  Not: “En yeni” sıralamada fiyat filtreleri client-side, fiyat sıralamada
-                  server-side olur.
-                </div>
-              </div>
-
-              {/* Year */}
-              <div className="border rounded-2xl p-4 space-y-3">
-                <div className="font-semibold">Üretim yılı</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Min</div>
-                    <select
-                      value={yearMin}
-                      onChange={(e) => setYearMin(e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                    >
-                      <option value="">Seç</option>
-                      {yearOptions.map((y) => (
-                        <option key={y} value={y}>
-                          {y}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="text-xs text-gray-500">Max</div>
-                    <select
-                      value={yearMax}
-                      onChange={(e) => setYearMax(e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                    >
-                      <option value="">Seç</option>
-                      {yearOptions.map((y) => (
-                        <option key={y} value={y}>
-                          {y}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="text-xs text-gray-500">
-                  Not: Üretim yılı boşsa bu filtreye takılır.
-                </div>
-              </div>
-
-              {/* Gender */}
-              <div className="border rounded-2xl p-4 space-y-3">
-                <div className="font-semibold">Cinsiyet</div>
-                <select
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="">Hepsi</option>
-                  {genderOptions.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-
-              {/* Wear */}
-              <div className="border rounded-2xl p-4 space-y-3">
-                <div className="font-semibold">Aşınma durumu</div>
-                <select
-                  value={wearFilter}
-                  onChange={(e) => setWearFilter(e.target.value as any)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="">Hepsi</option>
-                  <option value="wear">Aşınma var</option>
-                  <option value="noWear">Aşınma yok</option>
-                </select>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="flex-1 border rounded-xl py-3 font-semibold hover:bg-gray-50"
-                >
-                  Temizle
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterOpen(false)}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl"
-                >
-                  Uygula
-                </button>
-              </div>
-
-              <div className="text-xs text-gray-500">
-                ✅ URL’e yazılır → paylaşılabilir link olur.  
-                ✅ Firestore pagination var → 2000 ilanda da hız korunur.
-                <br />
-                Not: Bazı filtre kombinasyonları Firestore “index” isteyebilir. Hata verirse Firebase Console sana index linki verir.
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ================= LISTINGS ================= */}
-        {filteredListings.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow p-8 text-gray-600">
-            Bu filtrelere uygun ilan bulunamadı.
-          </div>
-        ) : viewMode === "grid" ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-            {filteredListings.map((l) => {
-              const img = firstImage(l.imageUrls);
-              const ago = timeAgoTR(l.createdAt);
-
-              const y = getYearNumber(l.productionYear);
-
-              return (
-                <Link key={l.id} href={`/ilan/${l.id}`} className="block">
-                  <div className="bg-white rounded-2xl shadow hover:shadow-lg transition overflow-hidden border">
-                    {img ? (
-                      <img
-                        src={img}
-                        alt={safeText(l.title, "ilan")}
-                        className="w-full h-44 object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-full h-44 bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
-                        Görsel yok
-                      </div>
-                    )}
-
-                    <div className="p-4 space-y-2">
-                      <div className="font-semibold line-clamp-2">
-                        {safeText(l.title, "İlan")}
-                      </div>
-
-                      <div className="text-green-700 font-bold">
-                        {formatPriceTRY(l.price)}
-                      </div>
-
-                      <div className="text-xs text-gray-600 flex flex-wrap gap-2">
-                        {y ? (
-                          <span className="px-2 py-1 rounded-full bg-gray-100">
-                            {y}
-                          </span>
-                        ) : null}
-
-                        {l.gender ? (
-                          <span className="px-2 py-1 rounded-full bg-gray-100">
-                            {compactLabel(l.gender)}
-                          </span>
-                        ) : null}
-
-
-                        {l.wearExists === true ? (
-                          <span className="px-2 py-1 rounded-full bg-red-50 text-red-700">
-                            Aşınma var
-                          </span>
-                        ) : l.wearExists === false ? (
-                          <span className="px-2 py-1 rounded-full bg-green-50 text-green-700">
-                            Aşınma yok
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="text-xs text-gray-400 flex items-center justify-between">
-                        <div className="truncate">{safeText(l.categoryName, category.name)}</div>
-                        <div className="shrink-0">{ago}</div>
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl shadow overflow-hidden border">
-            <div className="divide-y">
-              {filteredListings.map((l) => {
-                const img = firstImage(l.imageUrls);
-                const ago = timeAgoTR(l.createdAt);
-                const y = getYearNumber(l.productionYear);
-
-                return (
-                  <Link
-                    key={l.id}
-                    href={`/ilan/${l.id}`}
-                    className="block hover:bg-gray-50 transition"
-                  >
-                    <div className="p-4 flex gap-4">
-                      <div className="w-28 h-20 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center text-gray-400 text-xs shrink-0">
-                        {img ? (
-                          <img
-                            src={img}
-                            alt={safeText(l.title, "ilan")}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          "Görsel yok"
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="font-semibold truncate">
-                          {safeText(l.title, "İlan")}
-                        </div>
-
-                        <div className="text-sm text-gray-600 truncate">
-                          {category.name} / {subCategory.name}
-                        </div>
-
-                        <div className="text-xs text-gray-500 flex flex-wrap gap-2">
-                          {y ? <span>{y}</span> : null}
-                          {l.gender ? <span>• {l.gender}</span> : null}
-                          {l.wearExists === true ? (
-                            <span className="text-red-600">• Aşınma var</span>
-                          ) : l.wearExists === false ? (
-                            <span className="text-green-600">• Aşınma yok</span>
-                          ) : null}
-                        </div>
-
-                        <div className="text-xs text-gray-400">{ago}</div>
-                      </div>
-
-                      <div className="text-green-700 font-bold shrink-0">
-                        {formatPriceTRY(l.price)}
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ================= LOAD MORE ================= */}
-        {hasMore && (
-          <div className="flex justify-center">
-            <button
-              type="button"
-              onClick={() => fetchPage(false)}
-              disabled={loadingMore}
-              className={`px-6 py-3 rounded-xl font-semibold text-white ${
-                loadingMore ? "bg-gray-400 cursor-not-allowed" : "bg-gray-900 hover:bg-black"
-              }`}
-            >
-              {loadingMore ? "Yükleniyor..." : "Daha fazla göster"}
-            </button>
-          </div>
-        )}
-
-        {/* ================= MODEL INFO ================= */}
-        <div className="bg-white rounded-2xl shadow p-8 space-y-4">
-          <h2 className="text-xl font-bold">
-            {category.name} {subCategory.name} hakkında
-          </h2>
-
-          <div className="text-gray-700 leading-relaxed">
-            Bu sayfada {category.name} / {subCategory.name} subCategoryine ait ilanları görürsün.
-            Filtreleri URL’e yazdığı için linki paylaşınca aynı filtreli ekran açılır.
-          </div>
-
-          <div className="border rounded-xl p-4 bg-gray-50 text-sm text-gray-700">
-            <div className="font-semibold mb-2">Alıcı için küçük ipuçları</div>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Fotoğrafları büyütüp ürün detaylarına bak.</li>
-              <li>Servis geçmişi, kutu/belge, seri numarası gibi bilgileri sor.</li>
-              <li>Pazarlığı mesajlaşmada netleştir.</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
+    <SubCategoryClient
+      initialCategory={category}
+      initialSubCategory={subCategory}
+      initialSubCategories={subCategories}
+      initialListings={listings}
+      initialHasMore={listings.length === LISTINGS_BATCH}
+    />
   );
 }

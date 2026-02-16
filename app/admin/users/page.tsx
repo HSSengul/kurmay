@@ -23,6 +23,7 @@ import {
 
 import { auth, db } from "@/lib/firebase";
 import { ToastView, useToast, cx, formatDateTR } from "@/app/components/admin/ui";
+import { devError } from "@/lib/logger";
 
 type UserRow = {
   id: string;
@@ -206,7 +207,7 @@ export default function AdminUsersPage() {
         setSelectedId(list[0].id);
       }
     } catch (err) {
-      console.error(err);
+      devError("Admin users load error", err);
       showToast({ type: "error", text: "Kullanıcılar yüklenemedi. Rules kontrol et." });
     } finally {
       setLoading(false);
@@ -250,7 +251,7 @@ export default function AdminUsersPage() {
           setSelectedUser(null);
         }
       } catch (err) {
-        console.error(err);
+        devError("Admin user doc load error", err);
         if (!alive) return;
         setSelectedUser(null);
       }
@@ -306,7 +307,7 @@ export default function AdminUsersPage() {
         }));
         setConversations(convoList);
       } catch (err) {
-        console.error(err);
+        devError("Admin public profile load error", err);
         if (!alive) return;
         setPublicProfile(null);
         setPublicContact(null);
@@ -388,7 +389,7 @@ export default function AdminUsersPage() {
       showToast({ type: "success", text: "Admin alanları güncellendi." });
       await loadUsers();
     } catch (err) {
-      console.error(err);
+      devError("Admin user update error", err);
       showToast({ type: "error", text: "Güncelleme başarısız (rules kontrol et)." });
     }
   }
@@ -415,7 +416,7 @@ export default function AdminUsersPage() {
       showToast({ type: "success", text: "Ban ayarları güncellendi." });
       await loadUsers();
     } catch (err) {
-      console.error(err);
+      devError("Admin ban update error", err);
       showToast({ type: "error", text: "Ban güncellenemedi." });
     }
   }
@@ -438,7 +439,7 @@ export default function AdminUsersPage() {
       setBanReasonDraft("");
       await loadUsers();
     } catch (err) {
-      console.error(err);
+      devError("Admin ban remove error", err);
       showToast({ type: "error", text: "Ban kaldırma başarısız." });
     }
   }
@@ -464,7 +465,7 @@ export default function AdminUsersPage() {
 
       showToast({ type: "success", text: "Profil bilgileri güncellendi." });
     } catch (err) {
-      console.error(err);
+      devError("Admin profile update error", err);
       showToast({ type: "error", text: "Profil güncellenemedi." });
     }
   }
@@ -486,7 +487,7 @@ export default function AdminUsersPage() {
 
       showToast({ type: "success", text: "İletişim bilgileri güncellendi." });
     } catch (err) {
-      console.error(err);
+      devError("Admin contact update error", err);
       showToast({ type: "error", text: "İletişim bilgileri güncellenemedi." });
     }
   }
@@ -512,7 +513,7 @@ export default function AdminUsersPage() {
 
       setConversationMessages((prev) => ({ ...prev, [conversationId]: list }));
     } catch (err) {
-      console.error(err);
+      devError("Admin messages load error", err);
       showToast({ type: "error", text: "Mesajlar yüklenemedi." });
     } finally {
       setConversationMessagesLoading((prev) => ({ ...prev, [conversationId]: false }));

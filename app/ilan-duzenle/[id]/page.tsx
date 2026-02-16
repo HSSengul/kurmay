@@ -7,6 +7,8 @@ import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
 import { getCategoriesCached, getSubCategoriesCached } from "@/lib/catalogCache";
+import { devError, devWarn, getFriendlyErrorMessage } from "@/lib/logger";
+import { buildListingPath } from "@/lib/listingUrl";
 import {
   ref,
   uploadBytesResumable,
@@ -447,7 +449,7 @@ export default function EditListingPage() {
 
         setGateAllowed(true);
       } catch (err) {
-        console.error(err);
+        devError("Profile gate check error", err);
         setGateAllowed(false);
         setError(
           "Profil kontrolü sırasında hata oluştu. Lütfen /my sayfasına gidip profilini kontrol et."
@@ -491,7 +493,7 @@ export default function EditListingPage() {
         setCategories(b);
         setAllSubCategories(m);
       } catch (e) {
-        console.warn("Kategori/Alt kategori load failed:", e);
+        devWarn("Kategori/Alt kategori load failed:", e);
       }
     }
 
@@ -599,8 +601,8 @@ export default function EditListingPage() {
           });
         }, 0);
       } catch (e: any) {
-        console.error(e);
-        setError(e?.message || "Bir hata oluştu.");
+        devError("Listing load error", e);
+        setError(getFriendlyErrorMessage(e, "Bir hata oluştu."));
       } finally {
         setLoading(false);
       }
@@ -664,7 +666,7 @@ export default function EditListingPage() {
           const r = ref(storage, path);
           await deleteObject(r);
         } catch (err) {
-          console.warn("Storage delete failed:", u, err);
+          devWarn("Storage delete failed:", u, err);
         }
       })
     );
@@ -858,9 +860,9 @@ export default function EditListingPage() {
         updatedAt: serverTimestamp(),
       });
 
-      router.push(`/ilan/${listingId}`);
+      router.push(buildListingPath(listingId, title));
     } catch (err: any) {
-      console.error(err);
+      devError("Listing update error", err);
 
       const code = err?.code || "";
       if (code === "permission-denied") {
@@ -869,7 +871,7 @@ export default function EditListingPage() {
         );
         router.replace("/my?onboarding=1");
       } else {
-        setError(err?.message || "Kaydederken hata oluştu.");
+        setError(getFriendlyErrorMessage(err, "Kaydederken hata oluştu."));
       }
 
       setUploading(false);
@@ -929,7 +931,21 @@ export default function EditListingPage() {
   }
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-500">Yükleniyor...</div>;
+    return (
+      <div className="min-h-screen bg-[#f7f4ef] px-4 py-10">
+        <div className="max-w-5xl mx-auto space-y-6 animate-pulse">
+          <div className="bg-white/90 rounded-3xl border border-slate-200/70 shadow-sm p-6">
+            <div className="h-6 w-56 bg-slate-200 rounded mb-3" />
+            <div className="h-4 w-72 bg-slate-200 rounded" />
+          </div>
+          <div className="bg-white/90 rounded-3xl border border-slate-200/70 shadow-sm p-6 space-y-4">
+            <div className="h-10 w-full bg-slate-200 rounded" />
+            <div className="h-10 w-2/3 bg-slate-200 rounded" />
+            <div className="h-32 w-full bg-slate-200 rounded" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!listing) {
@@ -985,11 +1001,11 @@ export default function EditListingPage() {
           <button
             onClick={() => {
               if (!isDirty || saving || uploading) {
-                router.push(`/ilan/${listingId}`);
+                router.push(buildListingPath(listingId, title));
                 return;
               }
               const ok = confirm("Değişiklikleri kaydetmeden çıkmak istiyor musun?");
-              if (ok) router.push(`/ilan/${listingId}`);
+              if (ok) router.push(buildListingPath(listingId, title));
             }}
             className="text-sm underline text-gray-600"
             disabled={saving || uploading}
@@ -1427,11 +1443,11 @@ export default function EditListingPage() {
               type="button"
               onClick={() => {
                 if (!isDirty || saving || uploading) {
-                  router.push(`/ilan/${listingId}`);
+                  router.push(buildListingPath(listingId, title));
                   return;
                 }
                 const ok = confirm("Değişiklikleri kaydetmeden çıkmak istiyor musun?");
-                if (ok) router.push(`/ilan/${listingId}`);
+                if (ok) router.push(buildListingPath(listingId, title));
               }}
               disabled={saving || uploading}
               className="flex-1 border rounded-xl py-3 font-semibold hover:bg-gray-50 disabled:opacity-50"

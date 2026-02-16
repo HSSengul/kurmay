@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { getCategoriesCached } from "@/lib/catalogCache";
+import { slugifyTR } from "@/lib/listingUrl";
 
 /* ================= TYPES ================= */
 
@@ -59,8 +60,13 @@ function normalizeQuery(s: string) {
   return s.trim().replace(/\s+/g, " ");
 }
 
-function safeSlug(obj: { slug?: string; nameLower?: string }) {
-  return (obj.slug && obj.slug.trim()) || obj.nameLower || "";
+function safeSlug(obj: { slug?: string; nameLower?: string; name?: string }) {
+  const raw =
+    (obj.slug && obj.slug.trim()) ||
+    obj.nameLower ||
+    obj.name ||
+    "";
+  return slugifyTR(raw);
 }
 
 
@@ -80,8 +86,6 @@ function safeSlug(obj: { slug?: string; nameLower?: string }) {
 export default function Header() {
   const router = useRouter();
   const headerRef = useRef<HTMLDivElement>(null);
-
-  const [mounted, setMounted] = useState(false);
 
   const [user, setUser] = useState<User | null>(null);
 
@@ -111,6 +115,8 @@ export default function Header() {
   const [catOpenId, setCatOpenId] = useState<string | null>(null);
 
   const isSignedIn = !!user;
+  const canUseDOM = typeof document !== "undefined";
+  const displayUnreadTotal = user ? unreadTotal : 0;
 
   const desktopActiveCat = useMemo(() => {
     if (!desktopActiveCatId) return null;
@@ -122,17 +128,12 @@ export default function Header() {
     return subsMap[desktopActiveCatId] || [];
   }, [subsMap, desktopActiveCatId]);
 
-  useEffect(() => {
-    if (!desktopMegaOpen) return;
+  const ensureDesktopActive = () => {
     if (!cats.length) return;
     if (!desktopActiveCatId || !cats.find((c) => c.id === desktopActiveCatId)) {
       setDesktopActiveCatId(cats[0].id);
     }
-  }, [desktopMegaOpen, desktopActiveCatId, cats]);
-
-  /* ================= MOUNTED ================= */
-
-  useEffect(() => setMounted(true), []);
+  };
 
   /* ================= AUTH ================= */
 
@@ -275,19 +276,10 @@ export default function Header() {
     };
   }, []);
 
-  useEffect(() => {
-    if (mobileOpen) {
-      setCatOpenId(null);
-    }
-  }, [mobileOpen]);
-
   /* ================= UNREAD ================= */
 
   useEffect(() => {
-    if (!user) {
-      setUnreadTotal(0);
-      return;
-    }
+    if (!user) return;
 
     const q = query(
       collection(db, "conversations"),
@@ -338,7 +330,7 @@ export default function Header() {
     const q = normalizeQuery(searchText);
     if (!q) return;
     closeAllMenus();
-    router.push(`/search?q=${encodeURIComponent(q)}`);
+    router.push(`/?q=${encodeURIComponent(q)}`);
   };
 
   const goCategory = (cat: CategoryLike) => {
@@ -358,10 +350,7 @@ export default function Header() {
 
   /* ================= MOBILE DRAWER (PORTAL) ================= */
 
-  const MobileDrawer = () => {
-    if (!mobileOpen) return null;
-
-    return (
+  const mobileDrawer = mobileOpen ? (
       <div className="fixed inset-0 z-[9999]">
         <div
           className="absolute inset-0 bg-black/40"
@@ -449,9 +438,9 @@ export default function Header() {
                   className="w-full px-3 py-2.5 rounded-full border border-[#ead8c5] bg-white/80 hover:bg-[#f7ede2] text-sm font-semibold text-[#3f2a1a] flex items-center justify-center text-center relative"
                 >
                   Mesajlar
-                  {unreadTotal > 0 && (
+                  {displayUnreadTotal > 0 && (
                     <span className="absolute -top-1 -right-1 inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] items-center justify-center">
-                      {unreadTotal > 99 ? "99+" : unreadTotal}
+                      {displayUnreadTotal > 99 ? "99+" : displayUnreadTotal}
                     </span>
                   )}
                 </Link>
@@ -594,102 +583,97 @@ export default function Header() {
           <div className="h-2" />
         </div>
       </div>
-    );
-  };
+  ) : null;
 
   /* ================= DESKTOP MEGA MENU ================= */
 
-  const DesktopMegaMenu = () => {
-    if (!desktopMegaOpen) return null;
-
-    return (
-      <div className="absolute left-0 top-full mt-3 bg-[#fffaf3] border border-[#ead8c5] shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)] rounded-2xl overflow-hidden w-[720px]">
-        <div className="grid grid-cols-2">
-          {/* left: categories */}
-          <div className="p-5 border-r border-[#ead8c5]">
-            <div className="text-xs uppercase tracking-wide text-[#9f6b3b] mb-3">
-              Kategoriler
-            </div>
-
-            {catsLoading ? (
-              <div className="space-y-2">
-                <div className="h-9 bg-[#f3e7d8] rounded-xl animate-pulse" />
-                <div className="h-9 bg-[#f3e7d8] rounded-xl animate-pulse" />
-                <div className="h-9 bg-[#f3e7d8] rounded-xl animate-pulse" />
-              </div>
-            ) : cats.length === 0 ? (
-              <div className="text-sm text-[#9b7b5a]">Kategori yok</div>
-            ) : (
-              <ul className="space-y-1 max-h-[360px] overflow-auto pr-1">
-                {cats.map((c) => {
-                  const active = c.id === desktopActiveCatId;
-                  return (
-                    <li key={c.id}>
-                      <button
-                        onMouseEnter={() => setDesktopActiveCatId(c.id)}
-                        onFocus={() => setDesktopActiveCatId(c.id)}
-                        onClick={() => goCategory(c)}
-                        className={cx(
-                          "w-full text-left px-3 py-2 rounded-xl text-sm transition",
-                          active
-                            ? "bg-[#f7ede2] text-[#6b3c19] font-semibold"
-                            : "hover:bg-[#f7ede2] text-[#3f2a1a]"
-                        )}
-                      >
-                        {c.name}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+  const desktopMegaMenu = desktopMegaOpen ? (
+    <div className="absolute left-0 top-full mt-3 bg-[#fffaf3] border border-[#ead8c5] shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)] rounded-2xl overflow-hidden w-[720px]">
+      <div className="grid grid-cols-2">
+        {/* left: categories */}
+        <div className="p-5 border-r border-[#ead8c5]">
+          <div className="text-xs uppercase tracking-wide text-[#9f6b3b] mb-3">
+            Kategoriler
           </div>
 
-          {/* right: sub categories */}
-          <div className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-xs uppercase tracking-wide text-[#9f6b3b]">
-                Alt Kategoriler
-              </div>
-
-              {desktopActiveCat && (
-                <button
-                  onClick={() => goCategory(desktopActiveCat)}
-                  className="text-xs text-[#6b3c19] hover:text-[#4f2c11] font-semibold"
-                >
-                  {desktopActiveCat.name} → Tümü
-                </button>
-              )}
+          {catsLoading ? (
+            <div className="space-y-2">
+              <div className="h-9 bg-[#f3e7d8] rounded-xl animate-pulse" />
+              <div className="h-9 bg-[#f3e7d8] rounded-xl animate-pulse" />
+              <div className="h-9 bg-[#f3e7d8] rounded-xl animate-pulse" />
             </div>
-
-            {!desktopActiveCat ? (
-              <div className="text-sm text-[#9b7b5a]">Kategori seç</div>
-            ) : desktopActiveSubs.length === 0 ? (
-              <div className="text-sm text-[#9b7b5a]">Alt kategori yok</div>
-            ) : (
-              <div className="grid grid-cols-1 gap-1 max-h-[360px] overflow-auto pr-1">
-                {desktopActiveSubs.map((s) => {
-                  return (
+          ) : cats.length === 0 ? (
+            <div className="text-sm text-[#9b7b5a]">Kategori yok</div>
+          ) : (
+            <ul className="space-y-1 max-h-[360px] overflow-auto pr-1">
+              {cats.map((c) => {
+                const active = c.id === desktopActiveCatId;
+                return (
+                  <li key={c.id}>
                     <button
-                      key={s.id}
-                      onClick={() => goSub(desktopActiveCat, s)}
-                      className="text-left text-sm px-3 py-2 rounded-xl hover:bg-[#f7ede2] transition"
+                      onMouseEnter={() => setDesktopActiveCatId(c.id)}
+                      onFocus={() => setDesktopActiveCatId(c.id)}
+                      onClick={() => goCategory(c)}
+                      className={cx(
+                        "w-full text-left px-3 py-2 rounded-xl text-sm transition",
+                        active
+                          ? "bg-[#f7ede2] text-[#6b3c19] font-semibold"
+                          : "hover:bg-[#f7ede2] text-[#3f2a1a]"
+                      )}
                     >
-                      <span>{s.name}</span>
+                      {c.name}
                     </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
 
-        <div className="px-5 py-3 border-t border-[#ead8c5] bg-[#fff1e4] text-xs text-[#8b6b52]">
-          İpucu: Kategori seç → Alt kategori seç.
+        {/* right: sub categories */}
+        <div className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs uppercase tracking-wide text-[#9f6b3b]">
+              Alt Kategoriler
+            </div>
+
+            {desktopActiveCat && (
+              <button
+                onClick={() => goCategory(desktopActiveCat)}
+                className="text-xs text-[#6b3c19] hover:text-[#4f2c11] font-semibold"
+              >
+                {desktopActiveCat.name} → Tümü
+              </button>
+            )}
+          </div>
+
+          {!desktopActiveCat ? (
+            <div className="text-sm text-[#9b7b5a]">Kategori seç</div>
+          ) : desktopActiveSubs.length === 0 ? (
+            <div className="text-sm text-[#9b7b5a]">Alt kategori yok</div>
+          ) : (
+            <div className="grid grid-cols-1 gap-1 max-h-[360px] overflow-auto pr-1">
+              {desktopActiveSubs.map((s) => {
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => goSub(desktopActiveCat, s)}
+                    className="text-left text-sm px-3 py-2 rounded-xl hover:bg-[#f7ede2] transition"
+                  >
+                    <span>{s.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
-    );
-  };
+
+      <div className="px-5 py-3 border-t border-[#ead8c5] bg-[#fff1e4] text-xs text-[#8b6b52]">
+        İpucu: Kategori seç → Alt kategori seç.
+      </div>
+    </div>
+  ) : null;
 
   /* ================= RENDER ================= */
 
@@ -714,7 +698,11 @@ export default function Header() {
             <div className="hidden md:block relative">
               <button
                 onClick={() => {
-                  setDesktopMegaOpen((p) => !p);
+                  setDesktopMegaOpen((p) => {
+                    const next = !p;
+                    if (next) ensureDesktopActive();
+                    return next;
+                  });
                 }}
                 className={cx(
                   "px-3.5 py-2 rounded-full text-sm font-semibold transition",
@@ -725,7 +713,7 @@ export default function Header() {
                 Kategoriler ▾
               </button>
 
-              {desktopMegaOpen && <DesktopMegaMenu />}
+              {desktopMegaMenu}
             </div>
           </div>
 
@@ -780,7 +768,7 @@ export default function Header() {
                 className="relative px-3 py-2 rounded-full text-sm font-semibold text-[#3f2a1a] hover:bg-[#f7ede2]"
               >
                 Mesajlar
-                {isSignedIn && unreadTotal > 0 && (
+                {isSignedIn && displayUnreadTotal > 0 && (
                   <span
                     className={cx(
                       "absolute -top-1 -right-1",
@@ -789,9 +777,9 @@ export default function Header() {
                       "flex items-center justify-center",
                       "shadow-sm ring-2 ring-white"
                     )}
-                    aria-label={`${unreadTotal} okunmamış mesaj`}
+                    aria-label={`${displayUnreadTotal} okunmamış mesaj`}
                   >
-                    {unreadTotal > 99 ? "99+" : unreadTotal}
+                    {displayUnreadTotal > 99 ? "99+" : displayUnreadTotal}
                   </span>
                 )}
               </Link>
@@ -832,7 +820,10 @@ export default function Header() {
 
             {/* MOBILE hamburger */}
             <button
-              onClick={() => setMobileOpen(true)}
+              onClick={() => {
+                setCatOpenId(null);
+                setMobileOpen(true);
+              }}
               className="md:hidden w-10 h-10 rounded-full hover:bg-[#f7ede2] flex items-center justify-center"
               aria-label="Menü"
             >
@@ -889,7 +880,7 @@ export default function Header() {
       </header>
 
       {/* ✅ Portal drawer */}
-      {mounted && mobileOpen && createPortal(<MobileDrawer />, document.body)}
+      {canUseDOM && mobileDrawer ? createPortal(mobileDrawer, document.body) : null}
     </>
   );
 }
