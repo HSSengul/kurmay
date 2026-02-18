@@ -441,7 +441,12 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
 
         <div className="absolute inset-0 w-screen h-[100dvh] bg-[#fffaf3] flex flex-col">
           <div className="px-4 py-3 border-b border-[#f0e2d1] flex items-center justify-between">
-            <div className="text-lg font-semibold text-[#3f2a1a]">İlanSitesi</div>
+            <div className="flex items-center gap-2 text-lg font-semibold text-[#3f2a1a]">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1f2a24] text-xs font-bold text-white">
+                K
+              </span>
+              KURMAY
+            </div>
             <button
               onClick={() => setMobileOpen(false)}
               className="w-10 h-10 rounded-full hover:bg-[#f7ede2] flex items-center justify-center"
@@ -507,16 +512,43 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
               <Link
                 href="/"
                 onClick={() => setMobileOpen(false)}
-                className="w-full px-3 py-2.5 rounded-full border border-[#ead8c5] bg-white/80 hover:bg-[#f7ede2] text-sm font-semibold text-[#3f2a1a] flex items-center justify-center text-center"
+                className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-semibold text-[#1f2a1a] inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
               >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 10.5L12 3l9 7.5V21a1 1 0 01-1 1h-5v-7H9v7H4a1 1 0 01-1-1v-10.5z"
+                  />
+                </svg>
                 Ana Sayfa
               </Link>
 
               <Link
                 href="/harita"
                 onClick={() => setMobileOpen(false)}
-                className="w-full px-3 py-2.5 rounded-full border border-[#ead8c5] bg-white/80 hover:bg-[#f7ede2] text-sm font-semibold text-[#3f2a1a] flex items-center justify-center text-center"
+                className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-semibold text-[#1f2a1a] inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
               >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 22s7-5.33 7-11a7 7 0 10-14 0c0 5.67 7 11 7 11z"
+                  />
+                  <circle cx="12" cy="11" r="2.5" />
+                </svg>
                 Harita
               </Link>
 
@@ -524,8 +556,21 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                 <Link
                   href="/my/messages"
                   onClick={() => setMobileOpen(false)}
-                  className="w-full px-3 py-2.5 rounded-full border border-[#ead8c5] bg-white/80 hover:bg-[#f7ede2] text-sm font-semibold text-[#3f2a1a] flex items-center justify-center text-center relative"
+                  className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-semibold text-[#1f2a1a] inline-flex items-center justify-center gap-2 text-center relative transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
                 >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
+                    />
+                  </svg>
                   Mesajlar
                   {displayUnreadTotal > 0 && (
                     <span className="absolute -top-1 -right-1 inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] items-center justify-center">
@@ -539,8 +584,21 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                 <Link
                   href="/my"
                   onClick={() => setMobileOpen(false)}
-                  className="w-full px-3 py-2.5 rounded-full border border-[#ead8c5] bg-white/80 hover:bg-[#f7ede2] text-sm font-semibold text-[#3f2a1a] flex items-center justify-center text-center"
+                  className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-semibold text-[#1f2a1a] inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
                 >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z"
+                    />
+                  </svg>
                   Hesabım
                 </Link>
               )}
@@ -549,8 +607,21 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                 <Link
                   href="/login"
                   onClick={() => setMobileOpen(false)}
-                  className="w-full px-3 py-2.5 rounded-full bg-[#1f2a24] hover:bg-[#2b3b32] text-white text-sm font-bold shadow-sm flex items-center justify-center text-center"
+                  className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-[#1f2a24] text-white text-sm font-bold shadow-sm inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#2b3b32] hover:shadow-md"
                 >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M11 16l-4-4m0 0l4-4m-4 4h14M21 21V3"
+                    />
+                  </svg>
                   Giriş Yap
                 </Link>
               )}
@@ -580,8 +651,8 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                       <div
                         key={c.id}
                         className={cx(
-                          "rounded-2xl border border-[#ead8c5] bg-white/80 overflow-hidden transition",
-                          open && "ring-2 ring-[#e7c49b] border-[#e0c4a2]"
+                          "rounded-2xl border border-[#ead8c5] bg-white/80 overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md",
+                          open && "ring-2 ring-[#e7c49b] border-[#e0c4a2] shadow-sm"
                         )}
                       >
                         <div className="flex items-center justify-between px-4 py-3">
@@ -597,10 +668,10 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                               setCatOpenId(nextOpen);
                             }}
                             className={cx(
-                              "w-10 h-10 rounded-full flex items-center justify-center transition ring-1",
+                              "w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 ring-1",
                               open
                                 ? "bg-[#1f2a24] text-white shadow-md ring-[#e7c49b]"
-                                : "bg-white text-[#3f2a1a] hover:bg-[#f7ede2] ring-[#ead8c5]"
+                                : "bg-white text-[#3f2a1a] hover:bg-[#f7ede2] hover:-translate-y-0.5 ring-[#ead8c5]"
                             )}
                             aria-label="Alt kategoriler"
                           >
@@ -630,7 +701,7 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                                     <button
                                       key={s.id}
                                       onClick={() => goSub(c, s)}
-                                      className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-[#f7ede2] transition"
+                                      className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-[#f7ede2] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm"
                                     >
                                       <span>{s.name}</span>
                                     </button>
@@ -651,9 +722,18 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
               <Link
                 href="/new"
                 onClick={() => setMobileOpen(false)}
-                className="block px-4 py-3 rounded-full bg-[#1f2a24] hover:bg-[#2b3b32] text-white text-sm font-bold shadow-sm text-center"
+                className="px-4 py-3 rounded-full border border-[#1f2a24] bg-[#1f2a24] text-white text-sm font-bold shadow-sm inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#2b3b32] hover:shadow-md"
               >
-                + Ürün Sat / İlan Ver
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+                </svg>
+                Ürün Sat / İlan Ver
               </Link>
             </div>
 
@@ -661,8 +741,21 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
               <div className="mt-6">
                 <button
                   onClick={handleLogout}
-                  className="w-full px-4 py-3 rounded-full bg-[#a03a2e] hover:bg-[#8f2f25] text-white text-sm font-bold shadow-sm"
+                  className="w-full px-4 py-3 rounded-full border border-[#a03a2e] bg-[#a03a2e] text-white text-sm font-bold shadow-sm inline-flex items-center justify-center gap-2 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#8f2f25] hover:shadow-md"
                 >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15 12H3m0 0l4-4m-4 4l4 4M21 21V3"
+                    />
+                  </svg>
                   Çıkış Yap
                 </button>
               </div>
@@ -772,15 +865,17 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
         ref={headerRef}
         className="sticky top-0 z-50 w-full bg-[#fffaf3]/90 backdrop-blur border-b border-[#f0e2d1] shadow-[0_8px_20px_-12px_rgba(15,23,42,0.35)]"
       >
-        <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
+        <div className="w-full px-6 py-3.5 flex items-center justify-between gap-3">
           {/* LEFT */}
           <div className="flex items-center gap-3">
             <Link
               href="/"
               className="flex items-center gap-2 text-lg sm:text-xl font-semibold tracking-tight text-[#3f2a1a]"
             >
-              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-[#caa07a]" />
-              İlanSitesi
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-[#1f2a24] text-xs font-bold text-white shadow-sm">
+                K
+              </span>
+              KURMAY
             </Link>
 
             {/* DESKTOP: Categories mega */}
@@ -794,12 +889,26 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                   });
                 }}
                 className={cx(
-                  "px-3.5 py-2 rounded-full text-sm font-semibold transition",
-                  "text-[#3f2a1a] hover:bg-[#f7ede2]",
-                  desktopMegaOpen && "bg-[#1f2a24] text-white"
+                  "px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 inline-flex items-center gap-2 border border-[#1f2a24] shadow-sm",
+                  desktopMegaOpen
+                    ? "bg-[#1f2a24] text-white"
+                    : "bg-white/90 text-[#1f2a24] hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white hover:shadow-md"
                 )}
               >
-                Kategoriler ▾
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 6h7v7H4zM13 6h7v7h-7zM4 15h7v5H4zM13 15h7v5h-7z"
+                  />
+                </svg>
+                Kategoriler
               </button>
 
               {desktopMegaMenu}
@@ -847,22 +956,58 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
             <div className="hidden md:flex items-center gap-2">
               <Link
                 href="/new"
-                className="bg-[#1f2a24] hover:bg-[#2b3b32] text-white px-4 py-2 rounded-full text-sm font-semibold transition shadow-sm"
+                className="px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 inline-flex items-center gap-2 border border-[#1f2a24] bg-[#1f2a24] text-white shadow-sm hover:-translate-y-0.5 hover:bg-[#2b3b32] hover:shadow-md"
               >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+                </svg>
                 + İlan Ver
               </Link>
 
               <Link
                 href="/harita"
-                className="px-3 py-2 rounded-full text-sm font-semibold text-[#3f2a1a] hover:bg-[#f7ede2]"
+                className="px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 inline-flex items-center gap-2 border border-[#1f2a24] bg-white/90 text-[#1f2a24] shadow-sm hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white hover:shadow-md"
               >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 22s7-5.33 7-11a7 7 0 10-14 0c0 5.67 7 11 7 11z"
+                  />
+                  <circle cx="12" cy="11" r="2.5" />
+                </svg>
                 Harita
               </Link>
 
               <Link
                 href="/my/messages"
-                className="relative px-3 py-2 rounded-full text-sm font-semibold text-[#3f2a1a] hover:bg-[#f7ede2]"
+                className="relative px-3 py-2 rounded-full text-sm font-semibold text-[#3f2a1a] hover:bg-[#f7ede2] inline-flex items-center gap-2"
               >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
+                  />
+                </svg>
                 Mesajlar
                 {isSignedIn && displayUnreadTotal > 0 && (
                   <span
@@ -882,35 +1027,84 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
 
               <Link
                 href="/my"
-                className="px-3 py-2 rounded-full text-sm font-semibold text-[#3f2a1a] hover:bg-[#f7ede2]"
+                className="px-3 py-2 rounded-full text-sm font-semibold text-[#3f2a1a] hover:bg-[#f7ede2] inline-flex items-center gap-2"
               >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z"
+                  />
+                </svg>
                 Hesabım
               </Link>
 
               {isSignedIn ? (
                 <button
                   onClick={handleLogout}
-                  className="px-3 py-2 rounded-full text-sm font-semibold text-[#a03a2e] hover:bg-[#fdeeee]"
+                  className="px-3 py-2 rounded-full text-sm font-semibold text-[#a03a2e] hover:bg-[#fdeeee] inline-flex items-center gap-2"
                 >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15 12H3m0 0l4-4m-4 4l4 4M21 21V3"
+                    />
+                  </svg>
                   Çıkış Yap
                 </button>
               ) : (
                 <Link
                   href="/login"
-                  className="px-3 py-2 rounded-full text-sm font-semibold text-[#3f2a1a] hover:bg-[#f7ede2]"
+                  className="px-3 py-2 rounded-full text-sm font-semibold text-[#3f2a1a] hover:bg-[#f7ede2] inline-flex items-center gap-2"
                 >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M11 16l-4-4m0 0l4-4m-4 4h14M21 21V3"
+                    />
+                  </svg>
                   Giriş Yap
                 </Link>
               )}
+
             </div>
 
             {/* MOBILE quick actions */}
             <div className="md:hidden flex items-center gap-2">
               <Link
                 href="/new"
-                className="px-3 py-2 rounded-full bg-[#1f2a24] hover:bg-[#2b3b32] text-white text-xs font-semibold"
+                className="px-3 py-2 rounded-full bg-[#1f2a24] hover:bg-[#2b3b32] text-white text-xs font-semibold inline-flex items-center gap-1"
               >
-                + İlan
+                <svg
+                  className="w-3.5 h-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+                </svg>
+                İlan
               </Link>
             </div>
 

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -43,7 +43,7 @@ type ProfileMapItem = {
   location: ListingLocation;
 };
 
-const DEFAULT_CENTER: [number, number] = [41.015, 28.979]; // Istanbul
+const DEFAULT_CENTER: [number, number] = [41.015, 28.979];
 
 const fmtTL = (v: number) => {
   try {
@@ -64,7 +64,6 @@ export default function MapClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [viewMode, setViewMode] = useState<"sellers" | "listings">("sellers");
   const [expandedSellerId, setExpandedSellerId] = useState<string | null>(null);
 
   const [leafletReady, setLeafletReady] = useState(false);
@@ -239,15 +238,6 @@ export default function MapClient() {
     };
   }, []);
 
-  const listingMapItems = useMemo(() => {
-    return listingAll.filter(
-      (l) =>
-        l.location &&
-        Number.isFinite(l.location.lat) &&
-        Number.isFinite(l.location.lng)
-    );
-  }, [listingAll]);
-
   const listingsByOwner = useMemo(() => {
     const map = new Map<string, ListingSummary[]>();
     listingAll.forEach((l) => {
@@ -269,26 +259,14 @@ export default function MapClient() {
     return map;
   }, [listingAll]);
 
-  const sellersById = useMemo(() => {
-    const map = new Map<string, ProfileMapItem>();
-    sellerItems.forEach((s) => map.set(s.id, s));
-    return map;
+  const center = useMemo<[number, number]>(() => {
+    if (sellerItems.length === 0) return DEFAULT_CENTER;
+    return [sellerItems[0].location.lat, sellerItems[0].location.lng];
   }, [sellerItems]);
 
-  const activeMapItems =
-    viewMode === "sellers" ? sellerItems : listingMapItems;
-
-  const center = useMemo<[number, number]>(() => {
-    if (activeMapItems.length === 0) return DEFAULT_CENTER;
-    return [
-      activeMapItems[0].location.lat,
-      activeMapItems[0].location.lng,
-    ];
-  }, [activeMapItems]);
-
   const aggregateCenter = useMemo<[number, number] | null>(() => {
-    if (activeMapItems.length === 0) return null;
-    const sum = activeMapItems.reduce(
+    if (sellerItems.length === 0) return null;
+    const sum = sellerItems.reduce(
       (acc: { lat: number; lng: number }, item: any) => {
         acc.lat += item.location.lat;
         acc.lng += item.location.lng;
@@ -296,13 +274,12 @@ export default function MapClient() {
       },
       { lat: 0, lng: 0 }
     );
-    return [sum.lat / activeMapItems.length, sum.lng / activeMapItems.length];
-  }, [activeMapItems]);
+    return [sum.lat / sellerItems.length, sum.lng / sellerItems.length];
+  }, [sellerItems]);
 
-  const totalListingsForSellerMode = useMemo(() => listingAll.length, [listingAll]);
-  const totalListingsForListingMode = useMemo(
-    () => listingMapItems.length,
-    [listingMapItems]
+  const totalListingsForSellerMode = useMemo(
+    () => listingAll.length,
+    [listingAll]
   );
 
   const effectiveListMinZoom = Math.max(
@@ -316,13 +293,6 @@ export default function MapClient() {
       bounds.contains(leafletApi.L.latLng(item.location.lat, item.location.lng))
     );
   }, [bounds, sellerItems, leafletApi?.L]);
-
-  const visibleListings = useMemo(() => {
-    if (!bounds || !leafletApi?.L) return listingMapItems;
-    return listingMapItems.filter((item) =>
-      bounds.contains(leafletApi.L.latLng(item.location.lat, item.location.lng))
-    );
-  }, [bounds, listingMapItems, leafletApi?.L]);
 
   const buildCountIcon = (count: number, size = 34) => {
     if (!leafletApi?.L) return undefined;
@@ -369,69 +339,40 @@ export default function MapClient() {
       }
     : null;
 
-  const openSellerListings = (sellerId: string) => {
-    if (!sellerId) return;
-    setViewMode("sellers");
-    setExpandedSellerId(sellerId);
-
-    const seller = sellersById.get(sellerId);
-    if (seller && mapInstance) {
-      mapInstance.setView(
-        [seller.location.lat, seller.location.lng],
-        effectiveListMinZoom
-      );
-    } else if (mapInstance && aggregateCenter) {
-      mapInstance.setView(aggregateCenter, effectiveListMinZoom);
-    }
-  };
-
-  const title = viewMode === "sellers" ? "Satıcı Haritası" : "İlan Haritası";
-  const subtitle =
-    viewMode === "sellers"
-      ? "Satıcıları ve ilan sayılarını harita üzerinde gör."
-      : "İlanları harita üzerinde gez.";
+  const title = "Satıcı Haritası";
+  const sellerCount = sellerItems.length;
 
   return (
     <div className="min-h-screen bg-[#f7f4ef] px-4 py-8">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="rounded-3xl border border-[#ead8c5] bg-white/85 p-6 shadow-[0_24px_60px_-45px_rgba(15,23,42,0.45)]">
-          <div className="text-xs uppercase tracking-[0.2em] text-[#9b7b5a]">
-            Harita
-          </div>
-          <div className="mt-2 text-2xl font-semibold text-[#3f2a1a]">
-            {title}
-          </div>
-          <div className="mt-2 text-sm text-[#6b4b33]">{subtitle}</div>
-
-          <div className="mt-4 inline-flex rounded-full border border-[#ead8c5] bg-white/80 p-1 text-sm">
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode("sellers");
-                setExpandedSellerId(null);
-              }}
-              className={`px-4 py-2 rounded-full font-semibold transition ${
-                viewMode === "sellers"
-                  ? "bg-[#1f2a24] text-white"
-                  : "text-[#3f2a1a] hover:bg-[#f7ede2]"
-              }`}
-            >
-              Satıcılar
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode("listings");
-                setExpandedSellerId(null);
-              }}
-              className={`px-4 py-2 rounded-full font-semibold transition ${
-                viewMode === "listings"
-                  ? "bg-[#1f2a24] text-white"
-                  : "text-[#3f2a1a] hover:bg-[#f7ede2]"
-              }`}
-            >
-              İlanlar
-            </button>
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#ead8c5] bg-[#fff7ed] px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8a6a4f]">
+              Harita
+            </div>
+            <div className="text-3xl font-semibold text-[#3f2a1a]">
+              {title}
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <div className="rounded-full border border-[#ead8c5] bg-white px-4 py-2 text-sm text-[#6b4b33]">
+                Satıcı sayısı{" "}
+                <span className="font-semibold text-[#3f2a1a]">
+                  {sellerCount}
+                </span>
+              </div>
+              <div className="rounded-full border border-[#ead8c5] bg-white px-4 py-2 text-sm text-[#6b4b33]">
+                Toplam ilan{" "}
+                <span className="font-semibold text-[#3f2a1a]">
+                  {totalListingsForSellerMode}
+                </span>
+              </div>
+              <div className="rounded-full border border-[#ead8c5] bg-white px-4 py-2 text-sm text-[#6b4b33]">
+                Görünür satıcı{" "}
+                <span className="font-semibold text-[#3f2a1a]">
+                  {visibleSellers.length}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -441,7 +382,7 @@ export default function MapClient() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-4">
           <div className="rounded-3xl overflow-hidden border border-[#ead8c5] bg-white/85 h-[70vh]">
             {loading || !leafletReady || !leafletApi ? (
               <div className="h-full flex items-center justify-center text-sm text-[#6b4b33]">
@@ -469,12 +410,7 @@ export default function MapClient() {
                 {zoomLevel < mapSettings.aggregateBelowZoom && aggregateCenter ? (
                   <leafletApi.Marker
                     position={aggregateCenter}
-                    icon={buildCountIcon(
-                      viewMode === "sellers"
-                        ? totalListingsForSellerMode
-                        : totalListingsForListingMode,
-                      44
-                    )}
+                    icon={buildCountIcon(totalListingsForSellerMode, 44)}
                     eventHandlers={{
                       click: () => {
                         if (mapInstance) {
@@ -486,7 +422,7 @@ export default function MapClient() {
                       },
                     }}
                   />
-                ) : viewMode === "sellers" ? (
+                ) : (
                   sellerItems.map((item) => (
                     <leafletApi.Marker
                       key={item.id}
@@ -499,23 +435,6 @@ export default function MapClient() {
                       }}
                     />
                   ))
-                ) : (
-                  listingMapItems.map((item) => (
-                    <leafletApi.Marker
-                      key={item.id}
-                      position={[item.location!.lat, item.location!.lng]}
-                      icon={buildCountIcon(1, 28)}
-                      eventHandlers={{
-                        click: () => {
-                          if (item.ownerId) {
-                            openSellerListings(item.ownerId);
-                          } else {
-                            router.push(buildListingPath(item.id, item.title));
-                          }
-                        },
-                      }}
-                    />
-                  ))
                 )}
               </leafletApi.MapContainer>
             )}
@@ -524,9 +443,7 @@ export default function MapClient() {
           <div className="rounded-3xl border border-[#ead8c5] bg-white/85 p-4 space-y-3 max-h-[70vh] overflow-auto">
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-[#3f2a1a]">
-                {viewMode === "sellers"
-                  ? "Haritadaki satıcılar"
-                  : "Haritadaki ilanlar"}
+                Haritadaki satıcılar
               </div>
             </div>
 
@@ -536,171 +453,110 @@ export default function MapClient() {
               <div className="text-sm text-[#6b4b33]">
                 Liste için biraz yakınlaştır.
               </div>
-            ) : viewMode === "sellers" ? (
-              visibleSellers.length === 0 ? (
-                <div className="text-sm text-[#6b4b33]">
-                  Haritada gösterilecek satıcı bulunamadı.
-                </div>
-              ) : (
-                visibleSellers.map((item) => {
-                  const open = expandedSellerId === item.id;
-                  const sellerListings = listingsByOwner.get(item.id) || [];
-
-                  return (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-[#ead8c5] bg-white/90 p-3 space-y-2"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Link
-                          href={`/seller/${item.id}`}
-                          className="flex items-center gap-3 flex-1 min-w-0"
-                        >
-                          <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#f3e9db] border border-[#ead8c5] flex-shrink-0">
-                            {item.avatarUrl ? (
-                              <Image
-                                src={item.avatarUrl}
-                                alt={item.name}
-                                width={56}
-                                height={56}
-                                sizes="56px"
-                                className="w-full h-full object-cover"
-                                quality={45}
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-xs text-[#9b7b5a]">
-                                Görsel yok
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-[#3f2a1a] line-clamp-2">
-                              {item.name}
-                            </div>
-                            <div className="text-xs text-[#8a6a4f] line-clamp-1">
-                              İlan sayısı: {item.listingCount}
-                            </div>
-                          </div>
-                        </Link>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedSellerId(open ? null : item.id)
-                          }
-                          className="w-9 h-9 rounded-full border border-[#ead8c5] bg-white text-[#3f2a1a] text-lg font-semibold hover:bg-[#f7ede2] transition"
-                          title="İlanları göster"
-                        >
-                          {open ? "−" : "+"}
-                        </button>
-                      </div>
-
-                      {open && (
-                        <div className="space-y-2 pl-2">
-                          {sellerListings.length === 0 ? (
-                            <div className="text-xs text-[#8a6a4f]">
-                              Bu satıcıya ait ilan yok.
-                            </div>
-                          ) : (
-                            sellerListings.map((l) => (
-                              <Link
-                                key={l.id}
-                                href={buildListingPath(l.id, l.title)}
-                                className="flex items-center gap-3 rounded-xl border border-[#ead8c5] bg-white/80 p-2 hover:bg-[#fff7ed] transition"
-                              >
-                                <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#f3e9db] border border-[#ead8c5] flex-shrink-0">
-                                  {l.imageUrls?.[0] ? (
-                                    <Image
-                                      src={l.imageUrls[0]}
-                                      alt={l.title}
-                                      width={48}
-                                      height={48}
-                                      sizes="48px"
-                                      className="w-full h-full object-cover"
-                                      quality={45}
-                                    />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-[10px] text-[#9b7b5a]">
-                                      Görsel yok
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="text-xs font-semibold text-[#3f2a1a] line-clamp-2">
-                                    {l.title}
-                                  </div>
-                                  <div className="text-[11px] text-[#8a6a4f]">
-                                    {fmtTL(l.price)}
-                                  </div>
-                                </div>
-                              </Link>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )
-            ) : visibleListings.length === 0 ? (
+            ) : visibleSellers.length === 0 ? (
               <div className="text-sm text-[#6b4b33]">
-                Haritada gösterilecek ilan bulunamadı.
+                Haritada gösterilecek satıcı bulunamadı.
               </div>
             ) : (
-              visibleListings.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-3 rounded-2xl border border-[#ead8c5] bg-white/90 p-3 hover:bg-[#fff7ed] transition"
-                >
-                  <Link
-                    href={buildListingPath(item.id, item.title)}
-                    className="flex items-center gap-3 flex-1 min-w-0"
-                  >
-                    <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#f3e9db] border border-[#ead8c5] flex-shrink-0">
-                      {item.imageUrls?.[0] ? (
-                        <Image
-                          src={item.imageUrls[0]}
-                          alt={item.title}
-                          width={56}
-                          height={56}
-                          sizes="56px"
-                          className="w-full h-full object-cover"
-                          quality={45}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs text-[#9b7b5a]">
-                          Görsel yok
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-[#3f2a1a] line-clamp-2">
-                        {item.title}
-                      </div>
-                      <div className="text-xs text-[#8a6a4f] line-clamp-1">
-                        {item.categoryName || "Kategori"} /{" "}
-                        {item.subCategoryName || "Alt kategori"}
-                      </div>
-                      <div className="text-sm font-semibold text-[#1f2a24]">
-                        {fmtTL(item.price)}
-                      </div>
-                    </div>
-                  </Link>
+              visibleSellers.map((item) => {
+                const open = expandedSellerId === item.id;
+                const sellerListings = listingsByOwner.get(item.id) || [];
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (item.ownerId) {
-                        openSellerListings(item.ownerId);
-                      }
-                    }}
-                    className="w-9 h-9 rounded-full border border-[#ead8c5] bg-white text-[#3f2a1a] text-lg font-semibold hover:bg-[#f7ede2] transition"
-                    title="Satıcının ilanlarını göster"
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-[#ead8c5] bg-white/90 p-3 space-y-2"
                   >
-                    +
-                  </button>
-                </div>
-              ))
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={`/seller/${item.id}`}
+                        className="flex items-center gap-3 flex-1 min-w-0"
+                      >
+                        <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#f3e9db] border border-[#ead8c5] flex-shrink-0">
+                          {item.avatarUrl ? (
+                            <Image
+                              src={item.avatarUrl}
+                              alt={item.name}
+                              width={56}
+                              height={56}
+                              sizes="56px"
+                              className="w-full h-full object-cover"
+                              quality={45}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-xs text-[#9b7b5a]">
+                              Görsel yok
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-[#3f2a1a] line-clamp-2">
+                            {item.name}
+                          </div>
+                          <div className="text-xs text-[#8a6a4f] line-clamp-1">
+                            İlan sayısı: {item.listingCount}
+                          </div>
+                        </div>
+                      </Link>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedSellerId(open ? null : item.id)
+                        }
+                        className="w-9 h-9 rounded-full border border-[#ead8c5] bg-white text-[#3f2a1a] text-lg font-semibold hover:bg-[#f7ede2] transition"
+                        title="İlanları göster"
+                      >
+                        {open ? "−" : "+"}
+                      </button>
+                    </div>
+
+                    {open && (
+                      <div className="space-y-2 pl-2">
+                        {sellerListings.length === 0 ? (
+                          <div className="text-xs text-[#8a6a4f]">
+                            Bu satıcıya ait ilan yok.
+                          </div>
+                        ) : (
+                          sellerListings.map((l) => (
+                            <Link
+                              key={l.id}
+                              href={buildListingPath(l.id, l.title)}
+                              className="flex items-center gap-3 rounded-xl border border-[#ead8c5] bg-white/80 p-2 hover:bg-[#fff7ed] transition"
+                            >
+                              <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#f3e9db] border border-[#ead8c5] flex-shrink-0">
+                                {l.imageUrls?.[0] ? (
+                                  <Image
+                                    src={l.imageUrls[0]}
+                                    alt={l.title}
+                                    width={48}
+                                    height={48}
+                                    sizes="48px"
+                                    className="w-full h-full object-cover"
+                                    quality={45}
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-[10px] text-[#9b7b5a]">
+                                    Görsel yok
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-[#3f2a1a] line-clamp-2">
+                                  {l.title}
+                                </div>
+                                <div className="text-[11px] text-[#8a6a4f]">
+                                  {fmtTL(l.price)}
+                                </div>
+                              </div>
+                            </Link>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
