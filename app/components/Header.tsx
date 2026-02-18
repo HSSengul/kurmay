@@ -916,7 +916,7 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
           </div>
 
           {/* CENTER: Desktop search */}
-          <div className="hidden md:flex flex-1 max-w-md">
+          <div className="flex flex-1 max-w-xs md:max-w-md min-w-0">
             <div className="w-full relative">
               <input
                 value={searchText}
@@ -924,17 +924,17 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                 onKeyDown={(e) => e.key === "Enter" && submitSearch()}
                 placeholder="Ürün, oyun, figür, kart..."
                 className={cx(
-                  "w-full rounded-full border border-[#ead8c5] bg-white/70 px-4 py-2.5 pr-10 text-sm text-[#3f2a1a] placeholder:text-[#9b7b5a]",
+                  "w-full rounded-full border border-[#ead8c5] bg-white/70 px-3 sm:px-4 py-2 pr-9 sm:pr-10 text-xs sm:text-sm text-[#3f2a1a] placeholder:text-[#9b7b5a]",
                   "focus:outline-none focus:ring-2 focus:ring-[#e7c49b] focus:border-[#d9b28a]"
                 )}
               />
               <button
                 onClick={submitSearch}
                 aria-label="Ara"
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-[#f7ede2] flex items-center justify-center"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full hover:bg-[#f7ede2] flex items-center justify-center"
               >
                 <svg
-                  className="w-5 h-5 text-[#5a4330]"
+                  className="w-4 h-4 sm:w-5 sm:h-5 text-[#5a4330]"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
@@ -1128,40 +1128,6 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   d="M4 6h16M4 12h16M4 18h16"
-                />
-              </svg>
-            </button>
-          </div>
-        </div>
-        {/* MOBILE inline search */}
-        <div className="md:hidden px-4 pb-3">
-          <div className="relative">
-            <input
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submitSearch()}
-              placeholder="Ürün, oyun, figür, kart..."
-              className={cx(
-                "w-full rounded-full border border-[#ead8c5] bg-white/70 px-4 py-2.5 pr-10 text-sm text-[#3f2a1a] placeholder:text-[#9b7b5a]",
-                "focus:outline-none focus:ring-2 focus:ring-[#e7c49b] focus:border-[#d9b28a]"
-              )}
-            />
-            <button
-              onClick={submitSearch}
-              aria-label="Ara"
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-[#f7ede2] flex items-center justify-center"
-            >
-              <svg
-                className="w-5 h-5 text-[#5a4330]"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"
                 />
               </svg>
             </button>

@@ -261,6 +261,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
   const [priceMax, setPriceMax] = useState<string>("");
 
   const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]>("newest");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   const resetFilters = () => {
     setSearchText("");
@@ -795,93 +796,88 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
           )}
 
           <div className="mt-4 border border-slate-200/70 rounded-2xl bg-white/80 p-3">
-            <div
-              className="no-scrollbar flex items-center gap-2 -mx-2 px-2 whitespace-nowrap overflow-x-auto sm:overflow-visible"
-              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-            >
-              <div className="flex items-center gap-2 min-w-max flex-nowrap">
-                <input
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  placeholder="Ara..."
-                  aria-label="Arama"
-                  className="h-9 sm:h-10 w-[130px] sm:w-[160px] rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
-                />
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+              <input
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="Ara..."
+                aria-label="Arama"
+                className="col-span-2 h-9 sm:h-10 w-full sm:w-[160px] rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+              />
 
-                <select
-                  value={categoryFilter}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setCategoryFilter(next);
-                    if (subCategoryFilter) setSubCategoryFilter("");
-                  }}
-                  aria-label="Kategori"
-                  className="h-9 sm:h-10 w-[120px] sm:w-[140px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
-                >
-                  <option value="">Kategori</option>
-                  {activeMainCategories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
+              <select
+                value={categoryFilter}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setCategoryFilter(next);
+                  if (subCategoryFilter) setSubCategoryFilter("");
+                }}
+                aria-label="Kategori"
+                className="h-9 sm:h-10 w-full sm:w-[140px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+              >
+                <option value="">Kategori</option>
+                {activeMainCategories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
 
-                <select
-                  value={subCategoryFilter}
-                  onChange={(e) => setSubCategoryFilter(e.target.value)}
-                  aria-label="Alt kategori"
-                  disabled={filteredSubCategories.length === 0}
-                  className="h-9 sm:h-10 w-[150px] sm:w-[170px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)] disabled:opacity-60"
-                >
-                  <option value="">Alt kategori</option>
-                  {filteredSubCategories.map((sub) => (
-                    <option key={sub.id} value={sub.id}>
-                      {sub.name}
-                    </option>
-                  ))}
-                </select>
+              <select
+                value={subCategoryFilter}
+                onChange={(e) => setSubCategoryFilter(e.target.value)}
+                aria-label="Alt kategori"
+                disabled={filteredSubCategories.length === 0}
+                className="h-9 sm:h-10 w-full sm:w-[170px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)] disabled:opacity-60"
+              >
+                <option value="">Alt kategori</option>
+                {filteredSubCategories.map((sub) => (
+                  <option key={sub.id} value={sub.id}>
+                    {sub.name}
+                  </option>
+                ))}
+              </select>
 
-                <input
-                  type="number"
-                  value={priceMin}
-                  onChange={(e) => setPriceMin(e.target.value)}
-                  className="h-9 sm:h-10 w-[80px] sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
-                  placeholder="Min TL"
-                  aria-label="Minimum fiyat"
-                  min={0}
-                />
+              <input
+                type="number"
+                value={priceMin}
+                onChange={(e) => setPriceMin(e.target.value)}
+                className="h-9 sm:h-10 w-full sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                placeholder="Min TL"
+                aria-label="Minimum fiyat"
+                min={0}
+              />
 
-                <input
-                  type="number"
-                  value={priceMax}
-                  onChange={(e) => setPriceMax(e.target.value)}
-                  className="h-9 sm:h-10 w-[80px] sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
-                  placeholder="Max TL"
-                  aria-label="Maksimum fiyat"
-                  min={0}
-                />
+              <input
+                type="number"
+                value={priceMax}
+                onChange={(e) => setPriceMax(e.target.value)}
+                className="h-9 sm:h-10 w-full sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                placeholder="Max TL"
+                aria-label="Maksimum fiyat"
+                min={0}
+              />
 
-                <select
-                  value={sortBy}
-                  onChange={(e) =>
-                    setSortBy(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
-                  }
-                  aria-label="Sıralama"
-                  className="h-9 sm:h-10 w-[120px] sm:w-[135px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
-                >
-                  <option value="newest">En yeni</option>
-                  <option value="price_asc">Fiyat (artan)</option>
-                  <option value="price_desc">Fiyat (azalan)</option>
-                </select>
+              <select
+                value={sortBy}
+                onChange={(e) =>
+                  setSortBy(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
+                }
+                aria-label="Sıralama"
+                className="col-span-2 h-9 sm:h-10 w-full sm:w-[150px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+              >
+                <option value="newest">En yeni</option>
+                <option value="price_asc">Fiyat (artan)</option>
+                <option value="price_desc">Fiyat (azalan)</option>
+              </select>
 
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="h-9 sm:h-10 rounded-full border border-slate-200/80 px-3 sm:px-4 text-sm text-slate-700 bg-white/70 hover:bg-white shadow-sm"
-                >
-                  Sıfırla
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="col-span-2 h-9 sm:h-10 rounded-full border border-slate-200/80 px-3 sm:px-4 text-sm text-slate-700 bg-white/70 hover:bg-white shadow-sm"
+              >
+                Sıfırla
+              </button>
             </div>
           </div>
         </section>
@@ -903,12 +899,39 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
               </div>
             </div>
 
-            <Link
-              href="/new"
-              className="bg-[color:var(--market-accent)] hover:bg-[color:var(--market-accent-strong)] text-white font-semibold px-4 py-2 rounded-full text-sm shadow-sm"
-            >
-              İlan Ver
-            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex rounded-full border border-slate-200/70 bg-white/80 p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("grid")}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                    viewMode === "grid"
+                      ? "bg-[color:var(--market-accent)] text-white"
+                      : "text-slate-600 hover:bg-white"
+                  }`}
+                >
+                  Grid
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("list")}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                    viewMode === "list"
+                      ? "bg-[color:var(--market-accent)] text-white"
+                      : "text-slate-600 hover:bg-white"
+                  }`}
+                >
+                  Liste
+                </button>
+              </div>
+
+              <Link
+                href="/new"
+                className="bg-[color:var(--market-accent)] hover:bg-[color:var(--market-accent-strong)] text-white font-semibold px-4 py-2 rounded-full text-sm shadow-sm"
+              >
+                İlan Ver
+              </Link>
+            </div>
           </div>
 
           {gridListings.length === 0 ? (
@@ -930,84 +953,164 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
             </div>
           ) : (
             <>
-              <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {gridListings.map((l) => {
-                  const thumb = firstImage(l.imageUrls);
-                  const category = safeText(l.categoryName, "");
-                  const subCategory = safeText(l.subCategoryName, "");
-                  const ago = timeAgoTR(l.createdAt);
-                  const attrs = (l as any)?.attributes || {};
-                  const sellerName =
-                    l.ownerName ||
-                    (l as any)?.ownerDisplayName ||
-                    (l as any)?.sellerName ||
-                    "";
-                  const officialNameRaw =
-                    attrs.gameName ||
-                    attrs.consoleModel ||
-                    attrs.modelName ||
-                    attrs.model ||
-                    "";
-                  const officialName =
-                    officialNameRaw || safeText(l.subCategoryName, "—");
+              {viewMode === "grid" ? (
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {gridListings.map((l) => {
+                    const thumb = firstImage(l.imageUrls);
+                    const category = safeText(l.categoryName, "");
+                    const subCategory = safeText(l.subCategoryName, "");
+                    const ago = timeAgoTR(l.createdAt);
+                    const attrs = (l as any)?.attributes || {};
+                    const sellerName =
+                      l.ownerName ||
+                      (l as any)?.ownerDisplayName ||
+                      (l as any)?.sellerName ||
+                      "";
+                    const officialNameRaw =
+                      attrs.gameName ||
+                      attrs.consoleModel ||
+                      attrs.modelName ||
+                      attrs.model ||
+                      "";
+                    const officialName =
+                      officialNameRaw || safeText(l.subCategoryName, "—");
 
-                  return (
-                    <Link
-                      key={l.id}
-                      href={buildListingPath(l.id, l.title)}
-                      prefetch={false}
-                      className="block"
-                    >
-                      <div className="border border-slate-200/70 rounded-2xl overflow-hidden bg-white/90 hover:shadow-[0_12px_30px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5">
-                        {thumb ? (
-                          <div className="relative w-full h-44">
-                            <Image
-                              src={thumb}
-                              alt={safeText(l.title, "İlan")}
-                              fill
-                              sizes="(max-width: 640px) 75vw, (max-width: 1024px) 40vw, 300px"
-                              quality={45}
-                              className="object-cover"
-                            />
-                          </div>
-                        ) : (
-                          <div className="w-full h-44 bg-slate-100 flex items-center justify-center text-slate-400 text-sm">
-                            Görsel yok
-                          </div>
-                        )}
+                    return (
+                      <Link
+                        key={l.id}
+                        href={buildListingPath(l.id, l.title)}
+                        prefetch={false}
+                        className="block"
+                      >
+                        <div className="border border-slate-200/70 rounded-2xl overflow-hidden bg-white/90 hover:shadow-[0_12px_30px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5">
+                          {thumb ? (
+                            <div className="relative w-full h-44">
+                              <Image
+                                src={thumb}
+                                alt={safeText(l.title, "İlan")}
+                                fill
+                                sizes="(max-width: 640px) 75vw, (max-width: 1024px) 40vw, 300px"
+                                quality={45}
+                                className="object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-full h-44 bg-slate-100 flex items-center justify-center text-slate-400 text-sm">
+                              Görsel yok
+                            </div>
+                          )}
 
-                        <div className="p-4 space-y-2">
-                          <div className="font-semibold line-clamp-2 text-[15px]">
-                            {safeText(l.title, "İlan")}
+                          <div className="p-4 space-y-2">
+                            <div className="font-semibold line-clamp-2 text-[15px]">
+                              {safeText(l.title, "İlan")}
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 text-sm">
+                              <div className="text-slate-600 line-clamp-1">
+                                {officialName}
+                              </div>
+                              <div className="text-[color:var(--market-accent)] font-semibold text-[18px] shrink-0">
+                                {formatPriceTRY(l.price)}
+                              </div>
+                            </div>
+
+                            <div className="pt-1 text-xs text-slate-400 space-y-1">
+                              <div className="text-slate-500">
+                                {sellerName || "Satıcı"}
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  {category}
+                                  {subCategory ? ` / ${subCategory}` : ""}
+                                </div>
+                                <div className="shrink-0 text-right">{ago}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-6 space-y-3">
+                  {gridListings.map((l) => {
+                    const thumb = firstImage(l.imageUrls);
+                    const category = safeText(l.categoryName, "");
+                    const subCategory = safeText(l.subCategoryName, "");
+                    const ago = timeAgoTR(l.createdAt);
+                    const attrs = (l as any)?.attributes || {};
+                    const sellerName =
+                      l.ownerName ||
+                      (l as any)?.ownerDisplayName ||
+                      (l as any)?.sellerName ||
+                      "";
+                    const officialNameRaw =
+                      attrs.gameName ||
+                      attrs.consoleModel ||
+                      attrs.modelName ||
+                      attrs.model ||
+                      "";
+                    const officialName =
+                      officialNameRaw || safeText(l.subCategoryName, "—");
+
+                    return (
+                      <Link
+                        key={l.id}
+                        href={buildListingPath(l.id, l.title)}
+                        prefetch={false}
+                        className="block"
+                      >
+                        <div className="border border-slate-200/70 rounded-2xl bg-white/90 hover:shadow-[0_12px_30px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5 p-3 flex gap-4">
+                          <div className="relative w-28 h-24 sm:w-32 sm:h-24 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0">
+                            {thumb ? (
+                              <Image
+                                src={thumb}
+                                alt={safeText(l.title, "İlan")}
+                                fill
+                                sizes="140px"
+                                quality={45}
+                                className="object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">
+                                Görsel yok
+                              </div>
+                            )}
                           </div>
 
-                          <div className="flex items-center justify-between gap-2 text-sm">
-                            <div className="text-slate-600 line-clamp-1">
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="font-semibold line-clamp-2 text-[15px]">
+                                {safeText(l.title, "İlan")}
+                              </div>
+                              <div className="text-[color:var(--market-accent)] font-semibold text-[18px] shrink-0">
+                                {formatPriceTRY(l.price)}
+                              </div>
+                            </div>
+
+                            <div className="text-sm text-slate-600 line-clamp-1">
                               {officialName}
                             </div>
-                            <div className="text-[color:var(--market-accent)] font-semibold text-[18px] shrink-0">
-                              {formatPriceTRY(l.price)}
-                            </div>
-                          </div>
 
-                          <div className="pt-1 text-xs text-slate-400 space-y-1">
-                            <div className="text-slate-500">
+                            <div className="text-xs text-slate-500">
                               {sellerName || "Satıcı"}
                             </div>
-                            <div className="flex items-center justify-between gap-2">
+
+                            <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
                               <div className="truncate">
                                 {category}
                                 {subCategory ? ` / ${subCategory}` : ""}
                               </div>
-                              <div className="shrink-0 text-right">{ago}</div>
+                              <div className="shrink-0">{ago}</div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-sm text-[color:var(--market-muted)]">
@@ -1103,6 +1206,5 @@ export default function HomeClient(props: HomeClientProps) {
     </Suspense>
   );
 }
-
 
 
