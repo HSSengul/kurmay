@@ -343,30 +343,30 @@ export default function MapClient() {
   const sellerCount = sellerItems.length;
 
   return (
-    <div className="min-h-screen bg-[#f7f4ef] px-4 py-8">
+    <div className="min-h-screen bg-[#f7f4ef] px-4 py-6 sm:py-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="rounded-3xl border border-[#ead8c5] bg-white/85 p-6 shadow-[0_24px_60px_-45px_rgba(15,23,42,0.45)]">
-          <div className="flex flex-col items-center gap-4 text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#ead8c5] bg-[#fff7ed] px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8a6a4f]">
+        <div className="rounded-3xl border border-[#ead8c5] bg-white/85 p-4 sm:p-6 shadow-[0_24px_60px_-45px_rgba(15,23,42,0.45)]">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#ead8c5] bg-[#fff7ed] px-3 py-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8a6a4f]">
               Harita
             </div>
-            <div className="text-3xl font-semibold text-[#3f2a1a]">
+            <div className="text-xl sm:text-3xl font-semibold text-[#3f2a1a]">
               {title}
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <div className="rounded-full border border-[#ead8c5] bg-white px-4 py-2 text-sm text-[#6b4b33]">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <div className="rounded-full border border-[#ead8c5] bg-white px-3 py-1.5 text-xs sm:text-sm text-[#6b4b33]">
                 Satıcı sayısı{" "}
                 <span className="font-semibold text-[#3f2a1a]">
                   {sellerCount}
                 </span>
               </div>
-              <div className="rounded-full border border-[#ead8c5] bg-white px-4 py-2 text-sm text-[#6b4b33]">
+              <div className="rounded-full border border-[#ead8c5] bg-white px-3 py-1.5 text-xs sm:text-sm text-[#6b4b33]">
                 Toplam ilan{" "}
                 <span className="font-semibold text-[#3f2a1a]">
                   {totalListingsForSellerMode}
                 </span>
               </div>
-              <div className="rounded-full border border-[#ead8c5] bg-white px-4 py-2 text-sm text-[#6b4b33]">
+              <div className="hidden sm:inline-flex rounded-full border border-[#ead8c5] bg-white px-3 py-1.5 text-xs sm:text-sm text-[#6b4b33]">
                 Görünür satıcı{" "}
                 <span className="font-semibold text-[#3f2a1a]">
                   {visibleSellers.length}

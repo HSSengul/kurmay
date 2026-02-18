@@ -847,16 +847,16 @@ function MyPageInner() {
       className={`min-h-screen bg-[#f7f4ef] bg-[radial-gradient(circle_at_top,_#fff7ed,_#f7f4ef_55%)] text-[#1d1b16] ${sora.className}`}
     >
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-5 sm:space-y-6">
-        <section className="bg-white/80 backdrop-blur border border-white/70 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-[0_25px_60px_-45px_rgba(15,23,42,0.45)] my-fade-up">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <section className="bg-white/80 backdrop-blur border border-white/70 rounded-2xl sm:rounded-3xl p-3 sm:p-5 shadow-[0_25px_60px_-45px_rgba(15,23,42,0.45)] my-fade-up">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="text-[11px] sm:text-xs uppercase tracking-[0.28em] text-[#b07b4a]">
+              <div className="text-[10px] sm:text-xs uppercase tracking-[0.24em] text-[#b07b4a]">
                 Hesabım
               </div>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold mt-2 leading-tight tracking-tight">
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold mt-1.5 leading-tight tracking-tight">
                 Merhaba{greetingName ? ` ${greetingName}` : ""}
               </h1>
-              <p className="text-xs sm:text-sm text-slate-600 mt-2">
+              <p className="text-[11px] sm:text-sm text-slate-600 mt-1 hidden sm:block">
                 Profilini güncel tut, ilanların daha hızlı görünür.
               </p>
             </div>
@@ -881,28 +881,28 @@ function MyPageInner() {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 sm:mt-6">
-            <div className="rounded-2xl border border-[#ead8c5] bg-[#f8f2e7] p-3 sm:p-4">
-              <div className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-[#a26b3c]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 sm:mt-4">
+            <div className="rounded-2xl border border-[#ead8c5] bg-[#f8f2e7] p-2.5 sm:p-3">
+              <div className="text-[10px] sm:text-xs uppercase tracking-[0.18em] text-[#a26b3c]">
                 Toplam ilan
               </div>
-              <div className="text-xl sm:text-2xl font-semibold mt-2">
+              <div className="text-lg sm:text-xl font-semibold mt-1.5">
                 {listingStats.total}
               </div>
             </div>
-            <div className="rounded-2xl border border-[#dbe5d9] bg-[#eef5f0] p-3 sm:p-4">
-              <div className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-[#4f7b63]">
+            <div className="rounded-2xl border border-[#dbe5d9] bg-[#eef5f0] p-2.5 sm:p-3">
+              <div className="text-[10px] sm:text-xs uppercase tracking-[0.18em] text-[#4f7b63]">
                 Görünen ilan
               </div>
-              <div className="text-xl sm:text-2xl font-semibold mt-2">
+              <div className="text-lg sm:text-xl font-semibold mt-1.5">
                 {filteredListings.length}
               </div>
             </div>
-            <div className="rounded-2xl border border-[#e7dfe2] bg-[#f6f0f2] p-3 sm:p-4">
-              <div className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-[#8e5c69]">
+            <div className="rounded-2xl border border-[#e7dfe2] bg-[#f6f0f2] p-2.5 sm:p-3">
+              <div className="text-[10px] sm:text-xs uppercase tracking-[0.18em] text-[#8e5c69]">
                 Son ilan
               </div>
-              <div className="text-xl sm:text-2xl font-semibold mt-2">
+              <div className="text-lg sm:text-xl font-semibold mt-1.5">
                 {listingStats.latestLabel || "-"}
               </div>
             </div>
@@ -967,18 +967,50 @@ function MyPageInner() {
         {/* ================= LEFT – MY LISTINGS ================= */}
         <div className="relative bg-white/90 border border-white/70 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-[0_25px_60px_-45px_rgba(15,23,42,0.45)] my-fade-up my-fade-delay-2">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-5 sm:mb-6">
-            <div>
-              <h2 className="text-xl sm:text-2xl font-semibold">Benim ilanlarım</h2>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-xl sm:text-2xl font-semibold">Benim ilanlarım</h2>
+                <div className="flex items-center rounded-full border border-slate-200 bg-white p-1">
+                  <button
+                    onClick={() => setViewMode("grid")}
+                    disabled={onboardingNeeded}
+                    className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-medium transition ${
+                      viewMode === "grid"
+                        ? "bg-[#1f2a24] text-white"
+                        : "text-slate-600"
+                    } ${onboardingNeeded ? "opacity-50 cursor-not-allowed" : ""}`}
+                    title={
+                      onboardingNeeded ? "Önce profilini tamamlamalısın" : undefined
+                    }
+                  >
+                    Kart
+                  </button>
+                  <button
+                    onClick={() => setViewMode("list")}
+                    disabled={onboardingNeeded}
+                    className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-medium transition ${
+                      viewMode === "list"
+                        ? "bg-[#1f2a24] text-white"
+                        : "text-slate-600"
+                    } ${onboardingNeeded ? "opacity-50 cursor-not-allowed" : ""}`}
+                    title={
+                      onboardingNeeded ? "Önce profilini tamamlamalısın" : undefined
+                    }
+                  >
+                    Liste
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-500">
                 Toplam {listingStats.total} ilan.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:w-auto">
               <input
                 value={listingQuery}
                 onChange={(e) => setListingQuery(e.target.value)}
                 placeholder="İlanlarda ara"
-                className="w-full sm:w-52 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#d8b18a]"
+                className="col-span-1 w-full sm:w-52 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#d8b18a]"
               />
               <select
                 value={listingSort}
@@ -991,43 +1023,13 @@ function MyPageInner() {
                       | "title"
                   )
                 }
-                className="rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm"
+                className="col-span-1 w-full sm:w-44 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm"
               >
                 <option value="newest">En yeni</option>
                 <option value="price_asc">Fiyat (artan)</option>
                 <option value="price_desc">Fiyat (azalan)</option>
                 <option value="title">Başlık (A-Z)</option>
               </select>
-              <div className="flex items-center rounded-full border border-slate-200 bg-white p-1">
-                <button
-                  onClick={() => setViewMode("grid")}
-                  disabled={onboardingNeeded}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-medium transition ${
-                    viewMode === "grid"
-                      ? "bg-[#1f2a24] text-white"
-                      : "text-slate-600"
-                  } ${onboardingNeeded ? "opacity-50 cursor-not-allowed" : ""}`}
-                  title={
-                    onboardingNeeded ? "Önce profilini tamamlamalısın" : undefined
-                  }
-                >
-                  Kart
-                </button>
-                <button
-                  onClick={() => setViewMode("list")}
-                  disabled={onboardingNeeded}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-medium transition ${
-                    viewMode === "list"
-                      ? "bg-[#1f2a24] text-white"
-                      : "text-slate-600"
-                  } ${onboardingNeeded ? "opacity-50 cursor-not-allowed" : ""}`}
-                  title={
-                    onboardingNeeded ? "Önce profilini tamamlamalısın" : undefined
-                  }
-                >
-                  Liste
-                </button>
-              </div>
             </div>
           </div>
 
