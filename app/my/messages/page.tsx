@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { devError, getFriendlyErrorMessage } from "@/lib/logger";
@@ -850,14 +851,16 @@ export default function MessagesPage() {
                 <div className="flex gap-3 p-3 sm:p-4">
                   <div className="relative w-14 h-14 sm:w-16 sm:h-16 shrink-0">
                     {imageUrl ? (
-                      <img
+                      <Image
                         src={imageUrl}
                         alt="İlan görseli"
+                        width={64}
+                        height={64}
+                        sizes="64px"
                         className={cx(
                           "w-full h-full object-cover rounded-xl",
                           hasUnread && "ring-2 ring-[#caa07a]"
                         )}
-                        loading="lazy"
                       />
                     ) : (
                       <div

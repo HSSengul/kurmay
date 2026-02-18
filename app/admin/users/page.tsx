@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
@@ -53,6 +54,9 @@ type PublicProfile = {
   phone?: string;
   websiteInstagram?: string;
   avatarUrl?: string;
+  showPhone?: boolean;
+  showAddress?: boolean;
+  showWebsiteInstagram?: boolean;
   onboardingCompleted?: boolean;
   updatedAt?: any;
 };
@@ -448,14 +452,26 @@ export default function AdminUsersPage() {
     if (!selectedId) return;
 
     try {
+      const nextPhone = safeString(profileDraft.phone || "", "");
+      const nextAddress = safeString(profileDraft.address || "", "");
+      const nextWebsite = safeString(profileDraft.websiteInstagram || "", "");
+
+      const nextShowPhone = !!publicProfile?.showPhone || !!nextPhone;
+      const nextShowAddress = !!publicProfile?.showAddress || !!nextAddress;
+      const nextShowWebsite =
+        !!publicProfile?.showWebsiteInstagram || !!nextWebsite;
+
       await setDoc(
         doc(db, "publicProfiles", selectedId),
         {
           name: safeString(profileDraft.name || "", ""),
           bio: safeString(profileDraft.bio || "", ""),
-          address: safeString(profileDraft.address || "", ""),
-          phone: safeString(profileDraft.phone || "", ""),
-          websiteInstagram: safeString(profileDraft.websiteInstagram || "", ""),
+          address: nextShowAddress ? nextAddress : "",
+          phone: nextShowPhone ? nextPhone : "",
+          websiteInstagram: nextShowWebsite ? nextWebsite : "",
+          showPhone: nextShowPhone,
+          showAddress: nextShowAddress,
+          showWebsiteInstagram: nextShowWebsite,
           avatarUrl: safeString(profileDraft.avatarUrl || "", ""),
           onboardingCompleted: !!profileDraft.onboardingCompleted,
           updatedAt: serverTimestamp(),
@@ -701,9 +717,12 @@ export default function AdminUsersPage() {
                   <div className="flex items-center gap-4">
                     <div className="h-14 w-14 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center text-lg font-semibold overflow-hidden">
                       {publicProfile?.avatarUrl ? (
-                        <img
+                        <Image
                           src={publicProfile.avatarUrl}
                           alt=""
+                          width={56}
+                          height={56}
+                          sizes="56px"
                           className="h-full w-full object-cover"
                         />
                       ) : (

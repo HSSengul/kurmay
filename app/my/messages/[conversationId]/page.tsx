@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { auth, db, storage } from "@/lib/firebase";
 import { devError, getFriendlyErrorMessage } from "@/lib/logger";
 import { buildListingPath } from "@/lib/listingUrl";
@@ -708,8 +709,11 @@ export default function ChatPage() {
   const typingMap = conversation?.typing || null;
   const typingUpdatedAt: any = typingMap?.updatedAt;
   const typingUpdatedAtMs =
-    typingUpdatedAt?.toMillis?.() ??
-    (typingUpdatedAt?.seconds ? typingUpdatedAt.seconds * 1000 : 0);
+    typeof typingUpdatedAt?.toMillis === "function"
+      ? typingUpdatedAt.toMillis()
+      : typingUpdatedAt?.seconds
+      ? typingUpdatedAt.seconds * 1000
+      : 0;
 
   const typingFresh = typingUpdatedAtMs > 0 && nowTick - typingUpdatedAtMs < 8000;
   const otherRoleForTyping =
@@ -730,10 +734,13 @@ export default function ChatPage() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <div className="w-full sm:w-28">
                 {conversation.listingSnapshot.imageUrl ? (
-                  <img
+                  <Image
                     src={conversation.listingSnapshot.imageUrl}
-                    className="w-full h-24 sm:h-24 object-cover rounded-2xl border border-[#ead8c5] shadow-[0_6px_18px_rgba(0,0,0,0.08)]"
                     alt="İlan görseli"
+                    width={112}
+                    height={96}
+                    sizes="112px"
+                    className="w-full h-24 sm:h-24 object-cover rounded-2xl border border-[#ead8c5] shadow-[0_6px_18px_rgba(0,0,0,0.08)]"
                   />
                 ) : (
                   <div className="w-full h-24 rounded-2xl bg-[#f3e9db] border border-[#ead8c5]" />
@@ -761,10 +768,13 @@ export default function ChatPage() {
 
                 <div className="mt-2 flex items-center gap-2 text-xs text-[#6b4b33]">
                   {avatar ? (
-                    <img
+                    <Image
                       src={avatar}
-                      className="w-7 h-7 rounded-full object-cover border border-[#ead8c5]"
                       alt="Profil"
+                      width={28}
+                      height={28}
+                      sizes="28px"
+                      className="w-7 h-7 rounded-full object-cover border border-[#ead8c5]"
                     />
                   ) : (
                     <div className="w-7 h-7 rounded-full bg-[#f3e9db] border border-[#ead8c5]" />
@@ -826,11 +836,14 @@ export default function ChatPage() {
                       )}
                     >
                       {/* Content */}
-                      {m.type === "image" ? (
-                        <img
+                      {m.type === "image" && m.imageUrl ? (
+                        <Image
                           src={m.imageUrl}
-                          className="max-w-full rounded-xl border border-white/10"
                           alt="Mesaj görseli"
+                          width={800}
+                          height={600}
+                          sizes="(min-width: 640px) 60vw, 90vw"
+                          className="max-w-full rounded-xl border border-white/10"
                         />
                       ) : (
                         <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">

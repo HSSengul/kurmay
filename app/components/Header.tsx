@@ -6,9 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import {
-  collection,
-  query,
-  where,
+  doc,
   onSnapshot,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
@@ -37,17 +35,80 @@ type SubLike = {
   enabled?: boolean;
 };
 
-type Conversation = {
-  buyerId: string;
-  sellerId: string;
-  unread: {
-    buyer: number;
-    seller: number;
+type HeaderCategoryInput = {
+  id?: string;
+  name?: string;
+  nameLower?: string;
+  slug?: string;
+  parentId?: string | null;
+  order?: number;
+  enabled?: boolean;
+};
+
+type HeaderProps = {
+  initialCategories?: HeaderCategoryInput[];
+};
+
+const buildCategoryState = (items: HeaderCategoryInput[]) => {
+  const all = (items || [])
+    .map((data) => ({
+      id: String(data.id || ""),
+      name: String(data.name || ""),
+      nameLower: data.nameLower || slugifyTR(data.name || ""),
+      slug: data.slug,
+      parentId: data.parentId ?? null,
+      order: data.order ?? 0,
+      enabled: data.enabled,
+    }))
+    .filter((c) => c.id && c.name)
+    .filter((c) => c.enabled !== false);
+
+  const cArr = all.filter((c) => c.parentId == null);
+  const subsAll: SubLike[] = all
+    .filter((c) => c.parentId != null)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      nameLower: c.nameLower || slugifyTR(c.name || ""),
+      slug: c.slug,
+      parentId: c.parentId as string,
+      order: c.order ?? 0,
+      enabled: c.enabled,
+    }));
+
+  const map: Record<string, SubLike[]> = {};
+  for (const s of subsAll) {
+    if (!map[s.parentId]) map[s.parentId] = [];
+    map[s.parentId].push(s);
+  }
+
+  const safeInt = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+  Object.keys(map).forEach((k) => {
+    map[k].sort((a, b) => {
+      const oa = safeInt(a.order);
+      const ob = safeInt(b.order);
+      if (oa !== ob) return oa - ob;
+      return (a.nameLower || "").localeCompare(b.nameLower || "");
+    });
+  });
+
+  cArr.sort((a, b) => {
+    const oa = safeInt(a.order);
+    const ob = safeInt(b.order);
+    if (oa !== ob) return oa - ob;
+    return (a.nameLower || "").localeCompare(b.nameLower || "");
+  });
+
+  return {
+    cats: cArr,
+    subsMap: map,
+    firstId: cArr[0]?.id || null,
   };
-  deletedFor?: {
-    buyer: boolean;
-    seller: boolean;
-  };
+};
+
+type UserUnreadDoc = {
+  unreadCount?: number;
 };
 
 /* ================= HELPERS ================= */
@@ -83,7 +144,7 @@ function safeSlug(obj: { slug?: string; nameLower?: string; name?: string }) {
  * - category: /{categorySlug}
  * - sub:      /{categorySlug}/{subSlug}
  */
-export default function Header() {
+export default function Header({ initialCategories = [] }: HeaderProps) {
   const router = useRouter();
   const headerRef = useRef<HTMLDivElement>(null);
 
@@ -102,13 +163,18 @@ export default function Header() {
   const [unreadTotal, setUnreadTotal] = useState(0);
 
   // Categories + Subs
-  const [cats, setCats] = useState<CategoryLike[]>([]);
-  const [subsMap, setSubsMap] = useState<Record<string, SubLike[]>>({});
-  const [catsLoading, setCatsLoading] = useState(true);
+  const initialState = buildCategoryState(initialCategories);
+  const [cats, setCats] = useState<CategoryLike[]>(initialState.cats);
+  const [subsMap, setSubsMap] = useState<Record<string, SubLike[]>>(
+    initialState.subsMap
+  );
+  const [catsLoading, setCatsLoading] = useState(
+    initialCategories.length === 0
+  );
 
   // Desktop selected category
   const [desktopActiveCatId, setDesktopActiveCatId] = useState<string | null>(
-    null
+    initialState.firstId
   );
 
   // Mobile accordion open category
@@ -189,6 +255,7 @@ export default function Header() {
   /* ================= LOAD CATEGORIES ================= */
 
   useEffect(() => {
+    if (initialCategories.length > 0) return;
     let cancelled = false;
 
     async function loadData() {
@@ -274,37 +341,29 @@ export default function Header() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialCategories.length]);
 
   /* ================= UNREAD ================= */
 
   useEffect(() => {
     if (!user) return;
 
-    const q = query(
-      collection(db, "conversations"),
-      where("participants", "array-contains", user.uid)
-    );
-
-    const unsub = onSnapshot(q, (snap) => {
-      let total = 0;
-
-      snap.forEach((doc) => {
-        const data = doc.data() as Conversation;
-
-        if (
-          (data.buyerId === user.uid && data.deletedFor?.buyer) ||
-          (data.sellerId === user.uid && data.deletedFor?.seller)
-        ) {
+    const ref = doc(db, "users", user.uid);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) {
+          setUnreadTotal(0);
           return;
         }
-
-        if (data.buyerId === user.uid) total += data.unread?.buyer || 0;
-        else if (data.sellerId === user.uid) total += data.unread?.seller || 0;
-      });
-
-      setUnreadTotal(total);
-    });
+        const data = snap.data() as UserUnreadDoc;
+        const total = typeof data?.unreadCount === "number" ? data.unreadCount : 0;
+        setUnreadTotal(total);
+      },
+      () => {
+        // ignore unread errors to avoid breaking header
+      }
+    );
 
     return () => unsub();
   }, [user]);

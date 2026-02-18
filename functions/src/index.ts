@@ -3,6 +3,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import {
   onDocumentCreated,
   onDocumentUpdated,
+  onDocumentWritten,
 } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 
@@ -237,6 +238,13 @@ async function incGlobalStat(fields: Record<string, number>) {
   }
 
   await ref.set(payload, { merge: true });
+}
+
+function getUnreadForRole(data: any, role: "buyer" | "seller"): number {
+  if (!data) return 0;
+  if (data?.deletedFor?.[role]) return 0;
+  const v = data?.unread?.[role];
+  return typeof v === "number" && Number.isFinite(v) ? Math.max(0, v) : 0;
 }
 
 /* =========================
@@ -1116,6 +1124,7 @@ export const onUserCreated = onDocumentCreated("users/{uid}", async (event) => {
         listingsCount: admin.firestore.FieldValue.increment(0),
         conversationsCount: admin.firestore.FieldValue.increment(0),
         reportsCount: admin.firestore.FieldValue.increment(0),
+        unreadCount: admin.firestore.FieldValue.increment(0),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -1314,6 +1323,77 @@ export const onConversationCreated = onDocumentCreated(
       }
     } catch (e) {
       logger.error("onConversationCreated error", e);
+    }
+  }
+);
+
+/**
+ * conversations/{conversationId} written
+ * - users/{uid}.unreadCount aggregate delta update
+ */
+export const onConversationUnreadAggregate = onDocumentWritten(
+  "conversations/{conversationId}",
+  async (event) => {
+    try {
+      const before = event.data?.before.data() as any;
+      const after = event.data?.after.data() as any;
+
+      if (!before && !after) return;
+
+      const db = admin.firestore();
+
+      const prevBuyerId = before?.buyerId ?? null;
+      const nextBuyerId = after?.buyerId ?? null;
+      const prevSellerId = before?.sellerId ?? null;
+      const nextSellerId = after?.sellerId ?? null;
+
+      const prevBuyerUnread = getUnreadForRole(before, "buyer");
+      const nextBuyerUnread = getUnreadForRole(after, "buyer");
+      const prevSellerUnread = getUnreadForRole(before, "seller");
+      const nextSellerUnread = getUnreadForRole(after, "seller");
+
+      const updates: Promise<any>[] = [];
+
+      const bump = (uid: string | null, delta: number) => {
+        if (!uid || !delta) return;
+        updates.push(
+          db.collection("users").doc(uid).set(
+            {
+              unreadCount: admin.firestore.FieldValue.increment(delta),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          )
+        );
+      };
+
+      if (prevBuyerId && prevBuyerId !== nextBuyerId) {
+        bump(prevBuyerId, -prevBuyerUnread);
+      }
+      if (nextBuyerId) {
+        const delta =
+          prevBuyerId === nextBuyerId
+            ? nextBuyerUnread - prevBuyerUnread
+            : nextBuyerUnread;
+        bump(nextBuyerId, delta);
+      }
+
+      if (prevSellerId && prevSellerId !== nextSellerId) {
+        bump(prevSellerId, -prevSellerUnread);
+      }
+      if (nextSellerId) {
+        const delta =
+          prevSellerId === nextSellerId
+            ? nextSellerUnread - prevSellerUnread
+            : nextSellerUnread;
+        bump(nextSellerId, delta);
+      }
+
+      if (updates.length > 0) {
+        await Promise.all(updates);
+      }
+    } catch (e) {
+      logger.error("onConversationUnreadAggregate error", e);
     }
   }
 );

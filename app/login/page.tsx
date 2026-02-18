@@ -137,9 +137,9 @@ async function ensureUserDocs(user: User) {
       {
         name: user.displayName || "",
         bio: "",
-        address: "",
-        phone: "",
-        websiteInstagram: "",
+        showPhone: true,
+        showAddress: true,
+        showWebsiteInstagram: true,
         avatarUrl: user.photoURL || "",
         createdAt: serverTimestamp(),
       },

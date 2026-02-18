@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { unstable_cache } from "next/cache";
 import "./globals.css";
 import Header from "./components/Header";
+import { listCollection } from "@/lib/firestoreRest";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,17 +36,26 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export const revalidate = 300;
+
+const getCategoriesCached = unstable_cache(
+  async () => listCollection("categories", 500, 5),
+  ["kf_categories_layout"],
+  { revalidate: 300 }
+);
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const categories = await getCategoriesCached();
   return (
     <html lang="tr">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Header />
+        <Header initialCategories={categories} />
         {children}
       </body>
     </html>

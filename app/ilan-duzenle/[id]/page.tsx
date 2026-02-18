@@ -1,12 +1,13 @@
-// app/ilan/[id]/edit/page.tsx
+﻿
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
-import { getCategoriesCached, getSubCategoriesCached } from "@/lib/catalogCache";
+import { getCategoriesCached } from "@/lib/catalogCache";
 import { devError, devWarn, getFriendlyErrorMessage } from "@/lib/logger";
 import { buildListingPath } from "@/lib/listingUrl";
 import {
@@ -19,52 +20,40 @@ import {
 /* ================= TYPES ================= */
 
 type Listing = {
-  title: string;
-  price: number;
-
-  categoryId: string;
-  categoryName: string;
-  subCategoryId: string;
-  subCategoryName: string;
-
-  productionYear?: string | null;
-  gender?: string;
-  serialNumber?: string;
-  movementType?: string;
-
-  caseType?: string;
-  diameterMm?: number | null;
-  dialColor?: string;
-
-  braceletMaterial?: string;
-  braceletColor?: string;
-
-  // ✅ yeni sistem: wearLevel + wearExists
-  wearExists?: boolean;
-  wearLevel?: string; // örn: "Aşınma yok" / "Hafif aşınma" ...
-
-  accessories?: string;
-
+  title?: string;
+  price?: number;
   description?: string;
 
+  categoryId?: string;
+  categoryName?: string;
+  subCategoryId?: string;
+  subCategoryName?: string;
+
+  brandId?: string;
+  brandName?: string;
+  modelId?: string;
+  modelName?: string;
+
+  conditionKey?: string;
+  conditionLabel?: string;
+
+  attributes?: Record<string, any>;
   imageUrls?: string[];
 
-  ownerId: string;
+  ownerId?: string;
+  ownerName?: string;
   createdAt?: any;
   updatedAt?: any;
+  schemaVersion?: number | null;
 };
 
 type Category = {
   id: string;
   name: string;
   nameLower?: string;
-};
-
-type SubCategory = {
-  id: string;
-  name: string;
-  nameLower?: string;
-  categoryId: string;
+  parentId?: string | null;
+  order?: number;
+  enabled?: boolean;
 };
 
 type PublicProfileGate = {
@@ -78,39 +67,18 @@ type PublicProfileGate = {
 
 const normalizeSpaces = (v: string) => (v || "").replace(/\s+/g, " ").trim();
 
-const digitsOnly = (v: string) => (v || "").replace(/[^\d]/g, "");
-
-const isValidName = (name: string) => {
-  const n = normalizeSpaces(name);
-  return n.length >= 2 && n.length <= 80;
-};
-
-const isValidAddress = (address: string) => {
-  const a = normalizeSpaces(address);
-  return a.length >= 10 && a.length <= 200;
-};
-
-const isValidPhone = (phone: string) => {
-  const d = digitsOnly(phone);
-
-  if (d.startsWith("90") && d.length >= 12) {
-    const rest = d.slice(2);
-    return rest.length >= 10 && rest.length <= 12;
-  }
-
-  if (d.startsWith("0") && d.length >= 11) {
-    const rest = d.slice(1);
-    return rest.length >= 10 && rest.length <= 12;
-  }
-
-  return d.length >= 10 && d.length <= 12;
-};
-
 const formatMaybeInt = (v: string) => {
   const t = v.trim();
   if (!t) return "";
   return t.replace(/[^\d]/g, "");
 };
+
+const isValidName = (name: string) => name.trim().length > 1;
+const isValidPhone = (phone: string) => phone.trim().length > 8;
+const isValidAddress = (address: string) => address.trim().length > 5;
+
+const sanitizeFileName = (name: string) =>
+  name.replace(/[^a-zA-Z0-9_.-]/g, "_");
 
 const storagePathFromUrl = (url: string) => {
   try {
@@ -121,46 +89,6 @@ const storagePathFromUrl = (url: string) => {
   } catch {
     return null;
   }
-};
-
-const accessoriesLabel = (v: string) => {
-  if (v === "both") return "Orijinal kutu ve orijinal belgeler";
-  if (v === "box") return "Orijinal kutu";
-  if (v === "papers") return "Orijinal belgeler";
-  if (v === "none") return "Başka aksesuar yok";
-  return v;
-};
-
-const accessoriesValueFromLabel = (label: string) => {
-  if (label === "Orijinal kutu ve orijinal belgeler") return "both";
-  if (label === "Orijinal kutu") return "box";
-  if (label === "Orijinal belgeler") return "papers";
-  if (label === "Başka aksesuar yok") return "none";
-  return "";
-};
-
-// ✅ wear level label helpers
-const wearLevelLabel = (v: "" | "none" | "light" | "medium" | "heavy") => {
-  if (v === "none") return "Aşınma yok";
-  if (v === "light") return "Hafif aşınma";
-  if (v === "medium") return "Orta aşınma";
-  if (v === "heavy") return "Belirgin aşınma";
-  return "";
-};
-
-const wearLevelValueFromLabel = (label: string) => {
-  if (label === "Aşınma yok") return "none";
-  if (label === "Hafif aşınma") return "light";
-  if (label === "Orta aşınma") return "medium";
-  if (label === "Belirgin aşınma") return "heavy";
-  return "";
-};
-
-const sanitizeFileName = (name: string) => {
-  return name
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9.\-_]/g, "");
 };
 
 const validateFiles = (files: File[]) => {
@@ -210,101 +138,485 @@ export default function EditListingPage() {
     if (!p) return [];
     const reasons: string[] = [];
 
-    const nameOk = isValidName(p.name || "");
-    const phoneOk = isValidPhone(p.phone || "");
-    const addressOk = isValidAddress(p.address || "");
-
-    if (!nameOk) reasons.push("İsim");
-    if (!phoneOk) reasons.push("Telefon");
-    if (!addressOk) reasons.push("Adres");
+    if (!isValidName(p.name || "")) reasons.push("İsim");
+    if (!isValidPhone(p.phone || "")) reasons.push("Telefon");
+    if (!isValidAddress(p.address || "")) reasons.push("Adres");
 
     return reasons;
   }, [profileSummary]);
 
-  /* ✅ DROPDOWN OPTIONS (HOOK ORDER SAFE) */
+  /* ================= UI CLASSES ================= */
 
-  const yearOptions = useMemo(() => {
-    const now = new Date().getFullYear();
-    const years: string[] = [];
-    for (let y = now; y >= 1950; y--) years.push(String(y));
-    return years;
-  }, []);
+  const sectionCardClass =
+    "border border-[#ead8c5] rounded-2xl p-5 sm:p-6 bg-white/75 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]";
+  const sectionTitleClass = "text-lg font-semibold text-[#3f2a1a]";
+  const labelClass = "text-sm font-semibold text-[#5a4330]";
+  const inputClass =
+    "w-full border border-[#ead8c5] rounded-full px-4 py-2.5 text-sm text-[#3f2a1a] bg-white/80 placeholder:text-[#9b7b5a] focus:outline-none focus:ring-2 focus:ring-[#e7c49b] focus:border-[#e7c49b]";
+  const selectClass =
+    "w-full border border-[#ead8c5] rounded-full px-4 py-2.5 text-sm text-[#3f2a1a] bg-white/80 focus:outline-none focus:ring-2 focus:ring-[#e7c49b] focus:border-[#e7c49b]";
+  const textareaClass =
+    "w-full border border-[#ead8c5] rounded-2xl px-4 py-3 text-sm text-[#3f2a1a] bg-white/80 placeholder:text-[#9b7b5a] focus:outline-none focus:ring-2 focus:ring-[#e7c49b] focus:border-[#e7c49b] min-h-[140px]";
+  const helperTextClass = "text-xs text-[#8a6a4f]";
+  const mutedTextClass = "text-sm text-[#6b4b33]";
 
-  const diameterOptions = useMemo(() => {
-    const arr: string[] = [];
-    for (let d = 28; d <= 50; d++) arr.push(String(d));
-    return arr;
-  }, []);
+  /* ================= CONDITION ================= */
 
-  const baseCaseTypeOptions = useMemo(() => {
-    return [
-      "Çelik",
-      "Titanyum",
-      "Altın",
-      "Gümüş",
-      "Bronz",
-      "Seramik",
-      "Karbon",
-      "Plastik",
-      "Diğer",
-    ];
-  }, []);
+  const conditionOptions = [
+    { value: "", label: "Seç" },
+    { value: "new", label: "Yeni / Açılmamış" },
+    { value: "likeNew", label: "Çok İyi (Sıfır Ayarında)" },
+    { value: "good", label: "İyi" },
+    { value: "used", label: "Kullanılmış" },
+    { value: "forParts", label: "Parça / Arızalı" },
+  ];
 
-  const wearLevelOptions = useMemo(() => {
-    return [
-      { value: "none" as const, label: "Aşınma yok" },
-      { value: "light" as const, label: "Hafif aşınma" },
-      { value: "medium" as const, label: "Orta aşınma" },
-      { value: "heavy" as const, label: "Belirgin aşınma" },
-    ];
-  }, []);
+  const conditionLabel = (
+    v: "" | "new" | "likeNew" | "good" | "used" | "forParts"
+  ) => {
+    const x = conditionOptions.find((o) => o.value === v);
+    return x ? x.label : "";
+  };
 
-  /* ================= CATEGORY/SUBCATEGORY DATA ================= */
+  /* ================= CATEGORY ================= */
 
+  const [allCategories, setAllCategories] = useState<Category[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [allSubCategories, setAllSubCategories] = useState<SubCategory[]>([]);
+
+  const [categoryId, setCategoryId] = useState("");
+  const [subCategoryId, setSubCategoryId] = useState("");
+
+  const subCategories = useMemo(() => {
+    if (!categoryId) return [];
+    const list = allCategories
+      .filter((c) => c.parentId === categoryId && c.enabled !== false)
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        parentId: d.parentId ?? null,
+        nameLower: d.nameLower || "",
+        order: d.order ?? 0,
+        enabled: d.enabled,
+      }))
+      .filter((s) => s.enabled !== false);
+
+    const safeInt = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    list.sort((a: any, b: any) => {
+      const oa = safeInt(a.order);
+      const ob = safeInt(b.order);
+      if (oa !== ob) return oa - ob;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+
+    return list;
+  }, [allCategories, categoryId]);
+
+  const [isBoardGameCategory, setIsBoardGameCategory] = useState(false);
+  const [isConsoleCategory, setIsConsoleCategory] = useState(false);
+  const [isHandheldCategory, setIsHandheldCategory] = useState(false);
+  const isConsoleLike = isConsoleCategory || isHandheldCategory;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCategories() {
+      try {
+        const cached = await getCategoriesCached();
+        const all = (cached || [])
+          .map((d: any) => ({
+            id: d.id,
+            name: d.name,
+            enabled: d.enabled,
+            order: d.order ?? 0,
+            parentId: d.parentId ?? null,
+            nameLower: d.nameLower || "",
+          }))
+          .filter((c) => c.enabled !== false);
+        const list = all.filter((c) => c.parentId == null);
+
+        if (!cancelled) {
+          const safeInt = (v: any) =>
+            Number.isFinite(Number(v)) ? Number(v) : 0;
+          list.sort((a: any, b: any) => {
+            const oa = safeInt(a.order);
+            const ob = safeInt(b.order);
+            if (oa !== ob) return oa - ob;
+            return (a.name || "").localeCompare(b.name || "");
+          });
+
+          setAllCategories(all);
+          setCategories(list);
+        }
+      } catch {
+        if (!cancelled) {
+          setAllCategories([]);
+          setCategories([]);
+        }
+      }
+    }
+
+    loadCategories();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const selected = allCategories.find((c) => c.id === categoryId);
+    const name = selected?.name || "";
+    setIsBoardGameCategory(
+      name === "Kutu Oyunları" || categoryId === "kutu-oyunlari"
+    );
+    setIsConsoleCategory(name === "Konsollar" || categoryId === "konsollar");
+    setIsHandheldCategory(
+      name === "El Konsolları" || categoryId === "el-konsollari"
+    );
+  }, [allCategories, categoryId]);
+
+  /* ================= ATTRIBUTES ================= */
+
+  const [attributes, setAttributes] = useState<Record<string, any>>({});
+
+  const setAttr = (key: string, value: any) => {
+    setAttributes((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const boardgameAttrKeys = [
+    "gameName",
+    "minPlayers",
+    "maxPlayers",
+    "minPlaytime",
+    "maxPlaytime",
+    "suggestedAge",
+    "language",
+    "completeContent",
+    "sleeved",
+  ];
+
+  const boardgameSchemaAliases: Record<string, string> = {
+    playersMin: "minPlayers",
+    playersMax: "maxPlayers",
+    playTimeMin: "minPlaytime",
+    playTimeMax: "maxPlaytime",
+    age: "suggestedAge",
+    componentsFull: "completeContent",
+  };
+
+  const boardgameLegacyKeys = Object.keys(boardgameSchemaAliases);
+
+  const consoleAttrKeys = [
+    "consoleModel",
+    "storage",
+    "modded",
+    "box",
+    "controllerCount",
+    "accessories",
+    "purchaseYear",
+    "warrantyStatus",
+    "usageLevel",
+    "batteryHealth",
+    "screenCondition",
+    "stickDrift",
+    "consoleBrand",
+    "region",
+    "firmwareVersion",
+    "onlineStatus",
+  ];
+
+  const consoleExtraAttrKeys = consoleAttrKeys.filter(
+    (key) =>
+      key !== "consoleBrand" &&
+      key !== "region" &&
+      key !== "firmwareVersion" &&
+      key !== "onlineStatus"
+  );
+
+  type ConsoleFieldVisibility = {
+    consoleModel: boolean;
+    storage: boolean;
+    modded: boolean;
+    box: boolean;
+    controllerCount: boolean;
+    accessories: boolean;
+    purchaseYear: boolean;
+    warrantyStatus: boolean;
+    usageLevel: boolean;
+    batteryHealth: boolean;
+    screenCondition: boolean;
+    stickDrift: boolean;
+  };
+
+  const consoleModelOptionsBySubCategoryId: Record<string, string[]> = {
+    "konsollar__playstation": [
+      "PS1",
+      "PS2",
+      "PS3",
+      "PS3 Slim",
+      "PS3 Super Slim",
+      "PS4",
+      "PS4 Slim",
+      "PS4 Pro",
+      "PS5",
+      "PS5 Digital",
+      "PS5 Slim",
+      "Diğer",
+    ],
+    "konsollar__xbox": [
+      "Xbox (2001)",
+      "Xbox 360",
+      "Xbox 360 Slim",
+      "Xbox 360 E",
+      "Xbox One",
+      "Xbox One S",
+      "Xbox One X",
+      "Xbox Series S",
+      "Xbox Series X",
+      "Diğer",
+    ],
+    "konsollar__nintendo": [
+      "NES",
+      "SNES",
+      "Nintendo 64",
+      "GameCube",
+      "Wii",
+      "Wii U",
+      "Switch",
+      "Switch Lite",
+      "Switch OLED",
+      "Diğer",
+    ],
+    "konsollar__handheld": [
+      "Switch",
+      "Switch Lite",
+      "Switch OLED",
+      "Steam Deck",
+      "ROG Ally",
+      "Legion Go",
+      "Nintendo DS",
+      "Nintendo 3DS",
+      "PSP",
+      "PS Vita",
+      "Game Boy",
+      "Game Boy Advance",
+      "Diğer",
+    ],
+    "konsollar__retro": [
+      "Atari 2600",
+      "Sega Master System",
+      "Sega Mega Drive",
+      "Sega Saturn",
+      "Sega Dreamcast",
+      "Neo Geo",
+      "Diğer",
+    ],
+    "konsollar__vr": [
+      "PS VR",
+      "PS VR2",
+      "Meta Quest 2",
+      "Meta Quest 3",
+      "Valve Index",
+      "HTC Vive",
+      "Diğer",
+    ],
+    "konsollar__parca-servis": [
+      "PlayStation",
+      "Xbox",
+      "Nintendo",
+      "Genel / Çoklu",
+      "Diğer",
+    ],
+    "el-konsollari__nintendo": [
+      "Switch",
+      "Switch Lite",
+      "Switch OLED",
+      "Nintendo DS",
+      "Nintendo 3DS",
+      "Game Boy",
+      "Game Boy Color",
+      "Game Boy Advance",
+      "Diğer",
+    ],
+    "el-konsollari__playstation": ["PSP", "PS Vita", "Diğer"],
+    "el-konsollari__pc": [
+      "Steam Deck",
+      "ROG Ally",
+      "Legion Go",
+      "Ayaneo",
+      "GPD Win",
+      "Diğer",
+    ],
+    "el-konsollari__retro": [
+      "Game Gear",
+      "Atari Lynx",
+      "Neo Geo Pocket",
+      "WonderSwan",
+      "Diğer",
+    ],
+    "el-konsollari__parca-servis": [
+      "Nintendo",
+      "PlayStation",
+      "PC / Windows",
+      "Genel / Çoklu",
+      "Diğer",
+    ],
+  };
+  const getConsoleSubGroup = (subId: string) => {
+    if (!subId) return "";
+    if (subId.startsWith("konsollar__"))
+      return subId.replace("konsollar__", "");
+    if (subId.startsWith("el-konsollari__"))
+      return subId.replace("el-konsollari__", "");
+    const subName = subCategories.find((s) => s.id === subId)?.name || "";
+    const n = subName.toLocaleLowerCase("tr-TR");
+    if (n.includes("playstation")) return "playstation";
+    if (n.includes("xbox")) return "xbox";
+    if (n.includes("nintendo")) return "nintendo";
+    if (n.includes("pc") || n.includes("windows")) return "pc";
+    if (n.includes("taşınabilir") || n.includes("handheld") || n.includes("el konsol"))
+      return "handheld";
+    if (n.includes("retro")) return "retro";
+    if (n.includes("vr")) return "vr";
+    if (n.includes("parça") || n.includes("servis") || n.includes("tamir"))
+      return "parca-servis";
+    return "";
+  };
+
+  const consoleModelOptions = (() => {
+    if (!isConsoleLike || !subCategoryId) return [];
+    const byId = consoleModelOptionsBySubCategoryId[subCategoryId];
+    if (byId && byId.length > 0) return byId;
+
+    const group = getConsoleSubGroup(subCategoryId);
+    if (
+      group === "handheld" &&
+      consoleModelOptionsBySubCategoryId["konsollar__handheld"]
+    ) {
+      return consoleModelOptionsBySubCategoryId["konsollar__handheld"];
+    }
+    const prefix = subCategoryId.startsWith("el-konsollari__")
+      ? "el-konsollari"
+      : subCategoryId.startsWith("konsollar__")
+        ? "konsollar"
+        : isHandheldCategory
+          ? "el-konsollari"
+          : "konsollar";
+    const groupId = group ? `${prefix}__${group}` : "";
+    if (groupId && consoleModelOptionsBySubCategoryId[groupId]) {
+      return consoleModelOptionsBySubCategoryId[groupId];
+    }
+
+    return ["Diğer"];
+  })();
+
+  const getConsoleFieldVisibilityForSub = (
+    subId: string
+  ): ConsoleFieldVisibility => {
+    const base: ConsoleFieldVisibility = {
+      consoleModel: true,
+      storage: true,
+      modded: true,
+      box: true,
+      controllerCount: true,
+      accessories: true,
+      purchaseYear: true,
+      warrantyStatus: true,
+      usageLevel: true,
+      batteryHealth: false,
+      screenCondition: false,
+      stickDrift: false,
+    };
+
+    const group = getConsoleSubGroup(subId);
+    if (group === "parca-servis") {
+      return {
+        consoleModel: true,
+        storage: false,
+        modded: false,
+        box: false,
+        controllerCount: false,
+        accessories: true,
+        purchaseYear: false,
+        warrantyStatus: false,
+        usageLevel: false,
+        batteryHealth: false,
+        screenCondition: false,
+        stickDrift: false,
+      };
+    }
+
+    const handheld = isHandheldCategory || group === "handheld";
+    let next = base;
+
+    if (handheld) {
+      next = {
+        ...next,
+        controllerCount: false,
+        batteryHealth: true,
+        screenCondition: true,
+        stickDrift: true,
+      };
+    }
+
+    if (group === "vr") {
+      next = {
+        ...next,
+        modded: false,
+      };
+    }
+
+    if (group === "retro") {
+      next = {
+        ...next,
+        storage: false,
+        warrantyStatus: false,
+      };
+    }
+
+    return next;
+  };
+
+  const handheldConsoleModels = new Set<string>([
+    "Switch",
+    "Switch Lite",
+    "Switch OLED",
+    "Steam Deck",
+    "ROG Ally",
+    "Legion Go",
+    "Nintendo DS",
+    "Nintendo 3DS",
+    "PSP",
+    "PS Vita",
+    "Game Boy",
+    "Game Boy Color",
+    "Game Boy Advance",
+  ]);
+
+  const isHandheldModel =
+    isConsoleLike &&
+    handheldConsoleModels.has(String(attributes.consoleModel || ""));
+
+  const consoleFieldVisibility = (() => {
+    if (!isConsoleLike) return null;
+    const base = getConsoleFieldVisibilityForSub(subCategoryId);
+    if (!base) return null;
+    if (!isHandheldModel) return base;
+    return {
+      ...base,
+      batteryHealth: true,
+      screenCondition: true,
+      stickDrift: true,
+    };
+  })();
 
   /* ================= FORM STATES ================= */
 
   const [title, setTitle] = useState("");
   const [price, setPrice] = useState("");
-
-  // category/subCategory edit kapalı ama state duruyor
-  const [categoryId, setCategoryId] = useState("");
-  const [categoryName, setCategoryName] = useState("");
-  const [subCategoryId, setSubCategoryId] = useState("");
-  const [subCategoryName, setSubCategoryName] = useState("");
-
-  const [productionYear, setProductionYear] = useState("");
-  const [gender, setGender] = useState("");
-  const [serialNumber, setSerialNumber] = useState("");
-  const [movementType, setMovementType] = useState("");
-
-  const [caseType, setCaseType] = useState("");
-  const [diameterMm, setDiameterMm] = useState("");
-  const [dialColor, setDialColor] = useState("");
-
-  const [braceletMaterial, setBraceletMaterial] = useState("");
-  const [braceletColor, setBraceletColor] = useState("");
-
-  // ✅ yeni: aşınma seviyesi zorunlu
-  const [wearLevel, setWearLevel] = useState<"" | "none" | "light" | "medium" | "heavy">(
-    ""
-  );
-
-  const [accessories, setAccessories] = useState("");
+  const [condition, setCondition] = useState("");
   const [description, setDescription] = useState("");
 
-  // ✅ caseType dropdown’da mevcut değerin “listede yoksa” da görünebilmesi için:
-  const caseTypeOptions = useMemo(() => {
-    const val = normalizeSpaces(caseType);
-    if (!val) return baseCaseTypeOptions;
-    if (baseCaseTypeOptions.includes(val)) return baseCaseTypeOptions;
-    // eski ilanlarda farklı yazılmış olabilir (örn "Paslanmaz Çelik")
-    return [val, ...baseCaseTypeOptions];
-  }, [caseType, baseCaseTypeOptions]);
-
-  /* ================= IMAGES STATES ================= */
+  /* ================= IMAGES ================= */
 
   const [existingUrls, setExistingUrls] = useState<string[]>([]);
   const [removedUrls, setRemovedUrls] = useState<Set<string>>(new Set());
@@ -322,42 +634,23 @@ export default function EditListingPage() {
     return Math.max(0, 5 - remainingExistingUrls.length);
   }, [remainingExistingUrls.length]);
 
-  const filteredSubCategories = useMemo(() => {
-    if (!categoryId) return [];
-    return allSubCategories
-      .filter((m) => m.categoryId === categoryId)
-      .sort((a, b) =>
-        (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
-      );
-  }, [allSubCategories, categoryId]);
-
-  /* ================= DIRTY STATE (UX) ================= */
+  /* ================= DIRTY STATE ================= */
 
   const initialSnapshotRef = useRef<string>("");
 
-  const computeSnapshot = () => {
-    return JSON.stringify({
+  const computeSnapshot = () =>
+    JSON.stringify({
       title,
       price,
+      condition,
+      description,
       categoryId,
       subCategoryId,
-      productionYear,
-      gender,
-      serialNumber,
-      movementType,
-      caseType,
-      diameterMm,
-      dialColor,
-      braceletMaterial,
-      braceletColor,
-      wearLevel,
-      accessories,
-      description,
+      attributes,
       remainingExistingUrls,
       newFilesCount: newFiles.length,
       removedCount: removedUrls.size,
     });
-  };
 
   const isDirty = useMemo(() => {
     if (!initialSnapshotRef.current) return false;
@@ -365,20 +658,11 @@ export default function EditListingPage() {
   }, [
     title,
     price,
+    condition,
+    description,
     categoryId,
     subCategoryId,
-    productionYear,
-    gender,
-    serialNumber,
-    movementType,
-    caseType,
-    diameterMm,
-    dialColor,
-    braceletMaterial,
-    braceletColor,
-    wearLevel,
-    accessories,
-    description,
+    attributes,
     remainingExistingUrls,
     newFiles.length,
     removedUrls.size,
@@ -410,9 +694,13 @@ export default function EditListingPage() {
         setGateChecking(true);
 
         const publicRef = doc(db, "publicProfiles", user.uid);
-        const snap = await getDoc(publicRef);
+        const privateRef = doc(db, "privateProfiles", user.uid);
+        const [publicSnap, privateSnap] = await Promise.all([
+          getDoc(publicRef),
+          getDoc(privateRef),
+        ]);
 
-        if (!snap.exists()) {
+        if (!publicSnap.exists()) {
           setProfileSummary({
             onboardingCompleted: false,
             name: "",
@@ -424,13 +712,16 @@ export default function EditListingPage() {
           return;
         }
 
-        const d = snap.data() as any;
+        const d = publicSnap.data() as any;
+        const p = privateSnap.exists() ? (privateSnap.data() as any) : {};
+        const mergedPhone = p.phone || d.phone || "";
+        const mergedAddress = p.address || d.address || "";
 
         const summary: PublicProfileGate = {
           onboardingCompleted: !!d.onboardingCompleted,
           name: d.name || "",
-          phone: d.phone || "",
-          address: d.address || "",
+          phone: mergedPhone,
+          address: mergedAddress,
         };
 
         setProfileSummary(summary);
@@ -462,48 +753,6 @@ export default function EditListingPage() {
     return () => unsub();
   }, [router]);
 
-  /* ================= LOAD BRANDS + MODELS ================= */
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadCategorySubCategoryData() {
-      try {
-        const [bSnap, mSnap] = await Promise.all([
-          getCategoriesCached(),
-          getSubCategoriesCached(),
-        ]);
-
-        if (cancelled) return;
-
-        const b = (bSnap || []).map((d: any) => ({
-          id: d.id,
-          ...(d as any),
-        })) as Category[];
-
-        const m = (mSnap || []).map((d: any) => ({
-          id: d.id,
-          ...(d as any),
-        })) as SubCategory[];
-
-        b.sort((a, b) =>
-          (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
-        );
-
-        setCategories(b);
-        setAllSubCategories(m);
-      } catch (e) {
-        devWarn("Kategori/Alt kategori load failed:", e);
-      }
-    }
-
-    loadCategorySubCategoryData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   /* ================= LOAD LISTING ================= */
 
   useEffect(() => {
@@ -523,76 +772,50 @@ export default function EditListingPage() {
         }
 
         const data = snap.data() as Listing;
-        setListing(data);
+        const resolvedCategoryId = data.categoryId || data.brandId || "";
+        const resolvedSubCategoryId = data.subCategoryId || data.modelId || "";
+        const resolvedCategoryName =
+          data.categoryName || data.brandName || "";
+        const resolvedSubCategoryName =
+          data.subCategoryName || data.modelName || "";
 
-        // Form states
+        setListing({
+          ...data,
+          categoryId: resolvedCategoryId,
+          subCategoryId: resolvedSubCategoryId,
+          categoryName: resolvedCategoryName,
+          subCategoryName: resolvedSubCategoryName,
+        });
+
         setTitle(data.title || "");
         setPrice(String(data.price ?? ""));
-
-        setCategoryId(data.categoryId || "");
-        setCategoryName(data.categoryName || "");
-        setSubCategoryId(data.subCategoryId || "");
-        setSubCategoryName(data.subCategoryName || "");
-
-        setProductionYear((data.productionYear as any) || "");
-        setGender(data.gender || "");
-        setSerialNumber(data.serialNumber || "");
-        setMovementType(data.movementType || "");
-
-        setCaseType(data.caseType || "");
-        setDiameterMm(
-          data.diameterMm === null || data.diameterMm === undefined
-            ? ""
-            : String(data.diameterMm)
-        );
-        setDialColor(data.dialColor || "");
-
-        setBraceletMaterial(data.braceletMaterial || "");
-        setBraceletColor(data.braceletColor || "");
-
-        // ✅ wearLevel init (öncelik: wearLevel label -> value; yoksa wearExists -> tahmin)
-        const wearValueFromLabel = wearLevelValueFromLabel(data.wearLevel || "");
-        if (wearValueFromLabel) {
-          setWearLevel(wearValueFromLabel as any);
-        } else {
-          // eski ilanlar için fallback
-          setWearLevel(data.wearExists ? "medium" : "none");
-        }
-
-        setAccessories(accessoriesValueFromLabel(data.accessories || ""));
+        setCondition((data.conditionKey as any) || "");
         setDescription(data.description || "");
 
-        // Images
+        setCategoryId(resolvedCategoryId);
+        setSubCategoryId(resolvedSubCategoryId);
+
+        const rawAttrs = { ...(data.attributes || {}) } as Record<string, any>;
+        for (const [legacy, modern] of Object.entries(boardgameSchemaAliases)) {
+          if (rawAttrs[modern] == null && rawAttrs[legacy] != null) {
+            rawAttrs[modern] = rawAttrs[legacy];
+          }
+        }
+        setAttributes(rawAttrs);
+
         setExistingUrls(Array.isArray(data.imageUrls) ? data.imageUrls : []);
         setRemovedUrls(new Set());
         setNewFiles([]);
 
-        // Dirty baseline
         setTimeout(() => {
           initialSnapshotRef.current = JSON.stringify({
             title: data.title || "",
             price: String(data.price ?? ""),
-            categoryId: data.categoryId || "",
-            subCategoryId: data.subCategoryId || "",
-            productionYear: (data.productionYear as any) || "",
-            gender: data.gender || "",
-            serialNumber: data.serialNumber || "",
-            movementType: data.movementType || "",
-            caseType: data.caseType || "",
-            diameterMm:
-              data.diameterMm === null || data.diameterMm === undefined
-                ? ""
-                : String(data.diameterMm),
-            dialColor: data.dialColor || "",
-            braceletMaterial: data.braceletMaterial || "",
-            braceletColor: data.braceletColor || "",
-            wearLevel: wearValueFromLabel
-              ? wearValueFromLabel
-              : data.wearExists
-              ? "medium"
-              : "none",
-            accessories: accessoriesValueFromLabel(data.accessories || ""),
+            condition: data.conditionKey || "",
             description: data.description || "",
+            categoryId: resolvedCategoryId,
+            subCategoryId: resolvedSubCategoryId,
+            attributes: rawAttrs,
             remainingExistingUrls: Array.isArray(data.imageUrls)
               ? data.imageUrls
               : [],
@@ -644,11 +867,8 @@ export default function EditListingPage() {
     if (!files) return;
 
     const picked = Array.from(files);
-
-    // Max 5 total kuralı
     const allowedLeft = maxNewFilesAllowed - newFiles.length;
     const slice = picked.slice(0, Math.max(0, allowedLeft));
-
     setNewFiles((prev) => [...prev, ...slice]);
   };
 
@@ -689,8 +909,7 @@ export default function EditListingPage() {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const safeName = sanitizeFileName(file.name);
-      const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${i}`;
-      const storagePath = `listings/${listingIdToUse}/${unique}-${safeName}`;
+      const storagePath = `listings/${listingIdToUse}/${Date.now()}-${i}-${safeName}`;
 
       const storageRef = ref(storage, storagePath);
       const task = uploadBytesResumable(storageRef, file);
@@ -700,10 +919,8 @@ export default function EditListingPage() {
           "state_changed",
           (snap) => {
             perFileTransferred[i] = snap.bytesTransferred;
-
             const transferredTotal = perFileTransferred.reduce((s, v) => s + v, 0);
             const pct = totalBytes > 0 ? (transferredTotal / totalBytes) * 100 : 0;
-
             setUploadProgress(Math.min(100, Math.round(pct)));
           },
           (err) => reject(err),
@@ -719,28 +936,92 @@ export default function EditListingPage() {
 
     setUploadProgress(100);
     setUploading(false);
-
     return urls;
+  };
+  /* ================= ATTRIBUTES SAVE ================= */
+
+  const buildAttributesForSave = () => {
+    const out: Record<string, any> = {};
+
+    const mergeExtra = (
+      keys: string[],
+      types: Record<string, "text" | "number" | "boolean" | "select">
+    ) => {
+      for (const key of keys) {
+        if (key in out) continue;
+        const raw = (attributes as any)[key];
+        if (raw == null || raw === "") continue;
+
+        const t = types[key] || "text";
+        if (t === "number") {
+          const n = Number(raw);
+          if (Number.isFinite(n)) out[key] = n;
+          continue;
+        }
+        if (t === "boolean") {
+          if (raw === true || raw === false) out[key] = raw;
+          continue;
+        }
+        out[key] = String(raw);
+      }
+    };
+
+    for (const [k, v] of Object.entries(attributes || {})) {
+      if (v == null || v === "") continue;
+      out[k] = v;
+    }
+
+    if (isBoardGameCategory) {
+      mergeExtra(boardgameAttrKeys, {
+        gameName: "text",
+        minPlayers: "number",
+        maxPlayers: "number",
+        minPlaytime: "number",
+        maxPlaytime: "number",
+        suggestedAge: "select",
+        language: "select",
+        completeContent: "boolean",
+        sleeved: "boolean",
+      });
+    }
+
+    if (isConsoleLike) {
+      mergeExtra(consoleExtraAttrKeys, {
+        consoleModel: "text",
+        storage: "select",
+        modded: "boolean",
+        box: "boolean",
+        controllerCount: "number",
+        accessories: "text",
+        purchaseYear: "number",
+        warrantyStatus: "select",
+        usageLevel: "select",
+        batteryHealth: "select",
+        screenCondition: "select",
+        stickDrift: "select",
+      });
+    }
+
+    for (const legacy of boardgameLegacyKeys) {
+      delete out[legacy];
+    }
+
+    return out;
   };
 
   /* ================= SUBMIT ================= */
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (!listingId || !listing) {
+    if (!listingId) {
       setError("İlan bulunamadı.");
       return;
     }
 
-    if (!authUid) {
-      setError("Giriş yapılmamış görünüyor.");
-      return;
-    }
-
     if (!gateAllowed) {
-      setError("İlanı güncellemek için önce profilini tamamlamalısın.");
+      setError("İlanı düzenlemek için önce profilini tamamlamalısın.");
       router.replace("/my?onboarding=1");
       return;
     }
@@ -750,141 +1031,138 @@ export default function EditListingPage() {
       return;
     }
 
-    // ✅ HER ŞEY ZORUNLU (EDIT)
     const cleanTitle = normalizeSpaces(title);
     const cleanPrice = price.trim();
-
-    const cleanProductionYear = productionYear.trim();
-    const cleanGender = normalizeSpaces(gender);
-    const cleanSerialNumber = normalizeSpaces(serialNumber);
-    const cleanMovementType = normalizeSpaces(movementType);
-
-    const cleanCaseType = normalizeSpaces(caseType);
-    const cleanDiameter = diameterMm.trim();
-    const cleanDialColor = normalizeSpaces(dialColor);
-
-    const cleanBraceletMaterial = normalizeSpaces(braceletMaterial);
-    const cleanBraceletColor = normalizeSpaces(braceletColor);
-
-    const cleanAccessories = accessories.trim();
     const cleanDescription = normalizeSpaces(description);
 
-    if (!cleanTitle) return setError("İlan başlığı zorunlu.");
-    if (cleanTitle.length > 120) return setError("Başlık en fazla 120 karakter olmalı.");
-
-    if (!cleanPrice) return setError("Fiyat zorunlu.");
-    const priceNumber = Number(cleanPrice);
-    if (!Number.isFinite(priceNumber) || priceNumber < 0) {
-      return setError("Fiyat geçersiz görünüyor.");
+    if (!categoryId) {
+      setError("Kategori seçmelisin.");
+      return;
+    }
+    if (!subCategoryId) {
+      setError("Alt kategori seçmelisin.");
+      return;
+    }
+    if (!cleanTitle) {
+      setError("İlan başlığı zorunlu.");
+      return;
+    }
+    if (!cleanPrice) {
+      setError("Fiyat zorunlu.");
+      return;
+    }
+    if (!condition) {
+      setError("Ürün durumu zorunlu.");
+      return;
+    }
+    if (!cleanDescription) {
+      setError("Açıklama zorunlu.");
+      return;
     }
 
-    if (!cleanProductionYear) return setError("Üretim yılı zorunlu.");
-    if (!cleanGender) return setError("Cinsiyet zorunlu.");
-    if (!cleanSerialNumber) return setError("Seri numarası zorunlu.");
-
-    if (!wearLevel) return setError("Aşınma seviyesi zorunlu.");
-    if (!cleanAccessories) return setError("Aksesuar durumu zorunlu.");
-    if (!cleanDescription) return setError("Açıklama zorunlu.");
-
-    const diameterNumber = cleanDiameter
-      ? Number(cleanDiameter)
-      : null;
-    if (cleanDiameter && !Number.isFinite(diameterNumber)) {
-      return setError("Çap değeri geçersiz görünüyor.");
-    }
-
-    // ✅ Fotoğraf zorunlu: toplam 1..5 olmalı
     if (totalAfter === 0) {
-      return setError("En az 1 fotoğraf kalmalı. Hepsini sildiysen yeni foto ekle.");
+      setError("En az 1 fotoğraf kalmalı.");
+      return;
     }
     if (totalAfter > 5) {
-      return setError("En fazla 5 fotoğraf olabilir.");
+      setError("En fazla 5 fotoğraf olabilir.");
+      return;
+    }
+
+    const priceNumber = Number(cleanPrice);
+    if (!Number.isFinite(priceNumber) || priceNumber < 0) {
+      setError("Fiyat geçersiz görünüyor.");
+      return;
     }
 
     const fileError = validateFiles(newFiles);
-    if (fileError) return setError(fileError);
+    if (fileError) {
+      setError(fileError);
+      return;
+    }
 
-    // Rules uyumu: categoryId/subCategoryId kilitli
-    const finalCategoryId = listing.categoryId;
-    const finalCategoryName = listing.categoryName;
-    const finalSubCategoryId = listing.subCategoryId;
-    const finalSubCategoryName = listing.subCategoryName;
+    if (isBoardGameCategory) {
+      if (!attributes.minPlayers || !attributes.maxPlayers) {
+        setError("Kutu oyunu için oyuncu sayısı zorunlu.");
+        return;
+      }
+      if (attributes.completeContent === "" || attributes.completeContent == null) {
+        setError("Kutu oyunu için içerik durumu zorunlu.");
+        return;
+      }
+    }
+
+    if (isConsoleLike && consoleFieldVisibility?.consoleModel) {
+      if (!attributes.consoleModel) {
+        setError("Konsol modelini seçmelisin.");
+        return;
+      }
+    }
 
     try {
       setSaving(true);
 
-      // 1) Storage: silinecekler
-      const removed = existingUrls.filter((u) => removedUrls.has(u));
-      await deleteRemovedFromStorage(removed);
+      const attributesForSave = buildAttributesForSave();
 
-      // 2) Storage: yenileri upload
-      const uploadedUrls = await uploadNewFilesWithProgress(listingId, newFiles);
-
-      // 3) Firestore: imageUrls final
-      const finalUrls = [...remainingExistingUrls, ...uploadedUrls];
-
-      // emniyet
-      const safeFinalUrls = finalUrls.slice(0, 5);
-
-      // 4) Firestore update
       await updateDoc(doc(db, "listings", listingId), {
         title: cleanTitle,
         description: cleanDescription,
         price: priceNumber,
-
-        categoryId: finalCategoryId,
-        categoryName: finalCategoryName,
-        subCategoryId: finalSubCategoryId,
-        subCategoryName: finalSubCategoryName,
-
-        productionYear: cleanProductionYear,
-        gender: cleanGender,
-        serialNumber: cleanSerialNumber,
-        movementType: cleanMovementType,
-
-        caseType: cleanCaseType,
-        diameterMm: diameterNumber,
-        dialColor: cleanDialColor,
-
-        braceletMaterial: cleanBraceletMaterial,
-        braceletColor: cleanBraceletColor,
-
-        // ✅ wear level (label) + wearExists
-        wearLevel: wearLevelLabel(wearLevel),
-        wearExists: wearLevel !== "none",
-
-        accessories: accessoriesLabel(cleanAccessories),
-
-        imageUrls: safeFinalUrls,
-
+        categoryId,
+        categoryName:
+          categories.find((c) => c.id === categoryId)?.name ||
+          listing?.categoryName ||
+          listing?.brandName ||
+          "",
+        subCategoryId,
+        subCategoryName:
+          subCategories.find((s) => s.id === subCategoryId)?.name ||
+          listing?.subCategoryName ||
+          listing?.modelName ||
+          "",
+        brandId: categoryId,
+        brandName:
+          categories.find((c) => c.id === categoryId)?.name ||
+          listing?.categoryName ||
+          listing?.brandName ||
+          "",
+        modelId: subCategoryId,
+        modelName:
+          subCategories.find((s) => s.id === subCategoryId)?.name ||
+          listing?.subCategoryName ||
+          listing?.modelName ||
+          "",
+        conditionKey: condition,
+        conditionLabel: conditionLabel(condition as any),
+        attributes: attributesForSave,
         updatedAt: serverTimestamp(),
       });
 
-      router.push(buildListingPath(listingId, title));
+      const newUrls = await uploadNewFilesWithProgress(listingId, newFiles);
+      const finalUrls = [...remainingExistingUrls, ...newUrls];
+
+      await updateDoc(doc(db, "listings", listingId), {
+        imageUrls: finalUrls,
+        updatedAt: serverTimestamp(),
+      });
+
+      const removedList = Array.from(removedUrls);
+      await deleteRemovedFromStorage(removedList);
+
+      router.push(buildListingPath(listingId, cleanTitle));
     } catch (err: any) {
-      devError("Listing update error", err);
-
-      const code = err?.code || "";
-      if (code === "permission-denied") {
-        setError(
-          "Yetki hatası: Profil tamamlanmamış olabilir veya bu ilan senin olmayabilir. /my sayfasına yönlendiriliyorsun."
-        );
-        router.replace("/my?onboarding=1");
-      } else {
-        setError(getFriendlyErrorMessage(err, "Kaydederken hata oluştu."));
-      }
-
+      devError("Listing update error:", err);
+      setError(getFriendlyErrorMessage(err, "İlan güncellenirken hata oluştu."));
       setUploading(false);
     } finally {
       setSaving(false);
     }
   };
 
-  /* ================= UI STATES ================= */
-
+  /* ================= UI ================= */
   if (gateChecking) {
     return (
-      <div className="min-h-screen bg-gray-100 px-4 py-10 flex items-center justify-center">
+      <div className="min-h-screen bg-[#f7f4ef] px-4 py-10 flex items-center justify-center">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 text-center">
           <div className="text-lg font-semibold">Kontrol ediliyor...</div>
           <div className="text-sm text-gray-600 mt-2">
@@ -897,7 +1175,7 @@ export default function EditListingPage() {
 
   if (!gateAllowed) {
     return (
-      <div className="min-h-screen bg-gray-100 px-4 py-10 flex items-center justify-center">
+      <div className="min-h-screen bg-[#f7f4ef] px-4 py-10 flex items-center justify-center">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 text-center">
           <div className="text-lg font-semibold">
             Profilini tamamlaman gerekiyor
@@ -932,69 +1210,64 @@ export default function EditListingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f7f4ef] px-4 py-10">
-        <div className="max-w-5xl mx-auto space-y-6 animate-pulse">
-          <div className="bg-white/90 rounded-3xl border border-slate-200/70 shadow-sm p-6">
-            <div className="h-6 w-56 bg-slate-200 rounded mb-3" />
-            <div className="h-4 w-72 bg-slate-200 rounded" />
-          </div>
-          <div className="bg-white/90 rounded-3xl border border-slate-200/70 shadow-sm p-6 space-y-4">
-            <div className="h-10 w-full bg-slate-200 rounded" />
-            <div className="h-10 w-2/3 bg-slate-200 rounded" />
-            <div className="h-32 w-full bg-slate-200 rounded" />
-          </div>
-        </div>
+      <div className="min-h-screen bg-[#f7f4ef] px-4 py-10 flex items-center justify-center">
+        <div className="text-sm text-[#5a4330]">Yükleniyor...</div>
       </div>
     );
   }
 
   if (!listing) {
     return (
-      <div className="p-8 text-center">
-        <div className="text-red-600 font-medium mb-3">
-          {error || "İlan bulunamadı."}
+      <div className="min-h-screen bg-[#f7f4ef] px-4 py-10 flex items-center justify-center">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 text-center">
+          <div className="text-lg font-semibold">İlan bulunamadı</div>
+          <button
+            onClick={() => router.push("/")}
+            className="mt-3 text-blue-600 underline"
+          >
+            Ana sayfaya dön
+          </button>
         </div>
-        <button
-          onClick={() => router.push("/")}
-          className="text-blue-600 underline"
-        >
-          Ana sayfaya dön
-        </button>
       </div>
     );
   }
 
   if (!canEdit) {
     return (
-      <div className="p-8 text-center">
-        <div className="text-red-600 font-medium mb-3">
-          Bu ilanı düzenleme yetkin yok.
+      <div className="min-h-screen bg-[#f7f4ef] px-4 py-10 flex items-center justify-center">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 text-center">
+          <div className="text-lg font-semibold">Yetkisiz</div>
+          <div className="text-sm text-gray-600 mt-2">
+            Bu ilanı düzenleme yetkin yok.
+          </div>
+          <button
+            onClick={() =>
+              router.push(buildListingPath(listingId, listing.title || ""))
+            }
+            className="mt-4 text-blue-600 underline"
+          >
+            İlana geri dön
+          </button>
         </div>
-        <button
-          onClick={() => router.push("/")}
-          className="text-blue-600 underline"
-        >
-          Ana sayfaya dön
-        </button>
       </div>
     );
   }
 
-  /* ================= UI ================= */
-
-  const disableCategorySubCategoryEdit = true;
+  const headerCategory = listing.categoryName || listing.brandName || "";
+  const headerSubCategory = listing.subCategoryName || listing.modelName || "";
 
   return (
-    <div className="min-h-screen bg-gray-100 px-4 py-10">
-      <div className="w-full max-w-4xl mx-auto bg-white rounded-2xl shadow-lg p-8 space-y-6">
+    <div className="min-h-screen bg-[#f7f4ef] px-4 py-10">
+      <div className="w-full max-w-5xl mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">İlanı Düzenle</h1>
-            <div className="text-sm text-gray-600 mt-1">
-              {listing.categoryName} / {listing.subCategoryName}
+            <h1 className="text-2xl font-bold text-[#3f2a1a]">İlanı Düzenle</h1>
+            <div className="text-sm text-[#6b4b33] mt-1">
+              {headerCategory}
+              {headerSubCategory ? ` / ${headerSubCategory}` : ""}
             </div>
-            <div className="text-xs text-gray-400 mt-1">
-              Bu sayfada tüm alanlar zorunludur. Eksik alan varsa kaydedilmez.
+            <div className="text-xs text-[#8a6a4f] mt-1">
+              Zorunlu alanlar dolmadan ilan güncellenmez.
             </div>
           </div>
 
@@ -1007,7 +1280,7 @@ export default function EditListingPage() {
               const ok = confirm("Değişiklikleri kaydetmeden çıkmak istiyor musun?");
               if (ok) router.push(buildListingPath(listingId, title));
             }}
-            className="text-sm underline text-gray-600"
+            className="text-sm underline text-[#6b4b33]"
             disabled={saving || uploading}
           >
             İlana geri dön →
@@ -1020,335 +1293,607 @@ export default function EditListingPage() {
           </div>
         )}
 
-        {disableCategorySubCategoryEdit && (
-          <div className="text-sm bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-lg">
-            Kategori / alt kategori değişimi şu an kapalı. (Güvenlik kuralları categoryId/subCategoryId
-            değişikliğine izin vermiyor.)
-          </div>
-        )}
-
-        <form onSubmit={handleSave} className="space-y-8">
-          {/* ================= BRAND & MODEL ================= */}
-          <div className="border rounded-2xl p-5 space-y-4">
-            <div className="font-semibold text-lg">Kategori & Alt Kategori</div>
+        <form onSubmit={handleSave} className="space-y-6">
+          {/* ================= CATEGORY ================= */}
+          <div className={`${sectionCardClass} space-y-4`}>
+            <div className={sectionTitleClass}>Kategori</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <div className="text-sm font-semibold">
+                <div className={labelClass}>
                   Kategori <span className="text-red-600">*</span>
                 </div>
                 <select
                   value={categoryId}
-                  onChange={(e) => {
-                    const bid = e.target.value;
-                    const b = categories.find((x) => x.id === bid);
-
-                    setCategoryId(bid);
-                    setCategoryName(b?.name || "");
-
-                    setSubCategoryId("");
-                    setSubCategoryName("");
-                  }}
-                  className="w-full border rounded-lg px-4 py-2 disabled:bg-gray-100"
-                  disabled={disableCategorySubCategoryEdit || saving || uploading}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className={selectClass}
+                  disabled
                 >
                   <option value="">Kategori seç</option>
-                  {categories.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
                     </option>
                   ))}
                 </select>
-
-                <div className="text-xs text-gray-500">
-                  Mevcut: <span className="font-semibold">{listing.categoryName}</span>
-                </div>
               </div>
 
               <div className="space-y-2">
-                <div className="text-sm font-semibold">
+                <div className={labelClass}>
                   Alt kategori <span className="text-red-600">*</span>
                 </div>
                 <select
                   value={subCategoryId}
-                  onChange={(e) => {
-                    const mid = e.target.value;
-                    const m = filteredSubCategories.find((x) => x.id === mid);
-                    setSubCategoryId(mid);
-                    setSubCategoryName(m?.name || "");
-                  }}
-                  className="w-full border rounded-lg px-4 py-2 disabled:bg-gray-100"
-                  disabled={
-                    disableCategorySubCategoryEdit || !categoryId || saving || uploading
-                  }
+                  onChange={(e) => setSubCategoryId(e.target.value)}
+                  className={selectClass}
+                  disabled
                 >
                   <option value="">Alt kategori seç</option>
-                  {filteredSubCategories.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
+                  {subCategories.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+          </div>
 
-                <div className="text-xs text-gray-500">
-                  Mevcut: <span className="font-semibold">{listing.subCategoryName}</span>
+          {/* ================= BOARD GAME ================= */}
+          {isBoardGameCategory && (
+            <div className={`${sectionCardClass} space-y-4`}>
+              <div className={sectionTitleClass}>Kutu Oyunu Bilgileri</div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Oyunun Resmi Adı</label>
+                  <input
+                    value={attributes.gameName || ""}
+                    onChange={(e) => setAttr("gameName", e.target.value)}
+                    className={inputClass}
+                    disabled={saving || uploading}
+                  />
+                </div>
+                <div>
+                  <div className={labelClass}>
+                    Oyuncu Sayısı <span className="text-red-600">*</span>
+                  </div>
+                  <select
+                    value={
+                      attributes.minPlayers && attributes.maxPlayers
+                        ? `${attributes.minPlayers}-${attributes.maxPlayers}`
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const [min, max] = e.target.value.split("-");
+                      setAttr("minPlayers", min || "");
+                      setAttr("maxPlayers", max || "");
+                    }}
+                    className={selectClass}
+                    disabled={saving || uploading}
+                  >
+                    <option value="">Seç</option>
+                    <option value="1-2">1-2</option>
+                    <option value="1-4">1-4</option>
+                    <option value="2-4">2-4</option>
+                    <option value="2-5">2-5</option>
+                    <option value="2-6">2-6</option>
+                    <option value="3-5">3-5</option>
+                    <option value="3-6">3-6</option>
+                    <option value="4-8">4-8</option>
+                    <option value="5-10">5-10</option>
+                    <option value="6-12">6-12</option>
+                  </select>
+                </div>
+                <div>
+                  <div className={labelClass}>Süre (dk)</div>
+                  <select
+                    value={
+                      attributes.minPlaytime && attributes.maxPlaytime
+                        ? `${attributes.minPlaytime}-${attributes.maxPlaytime}`
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const [min, max] = e.target.value.split("-");
+                      setAttr("minPlaytime", min || "");
+                      setAttr("maxPlaytime", max || "");
+                    }}
+                    className={selectClass}
+                    disabled={saving || uploading}
+                  >
+                    <option value="">Seç</option>
+                    <option value="5-15">5-15</option>
+                    <option value="15-30">15-30</option>
+                    <option value="30-45">30-45</option>
+                    <option value="45-60">45-60</option>
+                    <option value="60-90">60-90</option>
+                    <option value="90-120">90+</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>Yaş Önerisi</label>
+                  <select
+                    value={
+                      attributes.suggestedAge != null &&
+                      attributes.suggestedAge !== ""
+                        ? String(attributes.suggestedAge)
+                        : ""
+                    }
+                    onChange={(e) => setAttr("suggestedAge", e.target.value)}
+                    className={selectClass}
+                    disabled={saving || uploading}
+                  >
+                    <option value="">Seç</option>
+                    <option value="3">3+</option>
+                    <option value="7">7+</option>
+                    <option value="13">13+</option>
+                    <option value="18">18+</option>
+                  </select>
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* ================= BASIC ================= */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <div className="text-sm font-semibold">
-                İlan başlığı <span className="text-red-600">*</span>
-              </div>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full border rounded-lg px-4 py-2"
-                disabled={saving || uploading}
-                placeholder="İlan başlığı"
-                maxLength={120}
-                required
-              />
-              <div className="text-xs text-gray-500">
-                {normalizeSpaces(title).length}/120
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-semibold">
-                Satış fiyatı (TL) <span className="text-red-600">*</span>
-              </div>
-              <input
-                type="number"
-                value={price}
-                onChange={(e) => setPrice(formatMaybeInt(e.target.value))}
-                className="w-full border rounded-lg px-4 py-2"
-                disabled={saving || uploading}
-                placeholder="Satış fiyatı"
-                min={0}
-                required
-              />
-            </div>
-          </div>
-
-          {/* ================= WATCH INFO ================= */}
-          <div className="border rounded-2xl p-5 space-y-4">
-            <div className="font-semibold text-lg">Saat Bilgileri</div>
+          )}
+          {/* ================= LISTING DETAILS ================= */}
+          <div className={`${sectionCardClass} space-y-4`}>
+            <div className={sectionTitleClass}>İlan Detayları</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Üretim yılı <span className="text-red-600">*</span>
-                </div>
-                <select
-                  value={productionYear}
-                  onChange={(e) => setProductionYear(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
-                  disabled={saving || uploading}
-                  required
-                >
-                  <option value="">Seç</option>
-                  {yearOptions.map((y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Cinsiyet <span className="text-red-600">*</span>
-                </div>
-                <select
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
-                  disabled={saving || uploading}
-                  required
-                >
-                  <option value="">Seç</option>
-                  <option value="Erkek">Erkek</option>
-                  <option value="Kadın">Kadın</option>
-                  <option value="Unisex">Unisex</option>
-                  <option value="Diğer">Diğer</option>
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Seri numarası <span className="text-red-600">*</span>
+                <div className={labelClass}>
+                  İlan başlığı <span className="text-red-600">*</span>
                 </div>
                 <input
-                  value={serialNumber}
-                  onChange={(e) => setSerialNumber(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className={inputClass}
                   disabled={saving || uploading}
-                  placeholder="Seri numarası"
-                  required
+                  placeholder="Örn: Catan + Ek Paket / PS5 Kol / Pokémon kart"
+                  maxLength={120}
                 />
+                <div className={helperTextClass}>
+                  {normalizeSpaces(title).length}/120
+                </div>
               </div>
 
+              <div className="space-y-2">
+                <div className={labelClass}>
+                  Fiyat (TL) <span className="text-red-600">*</span>
+                </div>
+                <input
+                  type="number"
+                  value={price}
+                  onChange={(e) => setPrice(formatMaybeInt(e.target.value))}
+                  className={inputClass}
+                  disabled={saving || uploading}
+                  placeholder="Satış fiyatı"
+                  min={0}
+                />
+              </div>
             </div>
-          </div>
-
-          {/* ================= CONDITION ================= */}
-          <div className="border rounded-2xl p-5 space-y-4">
-            <div className="font-semibold text-lg">Durum</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* ✅ AŞINMA SEVİYESİ DROPDOWN */}
               <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Aşınma seviyesi <span className="text-red-600">*</span>
+                <div className={labelClass}>
+                  Durum <span className="text-red-600">*</span>
                 </div>
                 <select
-                  value={wearLevel}
-                  onChange={(e) => setWearLevel(e.target.value as any)}
-                  className="w-full border rounded-lg px-4 py-2"
+                  value={condition}
+                  onChange={(e) => setCondition(e.target.value as any)}
+                  className={selectClass}
                   disabled={saving || uploading}
-                  required
                 >
                   <option value="">Seç</option>
-                  {wearLevelOptions.map((x) => (
-                    <option key={x.value} value={x.value}>
-                      {x.label}
+                  {conditionOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
                     </option>
                   ))}
                 </select>
               </div>
-
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">
-                  Aksesuar durumu <span className="text-red-600">*</span>
-                </div>
-                <select
-                  value={accessories}
-                  onChange={(e) => setAccessories(e.target.value)}
-                  className="w-full border rounded-lg px-4 py-2"
-                  disabled={saving || uploading}
-                  required
-                >
-                  <option value="">Seç</option>
-                  <option value="both">Orijinal kutu ve orijinal belgeler</option>
-                  <option value="box">Orijinal kutu</option>
-                  <option value="papers">Orijinal belgeler</option>
-                  <option value="none">Başka aksesuar yok</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* ================= DESCRIPTION ================= */}
-          <div className="border rounded-2xl p-5 space-y-3">
-            <div className="font-semibold text-lg">
-              Açıklama <span className="text-red-600">*</span>
-            </div>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full border rounded-lg px-4 py-2 min-h-[140px]"
-              disabled={saving || uploading}
-              placeholder="Açıklama (zorunlu)"
-              required
-            />
-          </div>
-
-          {/* ================= IMAGES ================= */}
-          <div className="border rounded-2xl p-5 space-y-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="font-semibold text-lg">
-                  Fotoğraflar <span className="text-red-600">*</span>
-                </div>
-                <div className="text-sm text-gray-600">
-                  En az 1, en fazla 5 fotoğraf olmalı.
-                  <br />
-                  Şu an: {remainingExistingUrls.length} mevcut + {newFiles.length} yeni ={" "}
-                  <span className="font-semibold">{totalAfter}</span>
-                </div>
-              </div>
-
-              <div className="text-sm text-gray-500">
-                {maxNewFilesAllowed - newFiles.length <= 0
-                  ? "Yeni fotoğraf limiti doldu."
-                  : `Yeni ekleyebilirsin: ${maxNewFilesAllowed - newFiles.length}`}
-              </div>
             </div>
 
-            {/* Existing images */}
-            {existingUrls.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">Mevcut Fotoğraflar</div>
+            {isBoardGameCategory && (
+              <div className="space-y-3">
+                <div className={labelClass}>Kutu Oyunu İlan Bilgileri</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {existingUrls.map((url, idx) => {
-                    const isRemoved = removedUrls.has(url);
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <div className={labelClass}>Dil</div>
+                    <select
+                      value={attributes.language || ""}
+                      onChange={(e) => setAttr("language", e.target.value)}
+                      className={selectClass}
+                      disabled={saving || uploading}
+                    >
+                      <option value="">Seç</option>
+                      <option value="Türkçe">Türkçe</option>
+                      <option value="İngilizce">İngilizce</option>
+                      <option value="Almanca">Almanca</option>
+                      <option value="Fransızca">Fransızca</option>
+                      <option value="İtalyanca">İtalyanca</option>
+                      <option value="İspanyolca">İspanyolca</option>
+                      <option value="Diğer">Diğer</option>
+                    </select>
+                  </div>
 
-                    return (
-                      <div
-                        key={`${url}-${idx}`}
-                        className={`border rounded-xl overflow-hidden relative bg-white ${
-                          isRemoved ? "opacity-40" : ""
-                        }`}
-                      >
-                        <img
-                          src={url}
-                          alt={`existing-${idx}`}
-                          className="w-full h-40 object-cover"
-                          loading="lazy"
-                        />
+                  <div className="space-y-2">
+                    <div className={labelClass}>
+                      İçerik tam mı? <span className="text-red-600">*</span>
+                    </div>
+                    <select
+                      value={
+                        attributes.completeContent === true
+                          ? "true"
+                          : attributes.completeContent === false
+                            ? "false"
+                            : ""
+                      }
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setAttr("completeContent", v === "" ? "" : v === "true");
+                      }}
+                      className={selectClass}
+                      disabled={saving || uploading}
+                    >
+                      <option value="">Seç</option>
+                      <option value="true">Evet</option>
+                      <option value="false">Hayır</option>
+                    </select>
+                  </div>
 
-                        <div className="p-2 flex items-center justify-between gap-2">
-                          <div className="text-xs text-gray-500 truncate">
-                            Foto {idx + 1}
-                          </div>
+                  <div className="space-y-2">
+                    <div className={labelClass}>Sleeve kullanıldı mı?</div>
+                    <select
+                      value={
+                        attributes.sleeved === true
+                          ? "true"
+                          : attributes.sleeved === false
+                            ? "false"
+                            : ""
+                      }
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setAttr("sleeved", v === "" ? "" : v === "true");
+                      }}
+                      className={selectClass}
+                      disabled={saving || uploading}
+                    >
+                      <option value="">Seç</option>
+                      <option value="true">Evet</option>
+                      <option value="false">Hayır</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
 
-                          {!isRemoved ? (
-                            <button
-                              type="button"
-                              onClick={() => removeExistingImage(url)}
-                              className="text-xs text-red-600 underline"
-                              disabled={saving || uploading}
-                            >
-                              Sil
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => undoRemoveExistingImage(url)}
-                              className="text-xs text-blue-600 underline"
-                              disabled={saving || uploading}
-                            >
-                              Geri al
-                            </button>
-                          )}
-                        </div>
+            {isConsoleLike && (
+              <div className="space-y-4">
+                <div className={labelClass}>
+                  {isHandheldCategory
+                    ? "El Konsolu İlan Bilgileri"
+                    : "Konsol İlan Bilgileri"}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {consoleFieldVisibility?.consoleModel && (
+                    <div>
+                      <div className={labelClass}>
+                        Model / Sürüm <span className="text-red-600">*</span>
                       </div>
-                    );
-                  })}
+                      <select
+                        value={attributes.consoleModel || ""}
+                        onChange={(e) => setAttr("consoleModel", e.target.value)}
+                        className={selectClass}
+                        disabled={saving || uploading}
+                      >
+                        <option value="">Seç</option>
+                        {consoleModelOptions.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {consoleFieldVisibility?.storage && (
+                    <div>
+                      <div className={labelClass}>Depolama</div>
+                      <select
+                        value={attributes.storage || ""}
+                        onChange={(e) => setAttr("storage", e.target.value)}
+                        className={selectClass}
+                        disabled={saving || uploading}
+                      >
+                        <option value="">Seç</option>
+                        <option value="32GB">32GB</option>
+                        <option value="64GB">64GB</option>
+                        <option value="128GB">128GB</option>
+                        <option value="256GB">256GB</option>
+                        <option value="512GB">512GB</option>
+                        <option value="1TB">1TB</option>
+                        <option value="2TB">2TB</option>
+                        <option value="4TB">4TB</option>
+                        <option value="Yok / Belirsiz">Yok / Belirsiz</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {consoleFieldVisibility?.modded && (
+                    <div>
+                      <div className={labelClass}>Modlu mu?</div>
+                      <select
+                        value={
+                          attributes.modded === true
+                            ? "true"
+                            : attributes.modded === false
+                              ? "false"
+                              : ""
+                        }
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAttr("modded", v === "" ? "" : v === "true");
+                        }}
+                        className={selectClass}
+                        disabled={saving || uploading}
+                      >
+                        <option value="">Seç</option>
+                        <option value="true">Evet</option>
+                        <option value="false">Hayır</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {consoleFieldVisibility?.box && (
+                    <div>
+                      <div className={labelClass}>Kutu var mı?</div>
+                      <select
+                        value={
+                          attributes.box === true
+                            ? "true"
+                            : attributes.box === false
+                              ? "false"
+                              : ""
+                        }
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAttr("box", v === "" ? "" : v === "true");
+                        }}
+                        className={selectClass}
+                        disabled={saving || uploading}
+                      >
+                        <option value="">Seç</option>
+                        <option value="true">Evet</option>
+                        <option value="false">Hayır</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {consoleFieldVisibility?.controllerCount && (
+                    <div>
+                      <div className={labelClass}>Kumanda sayısı</div>
+                      <input
+                        value={attributes.controllerCount || ""}
+                        onChange={(e) =>
+                          setAttr("controllerCount", formatMaybeInt(e.target.value))
+                        }
+                        className={inputClass}
+                        disabled={saving || uploading}
+                        placeholder="Örn: 2"
+                      />
+                    </div>
+                  )}
+
+                  {consoleFieldVisibility?.accessories && (
+                    <div>
+                      <div className={labelClass}>Aksesuarlar</div>
+                      <input
+                        value={attributes.accessories || ""}
+                        onChange={(e) => setAttr("accessories", e.target.value)}
+                        className={inputClass}
+                        disabled={saving || uploading}
+                        placeholder="Örn: Dock, 2 oyun"
+                      />
+                    </div>
+                  )}
+
+                  {consoleFieldVisibility?.purchaseYear && (
+                    <div>
+                      <div className={labelClass}>Satın alma yılı</div>
+                      <input
+                        value={attributes.purchaseYear || ""}
+                        onChange={(e) =>
+                          setAttr("purchaseYear", formatMaybeInt(e.target.value))
+                        }
+                        className={inputClass}
+                        disabled={saving || uploading}
+                        placeholder="Örn: 2022"
+                      />
+                    </div>
+                  )}
+
+                  {consoleFieldVisibility?.warrantyStatus && (
+                    <div>
+                      <div className={labelClass}>Garanti durumu</div>
+                      <select
+                        value={attributes.warrantyStatus || ""}
+                        onChange={(e) => setAttr("warrantyStatus", e.target.value)}
+                        className={selectClass}
+                        disabled={saving || uploading}
+                      >
+                        <option value="">Seç</option>
+                        <option value="Devam ediyor">Devam ediyor</option>
+                        <option value="Bitti">Bitti</option>
+                        <option value="Belirsiz">Belirsiz</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {consoleFieldVisibility?.usageLevel && (
+                    <div>
+                      <div className={labelClass}>Kullanım yoğunluğu</div>
+                      <select
+                        value={attributes.usageLevel || ""}
+                        onChange={(e) => setAttr("usageLevel", e.target.value)}
+                        className={selectClass}
+                        disabled={saving || uploading}
+                      >
+                        <option value="">Seç</option>
+                        <option value="Az">Az</option>
+                        <option value="Orta">Orta</option>
+                        <option value="Yoğun">Yoğun</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
 
-                {removedUrls.size > 0 && (
-                  <div className="text-xs text-gray-500">
-                    Silinenler kaydettiğinde Storage’dan da kaldırılacak.
+                {(consoleFieldVisibility?.batteryHealth ||
+                  consoleFieldVisibility?.screenCondition ||
+                  consoleFieldVisibility?.stickDrift) && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {consoleFieldVisibility?.batteryHealth && (
+                      <div>
+                        <div className={labelClass}>Pil sağlığı</div>
+                        <select
+                          value={attributes.batteryHealth || ""}
+                          onChange={(e) => setAttr("batteryHealth", e.target.value)}
+                          className={selectClass}
+                          disabled={saving || uploading}
+                        >
+                          <option value="">Seç</option>
+                          <option value="Çok iyi">Çok iyi</option>
+                          <option value="İyi">İyi</option>
+                          <option value="Orta">Orta</option>
+                          <option value="Kötü">Kötü</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {consoleFieldVisibility?.screenCondition && (
+                      <div>
+                        <div className={labelClass}>Ekran durumu</div>
+                        <select
+                          value={attributes.screenCondition || ""}
+                          onChange={(e) => setAttr("screenCondition", e.target.value)}
+                          className={selectClass}
+                          disabled={saving || uploading}
+                        >
+                          <option value="">Seç</option>
+                          <option value="Çok iyi">Çok iyi</option>
+                          <option value="İyi">İyi</option>
+                          <option value="Orta">Orta</option>
+                          <option value="Kötü">Kötü</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {consoleFieldVisibility?.stickDrift && (
+                      <div>
+                        <div className={labelClass}>Stick drift var mı?</div>
+                        <select
+                          value={attributes.stickDrift || ""}
+                          onChange={(e) => setAttr("stickDrift", e.target.value)}
+                          className={selectClass}
+                          disabled={saving || uploading}
+                        >
+                          <option value="">Seç</option>
+                          <option value="Yok">Yok</option>
+                          <option value="Var">Var</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
 
-            {/* New files */}
             <div className="space-y-2">
-              <div className="text-sm font-semibold">Yeni Fotoğraf Ekle</div>
+              <div className={labelClass}>
+                Açıklama <span className="text-red-600">*</span>
+              </div>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className={textareaClass}
+                disabled={saving || uploading}
+                placeholder="Açıklama (zorunlu)"
+              />
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className={labelClass}>
+                    Fotoğraflar <span className="text-red-600">*</span>
+                  </div>
+                  <div className={mutedTextClass}>
+                    En az 1, en fazla 5 fotoğraf. (Şu an: {totalAfter})
+                  </div>
+                </div>
+
+                <div className={helperTextClass}>
+                  {totalAfter >= 5 ? "Limit doldu." : `Kalan: ${5 - totalAfter}`}
+                </div>
+              </div>
+
+              {existingUrls.length > 0 && (
+                <div className="space-y-2">
+                  <div className={helperTextClass}>Mevcut fotoğraflar:</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {existingUrls.map((url, idx) => {
+                      const isRemoved = removedUrls.has(url);
+                      return (
+                        <div
+                          key={`${url}-${idx}`}
+                          className={`border border-[#ead8c5] rounded-2xl overflow-hidden bg-white/70 ${
+                            isRemoved ? "opacity-40" : ""
+                          }`}
+                        >
+                          <Image
+                            src={url}
+                            alt={`existing-${idx}`}
+                            width={400}
+                            height={160}
+                            sizes="(min-width: 768px) 33vw, 100vw"
+                            className="w-full h-40 object-cover"
+                          />
+                          <div className="p-2 flex items-center justify-between gap-2">
+                            <div className="text-xs text-[#8a6a4f] truncate">
+                              Foto {idx + 1}
+                            </div>
+                            {!isRemoved ? (
+                              <button
+                                type="button"
+                                onClick={() => removeExistingImage(url)}
+                                className="text-xs text-rose-700 underline"
+                                disabled={saving || uploading}
+                              >
+                                Sil
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => undoRemoveExistingImage(url)}
+                                className="text-xs text-blue-700 underline"
+                                disabled={saving || uploading}
+                              >
+                                Geri al
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <label
-                className={`block rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition ${
+                className={`block rounded-2xl border-2 border-dashed border-[#ead8c5] bg-white/70 p-6 text-center cursor-pointer transition ${
                   saving || uploading || maxNewFilesAllowed - newFiles.length <= 0
                     ? "opacity-50 cursor-not-allowed"
-                    : "hover:bg-gray-50"
+                    : "hover:bg-[#fff7ed]"
                 }`}
               >
                 <input
@@ -1362,30 +1907,27 @@ export default function EditListingPage() {
                   }
                 />
 
-                <div className="text-base font-semibold text-gray-800">
-                  📸 Fotoğraf Seç (Yeni)
+                <div className="text-base font-semibold text-[#3f2a1a]">
+                  📸 Yeni Fotoğraf Seç
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="text-xs text-[#8a6a4f] mt-1">
                   JPG / PNG / WEBP — max 8MB — Kaydet’e basınca yüklenecek
                 </div>
-                <div className="text-xs text-gray-500 mt-1">Toplam limit: 5 fotoğraf</div>
               </label>
 
               {newFiles.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-xs text-gray-500">
-                    Seçilen yeni dosyalar (Kaydet deyince yüklenecek):
-                  </div>
+                  <div className={helperTextClass}>Seçilen yeni fotoğraflar:</div>
 
                   <div className="space-y-2">
                     {newFiles.map((f, i) => (
                       <div
                         key={`${f.name}-${i}`}
-                        className="flex items-center justify-between gap-3 border rounded-lg px-3 py-2"
+                        className="flex items-center justify-between gap-3 border border-[#ead8c5] rounded-xl px-3 py-2 bg-white/70"
                       >
-                        <div className="text-sm truncate">
+                        <div className="text-sm truncate text-[#3f2a1a]">
                           {f.name}{" "}
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-[#8a6a4f]">
                             ({Math.round(f.size / 1024)} KB)
                           </span>
                         </div>
@@ -1393,7 +1935,7 @@ export default function EditListingPage() {
                         <button
                           type="button"
                           onClick={() => removeNewFileAt(i)}
-                          className="text-xs text-red-600 underline"
+                          className="text-xs text-rose-700 underline"
                           disabled={saving || uploading}
                         >
                           Kaldır
@@ -1403,25 +1945,20 @@ export default function EditListingPage() {
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* Progress */}
-            {uploading && (
-              <div className="space-y-2">
-                <div className="text-sm text-gray-700">
-                  Resimler yükleniyor: %{uploadProgress}
+              {uploading && (
+                <div className="space-y-2">
+                  <div className="text-sm text-[#5a4330]">
+                    Resimler yükleniyor: %{uploadProgress}
+                  </div>
+                  <div className="w-full h-3 bg-[#f1e5d6] rounded-full">
+                    <div
+                      className="h-3 bg-[#1f2a24] rounded-full"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full h-3 bg-gray-200 rounded">
-                  <div
-                    className="h-3 bg-green-600 rounded"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="text-xs text-gray-500">
-              Not: Bu sayfada fotoğraf da zorunlu. Minimum 1 fotoğraf kalmak zorunda.
+              )}
             </div>
           </div>
 
@@ -1430,7 +1967,7 @@ export default function EditListingPage() {
             <button
               type="submit"
               disabled={saving || uploading}
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-xl disabled:opacity-50"
+              className="flex-1 bg-[#1f2a24] hover:bg-[#2b3b32] text-white font-semibold py-3 rounded-full disabled:opacity-50"
             >
               {uploading
                 ? `Yükleniyor... %${uploadProgress}`
@@ -1450,14 +1987,14 @@ export default function EditListingPage() {
                 if (ok) router.push(buildListingPath(listingId, title));
               }}
               disabled={saving || uploading}
-              className="flex-1 border rounded-xl py-3 font-semibold hover:bg-gray-50 disabled:opacity-50"
+              className="flex-1 border rounded-full py-3 font-semibold hover:bg-gray-50 disabled:opacity-50"
             >
               Vazgeç
             </button>
           </div>
 
-          <div className="text-xs text-gray-500">
-            Not: Foto silme işlemi kaydettiğinde Storage’dan da silinir. Yeni fotoğraflar
+          <div className={helperTextClass}>
+            Not: Fotoğraf silme işlemi kaydettiğinde Storage’dan da silinir. Yeni fotoğraflar
             kaydettiğinde yüklenir.
           </div>
         </form>

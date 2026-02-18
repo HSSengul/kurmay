@@ -1,17 +1,13 @@
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
-import AdminGate from "../../app/components/admin/AdminGate";
-import AdminShell from "../../app/components/admin/AdminShell";
+﻿import type { Metadata } from "next";
 
-export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  robots: { index: false, follow: false, nocache: true },
+  robots: { index: false, follow: false },
 };
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
-  return (
-    <AdminGate>
-      <AdminShell>{children}</AdminShell>
-    </AdminGate>
-  );
+export default function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return children;
 }

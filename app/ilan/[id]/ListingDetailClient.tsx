@@ -76,6 +76,15 @@ type PublicProfile = {
   phone?: string;
   email?: string;
   address?: string;
+  showPhone?: boolean;
+  showAddress?: boolean;
+  showWebsiteInstagram?: boolean;
+};
+
+type PublicContact = {
+  phone?: string;
+  email?: string;
+  address?: string;
 };
 
 type ListingDetailClientProps = {
@@ -259,6 +268,8 @@ export default function ListingDetailClient({
 
   const [listing, setListing] = useState<Listing | null>(initialListing);
   const [seller, setSeller] = useState<PublicProfile | null>(initialSeller);
+  const [publicContact, setPublicContact] = useState<PublicContact | null>(null);
+  const [publicContactLoading, setPublicContactLoading] = useState(false);
   const [similarListings, setSimilarListings] = useState<SimilarListing[]>([]);
   const [sellerOtherListings, setSellerOtherListings] = useState<SellerOtherListing[]>([]);
 
@@ -445,6 +456,41 @@ export default function ListingDetailClient({
     };
   }, [listingId]);
 
+  /* ================= PUBLIC CONTACTS (LOGGED-IN ONLY) ================= */
+
+  useEffect(() => {
+    if (!currentUserId || !listing?.ownerId) {
+      setPublicContact(null);
+      setPublicContactLoading(false);
+      return;
+    }
+
+    const ownerId = listing.ownerId;
+    let cancelled = false;
+
+    async function loadContact() {
+      setPublicContactLoading(true);
+      try {
+        const snap = await getDoc(doc(db, "publicContacts", ownerId));
+        if (cancelled) return;
+        setPublicContact(snap.exists() ? (snap.data() as PublicContact) : null);
+      } catch (e) {
+        if (!cancelled) {
+          devWarn("publicContacts load failed", e);
+          setPublicContact(null);
+        }
+      } finally {
+        if (!cancelled) setPublicContactLoading(false);
+      }
+    }
+
+    loadContact();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId, listing?.ownerId]);
+
   /* ================= COMPUTED ================= */
 
   const sellerDisplayName = useMemo(() => {
@@ -453,16 +499,37 @@ export default function ListingDetailClient({
     return dn || n || "Satıcı";
   }, [seller?.displayName, seller?.name]);
 
+  const showPhone = seller?.showPhone !== false;
+  const showAddress = seller?.showAddress !== false;
+  const showWebsite = seller?.showWebsiteInstagram !== false;
+
+  const contactPhone = useMemo(() => {
+    if (showPhone && seller?.phone) return seller.phone;
+    if (publicContact?.phone) return publicContact.phone;
+    return "";
+  }, [showPhone, seller?.phone, publicContact?.phone]);
+
+  const contactEmail = useMemo(() => {
+    if (seller?.email) return seller.email;
+    if (publicContact?.email) return publicContact.email;
+    return "";
+  }, [seller?.email, publicContact?.email]);
+
+  const contactAddress = useMemo(() => {
+    if (showAddress && seller?.address) return seller.address;
+    if (publicContact?.address) return publicContact.address;
+    return "";
+  }, [showAddress, seller?.address, publicContact?.address]);
+
   const waLink = useMemo(() => {
-    const phone = seller?.phone || "";
-    if (!phone) return "";
-    return buildWhatsAppLink(phone);
-  }, [seller?.phone]);
+    if (!contactPhone) return "";
+    return buildWhatsAppLink(contactPhone);
+  }, [contactPhone]);
 
   const websiteInstagramLink = useMemo(() => {
-    if (!seller?.websiteInstagram) return "";
+    if (!seller?.websiteInstagram || !showWebsite) return "";
     return normalizeWebsiteInstagramLink(seller.websiteInstagram);
-  }, [seller?.websiteInstagram]);
+  }, [seller?.websiteInstagram, showWebsite]);
 
   const hasImages = !!listing?.imageUrls && listing.imageUrls.length > 0;
 
@@ -664,7 +731,7 @@ export default function ListingDetailClient({
 
   return (
     <div className={pageWrapClass}>
-      <div className="max-w-[1440px] mx-auto px-3 sm:px-5 py-8 sm:py-10 space-y-8">
+      <div className="max-w-[1440px] mx-auto px-3 sm:px-5 pt-1 sm:pt-2 pb-7 sm:pb-9 space-y-5">
         {/* BREADCRUMB */}
         <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-[#7a634e]">
           <Link href="/" className="font-semibold text-[#6b4b33] hover:text-[#3f2a1a]">
@@ -694,31 +761,27 @@ export default function ListingDetailClient({
           {/* LEFT */}
           <div className="space-y-6">
             {/* TITLE */}
-            <div className={`${cardClass} p-6 sm:p-8`}>
+            <div className={`${cardClass} p-5 sm:p-6`}>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 space-y-3">
+                <div className="min-w-0 space-y-2">
                   <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#3f2a1a]">
                     {listing.title}
                   </h1>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`${chipBaseClass} border-[#ead8c5] bg-[#fff7ed] text-[#7a5a40]`}
-                    >
+                  <div className="flex items-center gap-2 text-xs sm:text-sm text-[#7a5a40] whitespace-nowrap overflow-x-auto">
+                    <span className="font-medium text-[#6b4b33]">
                       {listing.categoryName} / {listing.subCategoryName}
                     </span>
                     {(listing.conditionLabel || listing.conditionKey) && (
-                      <span
-                        className={`${chipBaseClass} border-[#cfe4d7] bg-[#eff7f0] text-[#2f5b3a]`}
-                      >
-                        {listing.conditionLabel || listing.conditionKey}
-                      </span>
+                      <>
+                        <span className="text-[#c3a58a]">•</span>
+                        <span>{listing.conditionLabel || listing.conditionKey}</span>
+                      </>
                     )}
                     {publishedAt && (
-                      <span
-                        className={`${chipBaseClass} border-[#ead8c5] bg-white text-[#7a5a40]`}
-                      >
-                        Yayın tarihi: {publishedAt}
-                      </span>
+                      <>
+                        <span className="text-[#c3a58a]">•</span>
+                        <span>Yayın tarihi: {publishedAt}</span>
+                      </>
                     )}
                   </div>
                 </div>
@@ -732,11 +795,11 @@ export default function ListingDetailClient({
             </div>
 
             {/* MEDIA + DETAILS */}
-            <div className={`${cardClass} p-6`}>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-4">
+            <div className={`${cardClass} p-4`}>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="space-y-3">
                   <div className={sectionTitleClass}>Fotoğraflar</div>
-                  <div className="relative rounded-2xl overflow-hidden bg-[#f3e9db] aspect-[4/3]">
+                  <div className="relative rounded-2xl overflow-hidden bg-[#f3e9db] aspect-[16/10]">
                     {mainImage ? (
                       <Image
                         src={mainImage}
@@ -755,7 +818,7 @@ export default function ListingDetailClient({
                   </div>
 
                   {hasImages && (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
                       {listing.imageUrls!.map((url, i) => (
                         <button
                           key={`${url}-${i}`}
@@ -795,48 +858,48 @@ export default function ListingDetailClient({
                   )}
                 </div>
 
-                <div className="space-y-6">
-                  <div className="space-y-4">
+                <div className="space-y-4">
+                  <div className="space-y-3">
                     <div className={sectionTitleClass}>İlan Detayları</div>
                     {isBoardGameCategory ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3 md:col-span-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 md:col-span-2">
                           <div className="text-xs text-[#8a6a4f]">İlan başlığı</div>
                           <div className="text-sm font-semibold text-[#3f2a1a]">
                             {listing.title}
                           </div>
                         </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
                           <div className="text-xs text-[#8a6a4f]">Fiyat (TL)</div>
                           <div className="text-sm font-semibold text-[#3f2a1a]">
                             {fmtTL(Number(listing.price ?? 0))}
                           </div>
                         </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
                           <div className="text-xs text-[#8a6a4f]">Durum</div>
                           <div className="text-sm font-semibold text-[#3f2a1a]">
                             {listing.conditionLabel || listing.conditionKey || "Belirtilmemiş"}
                           </div>
                         </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
                           <div className="text-xs text-[#8a6a4f]">Dil</div>
                           <div className="text-sm font-semibold text-[#3f2a1a]">
                             {boardGameDetails.language || "Belirtilmemiş"}
                           </div>
                         </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
                           <div className="text-xs text-[#8a6a4f]">İçerik tam mı?</div>
                           <div className="text-sm font-semibold text-[#3f2a1a]">
                             {boardGameDetails.completeContent || "Belirtilmemiş"}
                           </div>
                         </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3 md:col-span-2">
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 md:col-span-2">
                           <div className="text-xs text-[#8a6a4f]">Sleeve kullanıldı mı?</div>
                           <div className="text-sm font-semibold text-[#3f2a1a]">
                             {boardGameDetails.sleeved || "Belirtilmemiş"}
                           </div>
                         </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3 md:col-span-2">
+                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 md:col-span-2">
                           <div className="text-xs text-[#8a6a4f]">Açıklama</div>
                           <div className="text-sm text-[#5a4330] whitespace-pre-line">
                             {listing.description || "Satıcı açıklama eklememiş."}
@@ -926,7 +989,7 @@ export default function ListingDetailClient({
                     </div>
                   )}
 
-                  {currentUserId && seller?.phone && waLink && (
+                  {currentUserId && contactPhone && waLink && (
                     <a
                       href={waLink}
                       target="_blank"
@@ -937,16 +1000,16 @@ export default function ListingDetailClient({
                     </a>
                   )}
 
-                  {currentUserId && seller?.email && (
+                  {currentUserId && contactEmail && (
                     <a
-                      href={`mailto:${seller.email}`}
+                      href={`mailto:${contactEmail}`}
                       className="w-full border border-[#ead8c5] hover:bg-[#fff7ed] text-[#3f2a1a] font-semibold py-2.5 rounded-2xl text-center"
                     >
                       E-posta gönder
                     </a>
                   )}
 
-                  {seller?.websiteInstagram && (
+                  {seller?.websiteInstagram && showWebsite && (
                     <a
                       href={websiteInstagramLink}
                       target="_blank"
@@ -969,11 +1032,13 @@ export default function ListingDetailClient({
               <div className="space-y-3 order-1 lg:order-2 lg:justify-self-center">
                 <div className="flex items-center gap-4">
                   {seller?.avatarUrl ? (
-                    <img
+                    <Image
                       src={seller.avatarUrl}
                       alt="avatar"
+                      width={48}
+                      height={48}
+                      sizes="48px"
                       className="w-12 h-12 rounded-full object-cover border border-[#ead8c5]"
-                      loading="lazy"
                     />
                   ) : (
                     <div className="w-12 h-12 rounded-full bg-[#fff7ed] border border-[#ead8c5] flex items-center justify-center text-[#9b7b5a] text-sm">
@@ -1004,6 +1069,10 @@ export default function ListingDetailClient({
                     </div>
                   ) : (
                     <>
+                      <div className="text-[10px] uppercase tracking-[0.2em] text-[#9b7b5a]">
+                        Profilde paylaşılan
+                      </div>
+
                       {seller?.email ? (
                         <div className="text-[#5a4330]">
                           <span className="font-semibold">E-posta:</span>{" "}
@@ -1012,25 +1081,94 @@ export default function ListingDetailClient({
                           </a>
                         </div>
                       ) : (
-                        <div className="text-[#9b7b5a]">E-posta bilgisi yok.</div>
+                        <div className="text-[#9b7b5a]">E-posta paylaşılmadı.</div>
                       )}
 
-                      {seller?.phone ? (
-                        <div className="text-[#5a4330]">
-                          <span className="font-semibold">Telefon:</span>{" "}
-                          <span className="underline">{seller.phone}</span>
-                        </div>
+                      {showWebsite ? (
+                        seller?.websiteInstagram ? (
+                          <div className="text-[#5a4330]">
+                            <span className="font-semibold">Website / Instagram:</span>{" "}
+                            <span className="underline">{seller.websiteInstagram}</span>
+                          </div>
+                        ) : (
+                          <div className="text-[#9b7b5a]">Website / Instagram paylaşılmadı.</div>
+                        )
                       ) : (
-                        <div className="text-[#9b7b5a]">Telefon bilgisi yok.</div>
+                        <div className="text-[#9b7b5a]">Website / Instagram gizli tutuluyor.</div>
                       )}
 
-                      {seller?.address ? (
-                        <div className="text-[#5a4330]">
-                          <span className="font-semibold">Adres:</span>{" "}
-                          <span className="whitespace-pre-line">{seller.address}</span>
-                        </div>
+                      {showPhone ? (
+                        seller?.phone ? (
+                          <div className="text-[#5a4330]">
+                            <span className="font-semibold">Telefon:</span>{" "}
+                            <span className="underline">{seller.phone}</span>
+                          </div>
+                        ) : (
+                          <div className="text-[#9b7b5a]">Telefon paylaşılmadı.</div>
+                        )
                       ) : (
-                        <div className="text-[#9b7b5a]">Adres bilgisi yok.</div>
+                        <div className="text-[#9b7b5a]">Telefon gizli tutuluyor.</div>
+                      )}
+
+                      {showAddress ? (
+                        seller?.address ? (
+                          <div className="text-[#5a4330]">
+                            <span className="font-semibold">Adres:</span>{" "}
+                            <span className="whitespace-pre-line">{seller.address}</span>
+                          </div>
+                        ) : (
+                          <div className="text-[#9b7b5a]">Adres paylaşılmadı.</div>
+                        )
+                      ) : (
+                        <div className="text-[#9b7b5a]">Adres gizli tutuluyor.</div>
+                      )}
+
+                      <div className="pt-2 text-[10px] uppercase tracking-[0.2em] text-[#9b7b5a]">
+                        İzinli iletişim (giriş yapanlara)
+                      </div>
+
+                      {publicContactLoading ? (
+                        <div className="text-[#9b7b5a]">Yükleniyor...</div>
+                      ) : publicContact ? (
+                        <>
+                          {publicContact.email ? (
+                            <div className="text-[#5a4330]">
+                              <span className="font-semibold">E-posta:</span>{" "}
+                              <a
+                                href={`mailto:${publicContact.email}`}
+                                className="underline"
+                              >
+                                {publicContact.email}
+                              </a>
+                            </div>
+                          ) : (
+                            <div className="text-[#9b7b5a]">E-posta paylaşılmadı.</div>
+                          )}
+
+                          {publicContact.phone ? (
+                            <div className="text-[#5a4330]">
+                              <span className="font-semibold">Telefon:</span>{" "}
+                              <span className="underline">{publicContact.phone}</span>
+                            </div>
+                          ) : (
+                            <div className="text-[#9b7b5a]">Telefon paylaşılmadı.</div>
+                          )}
+
+                          {publicContact.address ? (
+                            <div className="text-[#5a4330]">
+                              <span className="font-semibold">Adres:</span>{" "}
+                              <span className="whitespace-pre-line">
+                                {publicContact.address}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="text-[#9b7b5a]">Adres paylaşılmadı.</div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-[#9b7b5a]">
+                          Satıcı izinli iletişim bilgisi paylaşmadı.
+                        </div>
                       )}
                     </>
                   )}
@@ -1038,12 +1176,12 @@ export default function ListingDetailClient({
               </div>
 
               <div className="space-y-3 order-3">
-                {seller?.address && (
+                {contactAddress && (
                   <div className="overflow-hidden rounded-2xl border border-[#ead8c5] bg-white">
                     <iframe
                       title="Adres haritası"
                       src={`https://www.google.com/maps?q=${encodeURIComponent(
-                        seller.address
+                        contactAddress
                       )}&output=embed`}
                       className="w-full h-40"
                       loading="lazy"
@@ -1074,6 +1212,7 @@ export default function ListingDetailClient({
                     <Link
                       key={item.id}
                       href={buildListingPath(item.id, item.title)}
+                      prefetch={false}
                       className="flex items-center gap-3 rounded-2xl border border-[#ead8c5] bg-white/80 p-3 hover:bg-[#fff7ed] transition"
                     >
                       <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#f3e9db] border border-[#ead8c5] flex-shrink-0">

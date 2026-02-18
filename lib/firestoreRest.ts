@@ -25,6 +25,12 @@ const readEnvFallback = () => {
   if (envFallback) return envFallback;
   envFallback = {};
   if (typeof window !== "undefined") return envFallback;
+  if (
+    typeof (globalThis as any).EdgeRuntime !== "undefined" ||
+    process.env.NEXT_RUNTIME === "edge"
+  ) {
+    return envFallback;
+  }
   try {
     // Lazy-read .env.local if process.env is not populated in the server runtime
     // This is a local-dev convenience to keep SSR metadata working.
@@ -91,7 +97,17 @@ const withKey = (url: string) => {
 };
 
 const fetchJson = async (url: string, init?: RequestInit) => {
-  const res = await fetch(url, init);
+  const finalInit: RequestInit = { ...(init || {}) };
+  if (typeof window === "undefined") {
+    if (!(finalInit as any).next) {
+      (finalInit as any).next = { revalidate: 300 };
+    }
+    if (!finalInit.cache) {
+      finalInit.cache = "force-cache";
+    }
+  }
+
+  const res = await fetch(url, finalInit);
   if (!res.ok) {
     const text = await res.text();
     const err = new Error(`Firestore REST ${res.status}: ${text}`);
@@ -221,6 +237,48 @@ export async function runQueryByField<T = Record<string, any>>({
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+  })) as RunQueryResult[];
+
+  const docs = json
+    .map((row) => row.document)
+    .filter(Boolean) as FirestoreDoc[];
+
+  return docs.map((d) => decodeDoc(d)) as Array<T & { id: string }>;
+}
+
+export async function runCollectionQuery<T = Record<string, any>>({
+  collectionId,
+  orderByField = "createdAt",
+  direction = "DESCENDING",
+  limit = 24,
+  selectFields,
+}: {
+  collectionId: string;
+  orderByField?: string;
+  direction?: "ASCENDING" | "DESCENDING";
+  limit?: number;
+  selectFields?: string[];
+}): Promise<Array<T & { id: string }>> {
+  const base = getBaseUrl();
+  if (!base) return [];
+
+  const structuredQuery: any = {
+    from: [{ collectionId }],
+    orderBy: [{ field: { fieldPath: orderByField }, direction }],
+    limit,
+  };
+
+  if (Array.isArray(selectFields) && selectFields.length > 0) {
+    structuredQuery.select = {
+      fields: selectFields.map((fieldPath) => ({ fieldPath })),
+    };
+  }
+
+  const url = withKey(`${base}/documents:runQuery`);
+  const json = (await fetchJson(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ structuredQuery }),
   })) as RunQueryResult[];
 
   const docs = json

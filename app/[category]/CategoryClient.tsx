@@ -1198,6 +1198,7 @@ export default function CategoryClient({
                 <Link
                   key={l.id}
                   href={buildListingPath(l.id, l.title)}
+                  prefetch={false}
                   className="group block"
                 >
                   <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
@@ -1276,6 +1277,7 @@ export default function CategoryClient({
                   <Link
                     key={l.id}
                     href={buildListingPath(l.id, l.title)}
+                    prefetch={false}
                     className="block hover:bg-slate-50 transition"
                   >
                     <div className="p-4 sm:p-5 flex flex-col sm:flex-row gap-4">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import {
   addDoc,
   collection,
@@ -663,11 +664,13 @@ export default function AdminCategoriesPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-gray-400 cursor-move select-none">::</span>
                   {m.imageUrl ? (
-                    <img
+                    <Image
                       src={m.imageUrl}
                       alt={`${m.name} görsel`}
+                      width={64}
+                      height={40}
+                      sizes="64px"
                       className="h-10 w-16 rounded-md object-cover border"
-                      loading="lazy"
                     />
                   ) : (
                     <div className="h-10 w-16 rounded-md border border-dashed bg-gray-100 flex items-center justify-center text-[10px] text-gray-400">

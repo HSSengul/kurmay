@@ -47,6 +47,11 @@ type PublicProfile = {
   address?: string;
 };
 
+type PrivateProfile = {
+  phone?: string;
+  address?: string;
+};
+
 type FieldType = "text" | "number" | "select" | "boolean" | "multiselect";
 
 type SchemaField = {
@@ -574,9 +579,13 @@ export default function NewListingPage() {
         setGateChecking(true);
 
         const publicRef = doc(db, "publicProfiles", user.uid);
-        const snap = await getDoc(publicRef);
+        const privateRef = doc(db, "privateProfiles", user.uid);
+        const [publicSnap, privateSnap] = await Promise.all([
+          getDoc(publicRef),
+          getDoc(privateRef),
+        ]);
 
-        if (!snap.exists()) {
+        if (!publicSnap.exists()) {
           setProfileSummary({
             onboardingCompleted: false,
             name: "",
@@ -589,13 +598,18 @@ export default function NewListingPage() {
           return;
         }
 
-        const d = snap.data() as any;
+        const d = publicSnap.data() as any;
+        const p = privateSnap.exists()
+          ? (privateSnap.data() as PrivateProfile)
+          : {};
+        const mergedPhone = p.phone || d.phone || "";
+        const mergedAddress = p.address || d.address || "";
 
         const summary: PublicProfile = {
           onboardingCompleted: !!d.onboardingCompleted,
           name: d.name || "",
-          phone: d.phone || "",
-          address: d.address || "",
+          phone: mergedPhone,
+          address: mergedAddress,
         };
 
         setProfileSummary(summary);

@@ -6,7 +6,6 @@ import { buildListingPath, extractListingId } from "@/lib/listingUrl";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type ListingDoc = {
   title: string;
@@ -21,6 +20,9 @@ type ListingDoc = {
   modelId?: string;
   modelName?: string;
   imageUrls?: string[];
+  conditionKey?: string;
+  conditionLabel?: string;
+  createdAt?: any;
   ownerId: string;
 };
 
@@ -33,6 +35,9 @@ type PublicProfileDoc = {
   phone?: string;
   email?: string;
   address?: string;
+  showPhone?: boolean;
+  showAddress?: boolean;
+  showWebsiteInstagram?: boolean;
 };
 
 const siteUrl =
@@ -42,6 +47,20 @@ const clampMeta = (v: string, max = 160) => {
   const t = (v || "").replace(/\s+/g, " ").trim();
   if (!t) return "";
   return t.length > max ? `${t.slice(0, max - 1).trim()}…` : t;
+};
+
+const formatPriceTRY = (v?: number) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  try {
+    return new Intl.NumberFormat("tr-TR", {
+      style: "currency",
+      currency: "TRY",
+      maximumFractionDigits: 0,
+    }).format(n);
+  } catch {
+    return `${n} ₺`;
+  }
 };
 
 export async function generateMetadata({
@@ -67,14 +86,24 @@ export async function generateMetadata({
     .filter(Boolean)
     .join(" | ");
 
-  const descSource =
-    listing.description ||
-    `${titleBase} ilanı. ${category}${subCategory ? ` / ${subCategory}` : ""}.`;
-  const description = clampMeta(descSource);
+  const conditionText = listing.conditionLabel || listing.conditionKey || "";
+  const priceText = Number.isFinite(Number(listing.price))
+    ? `Fiyat: ${formatPriceTRY(listing.price)}.`
+    : "";
+  const extraBits = [conditionText ? `Durum: ${conditionText}.` : "", priceText]
+    .filter(Boolean)
+    .join(" ");
+  const context = [category, subCategory].filter(Boolean).join(" / ");
+  const baseDescription =
+    listing.description?.trim() ||
+    `${titleBase}${context ? ` | ${context}` : ""} ilanı.`;
+  const description = clampMeta(
+    `${baseDescription} ${extraBits} Hemen incele, güvenli alışveriş ve hızlı iletişim.`.trim()
+  );
 
-  const ogImage = Array.isArray(listing.imageUrls) ? listing.imageUrls[0] : "";
-  const fallbackOg = `${siteUrl}/opengraph-image`;
   const canonicalPath = buildListingPath(listingId, titleBase);
+  const ogImage = Array.isArray(listing.imageUrls) ? listing.imageUrls[0] : "";
+  const fallbackOg = `${siteUrl}${canonicalPath}/opengraph-image`;
 
   return {
     title,
@@ -86,7 +115,12 @@ export async function generateMetadata({
       title,
       description,
       url: `${siteUrl}${canonicalPath}`,
-      images: [{ url: ogImage || fallbackOg }],
+      images: [
+        {
+          url: ogImage || fallbackOg,
+          alt: titleBase,
+        },
+      ],
     },
     twitter: {
       card: "summary_large_image",
@@ -120,6 +154,14 @@ export default async function ListingDetailPage({
     categoryName: listing.categoryName || listing.brandName || "",
     subCategoryId: listing.subCategoryId || listing.modelId || "",
     subCategoryName: listing.subCategoryName || listing.modelName || "",
+    conditionKey: listing.conditionKey as
+      | ""
+      | "new"
+      | "likeNew"
+      | "good"
+      | "used"
+      | "forParts"
+      | undefined,
   };
 
   const seller = normalizedListing.ownerId

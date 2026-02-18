@@ -24,6 +24,7 @@ type ListingDoc = {
   title?: string;
   updatedAt?: string;
   createdAt?: string;
+  status?: string;
 };
 
 const siteUrl =
@@ -47,6 +48,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const items: MetadataRoute.Sitemap = [
     { url: siteUrl, lastModified: new Date() },
   ];
+  const seen = new Set<string>([siteUrl]);
+
+  const pushUrl = (url: string, lastModified?: string | Date) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    items.push({ url, lastModified });
+  };
 
   const categories = await listCollection<CategoryDoc>("categories");
   const subCategories = await listCollection<SubCategoryDoc>("subCategories");
@@ -59,10 +67,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     if (c.parentId) continue;
     const slug = safeSlug(c.name, c.slug, c.nameLower || normTRAscii(c.name));
     if (!slug) continue;
-    items.push({
-      url: `${siteUrl}/${encodeURIComponent(slug)}`,
-      lastModified: new Date(),
-    });
+    pushUrl(`${siteUrl}/${encodeURIComponent(slug)}`, new Date());
   }
 
   for (const s of subCategories) {
@@ -80,20 +85,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       s.nameLower || normTRAscii(s.name)
     );
     if (!catSlug || !subSlug) continue;
-    items.push({
-      url: `${siteUrl}/${encodeURIComponent(catSlug)}/${encodeURIComponent(
-        subSlug
-      )}`,
-      lastModified: new Date(),
-    });
+    pushUrl(
+      `${siteUrl}/${encodeURIComponent(catSlug)}/${encodeURIComponent(subSlug)}`,
+      new Date()
+    );
   }
 
-  for (const l of listings) {
+  const activeListings = listings.filter(
+    (l) => !l.status || l.status === "active"
+  );
+
+  for (const l of activeListings) {
     if (!l.id) continue;
-    items.push({
-      url: `${siteUrl}${buildListingPath(l.id, l.title)}`,
-      lastModified: toIso(l.updatedAt) || toIso(l.createdAt) || undefined,
-    });
+    const url = `${siteUrl}${buildListingPath(l.id, l.title)}`;
+    pushUrl(url, toIso(l.updatedAt) || toIso(l.createdAt) || undefined);
   }
 
   return items;

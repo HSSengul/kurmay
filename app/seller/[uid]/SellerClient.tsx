@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import {
   collection,
@@ -44,6 +45,9 @@ type PublicProfile = {
   websiteInstagram?: string;
   address?: string;
   avatarUrl?: string;
+  showPhone?: boolean;
+  showAddress?: boolean;
+  showWebsiteInstagram?: boolean;
 };
 
 type SellerClientProps = {
@@ -242,6 +246,9 @@ export default function SellerClient({
   ======================= */
 
   const sellerName = profile.name || "Satıcı";
+  const showPhone = profile.showPhone !== false;
+  const showAddress = profile.showAddress !== false;
+  const showWebsite = profile.showWebsiteInstagram !== false;
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-8">
@@ -287,25 +294,29 @@ export default function SellerClient({
             </div>
           )}
 
-          {profile.phone ? (
-            <div className="text-sm text-gray-700">
-              Telefon / WhatsApp:{" "}
-              <a
-                href={`https://wa.me/${profile.phone.replace(/\D/g, "")}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium underline"
-              >
-                {profile.phone}
-              </a>
-            </div>
+          {showPhone ? (
+            profile.phone ? (
+              <div className="text-sm text-gray-700">
+                Telefon / WhatsApp:{" "}
+                <a
+                  href={`https://wa.me/${profile.phone.replace(/\D/g, "")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium underline"
+                >
+                  {profile.phone}
+                </a>
+              </div>
+            ) : (
+              <div className="text-sm text-gray-500">
+                Telefon bilgisi yok.
+              </div>
+            )
           ) : (
-            <div className="text-sm text-gray-500">
-              Telefon bilgisi yok.
-            </div>
+            <div className="text-sm text-gray-500">Telefon gizli.</div>
           )}
 
-          {profile.websiteInstagram && (
+          {profile.websiteInstagram && showWebsite && (
             <div className="text-sm text-gray-700">
               Website / Instagram:{" "}
               <a
@@ -323,24 +334,28 @@ export default function SellerClient({
         <div className="border rounded-xl p-5 bg-white space-y-3">
           <h2 className="text-lg font-semibold">Konum</h2>
 
-          {profile.address ? (
-            <>
-              <div className="text-sm text-gray-700">
-                {profile.address}
-              </div>
+          {showAddress ? (
+            profile.address ? (
+              <>
+                <div className="text-sm text-gray-700">
+                  {profile.address}
+                </div>
 
-              <iframe
-                className="w-full h-56 rounded-lg border"
-                loading="lazy"
-                src={`https://www.google.com/maps?q=${encodeURIComponent(
-                  profile.address
-                )}&output=embed`}
-              />
-            </>
+                <iframe
+                  className="w-full h-56 rounded-lg border"
+                  loading="lazy"
+                  src={`https://www.google.com/maps?q=${encodeURIComponent(
+                    profile.address
+                  )}&output=embed`}
+                />
+              </>
+            ) : (
+              <div className="text-sm text-gray-500">
+                Adres bilgisi yok.
+              </div>
+            )
           ) : (
-            <div className="text-sm text-gray-500">
-              Adres bilgisi yok.
-            </div>
+            <div className="text-sm text-gray-500">Adres gizli.</div>
           )}
         </div>
       </div>
@@ -371,14 +386,18 @@ export default function SellerClient({
                 <Link
                   key={l.id}
                   href={buildListingPath(l.id, l.title)}
+                  prefetch={false}
                   className="block"
                 >
                   <div className="border rounded-xl overflow-hidden bg-white hover:shadow-md transition">
 
                     {thumb ? (
-                      <img
+                      <Image
                         src={thumb}
                         alt="ilan"
+                        width={400}
+                        height={176}
+                        sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
                         className="w-full h-44 object-cover"
                       />
                     ) : (

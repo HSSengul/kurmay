@@ -1,14 +1,13 @@
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
+﻿import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  robots: { index: false, follow: false, nocache: true },
+  robots: { index: false, follow: false },
 };
 
-export default function NewListingLayout({
+export default function NewLayout({
   children,
 }: {
-  children: ReactNode;
+  children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  return children;
 }

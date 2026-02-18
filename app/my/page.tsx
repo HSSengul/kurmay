@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Sora } from "next/font/google";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { devError } from "@/lib/logger";
@@ -46,8 +47,23 @@ type PublicProfile = {
   address: string;
   phone: string;
   websiteInstagram: string;
+  showPhone: boolean;
+  showAddress: boolean;
+  showWebsiteInstagram: boolean;
   avatarUrl?: string;
   onboardingCompleted?: boolean;
+};
+
+type PrivateProfile = {
+  phone: string;
+  address: string;
+  websiteInstagram: string;
+};
+
+type PublicContact = {
+  phone: string;
+  email: string;
+  address: string;
 };
 
 /* =======================
@@ -177,10 +193,21 @@ function MyPageInner() {
     address: "",
     phone: "",
     websiteInstagram: "",
+    showPhone: true,
+    showAddress: true,
+    showWebsiteInstagram: true,
     avatarUrl: "",
     onboardingCompleted: false,
   });
   const [profileSnapshot, setProfileSnapshot] = useState<PublicProfile | null>(null);
+
+  const [publicContact, setPublicContact] = useState<PublicContact>({
+    phone: "",
+    email: "",
+    address: "",
+  });
+  const [publicContactSnapshot, setPublicContactSnapshot] =
+    useState<PublicContact | null>(null);
 
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -375,15 +402,16 @@ function MyPageInner() {
       ======================= */
 
       const publicRef = doc(db, "publicProfiles", user.uid);
+      const privateRef = doc(db, "privateProfiles", user.uid);
       const publicSnap = await getDoc(publicRef);
 
       if (!publicSnap.exists()) {
         await setDoc(publicRef, {
           name: "",
           bio: "",
-          address: "",
-          phone: "",
-          websiteInstagram: "",
+          showPhone: true,
+          showAddress: true,
+          showWebsiteInstagram: true,
           avatarUrl: "",
           onboardingCompleted: false,
           createdAt: serverTimestamp(),
@@ -396,6 +424,9 @@ function MyPageInner() {
           address: "",
           phone: "",
           websiteInstagram: "",
+          showPhone: true,
+          showAddress: true,
+          showWebsiteInstagram: true,
           avatarUrl: "",
           onboardingCompleted: false,
         };
@@ -403,23 +434,71 @@ function MyPageInner() {
         setProfile(emptyProfile);
         setProfileSnapshot(emptyProfile);
 
+        setPublicContact({ phone: "", email: "", address: "" });
+        setPublicContactSnapshot({ phone: "", email: "", address: "" });
+
         // İlk giriş onboarding zorla + düzenleme modunu aç
         setOnboardingForced(true);
         setEditingProfile(true);
       } else {
         const d = publicSnap.data();
+        let privateData: Partial<PrivateProfile> = {};
+        try {
+          const privateSnap = await getDoc(privateRef);
+          if (privateSnap.exists()) {
+            const p = privateSnap.data() as any;
+            privateData = {
+              phone: p.phone || "",
+              address: p.address || "",
+              websiteInstagram: p.websiteInstagram || "",
+            };
+          }
+        } catch {
+          privateData = {};
+        }
+
+        const mergedPhone = privateData.phone || d.phone || "";
+        const mergedAddress = privateData.address || d.address || "";
+        const mergedWebsite =
+          privateData.websiteInstagram || d.websiteInstagram || "";
+
         const loadedProfile: PublicProfile = {
           name: d.name || "",
           bio: d.bio || "",
-          address: d.address || "",
-          phone: d.phone || "",
-          websiteInstagram: d.websiteInstagram || "",
+          address: mergedAddress,
+          phone: mergedPhone,
+          websiteInstagram: mergedWebsite,
+          showPhone: d.showPhone !== false,
+          showAddress: d.showAddress !== false,
+          showWebsiteInstagram: d.showWebsiteInstagram !== false,
           avatarUrl: d.avatarUrl || "",
           onboardingCompleted: !!d.onboardingCompleted,
         };
 
         setProfile(loadedProfile);
         setProfileSnapshot(loadedProfile);
+
+        try {
+          const contactSnap = await getDoc(
+            doc(db, "publicContacts", user.uid)
+          );
+          if (contactSnap.exists()) {
+            const c = contactSnap.data() as any;
+            const loadedContact: PublicContact = {
+              phone: c.phone || "",
+              email: c.email || "",
+              address: c.address || "",
+            };
+            setPublicContact(loadedContact);
+            setPublicContactSnapshot(loadedContact);
+          } else {
+            setPublicContact({ phone: "", email: "", address: "" });
+            setPublicContactSnapshot({ phone: "", email: "", address: "" });
+          }
+        } catch {
+          setPublicContact({ phone: "", email: "", address: "" });
+          setPublicContactSnapshot({ phone: "", email: "", address: "" });
+        }
 
         // Onboarding gerekiyorsa kullanıcıyı düzenlemeye zorla
         if (!loadedProfile.onboardingCompleted || onboardingQuery) {
@@ -495,6 +574,9 @@ function MyPageInner() {
         doc(db, "publicProfiles", userId),
         {
           avatarUrl: url,
+          showPhone: profile.showPhone !== false,
+          showAddress: profile.showAddress !== false,
+          showWebsiteInstagram: profile.showWebsiteInstagram !== false,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
@@ -520,13 +602,20 @@ function MyPageInner() {
       setProfileSaving(true);
       setProfileMessage("");
 
+      const rawPhone = normalizeSpaces(profile.phone || "");
+      const rawAddress = normalizeSpaces(profile.address || "");
+      const rawWebsite = (profile.websiteInstagram || "").trim();
+
       const normalized: PublicProfile = {
         ...profile,
         name: normalizeSpaces(profile.name || ""),
         bio: (profile.bio || "").trim(),
-        address: normalizeSpaces(profile.address || ""),
-        phone: normalizeSpaces(profile.phone || ""),
-        websiteInstagram: (profile.websiteInstagram || "").trim(),
+        address: rawAddress,
+        phone: rawPhone,
+        websiteInstagram: rawWebsite,
+        showPhone: profile.showPhone !== false,
+        showAddress: profile.showAddress !== false,
+        showWebsiteInstagram: profile.showWebsiteInstagram !== false,
         avatarUrl: profile.avatarUrl || "",
         onboardingCompleted: profile.onboardingCompleted || false,
       };
@@ -543,13 +632,52 @@ function MyPageInner() {
       // Eğer onboarding gerekiyorsa bu kayıtta completed true yap
       const shouldCompleteOnboarding = onboardingNeeded && requiredOk;
 
+      const privatePayload: PrivateProfile = {
+        phone: rawPhone,
+        address: rawAddress,
+        websiteInstagram: rawWebsite,
+      };
+
+      await setDoc(
+        doc(db, "privateProfiles", userId),
+        {
+          ...privatePayload,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      const publicPayload: PublicProfile = {
+        ...normalized,
+        phone: normalized.showPhone ? normalized.phone : "",
+        address: normalized.showAddress ? normalized.address : "",
+        websiteInstagram: normalized.showWebsiteInstagram
+          ? normalized.websiteInstagram
+          : "",
+        onboardingCompleted: shouldCompleteOnboarding
+          ? true
+          : !!normalized.onboardingCompleted,
+      };
+
       await setDoc(
         doc(db, "publicProfiles", userId),
         {
-          ...normalized,
-          onboardingCompleted: shouldCompleteOnboarding
-            ? true
-            : !!normalized.onboardingCompleted,
+          ...publicPayload,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      const normalizedContact: PublicContact = {
+        phone: digitsOnly(publicContact.phone || ""),
+        email: (publicContact.email || "").trim(),
+        address: normalizeSpaces(publicContact.address || ""),
+      };
+
+      await setDoc(
+        doc(db, "publicContacts", userId),
+        {
+          ...normalizedContact,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
@@ -561,6 +689,7 @@ function MyPageInner() {
           ...normalized,
           onboardingCompleted: true,
         });
+        setPublicContactSnapshot(normalizedContact);
         setProfileMessage("Profil tamamlandı ✅ Artık ilan verebilirsin.");
         setEditingProfile(false);
         setOnboardingForced(false);
@@ -571,6 +700,7 @@ function MyPageInner() {
       } else {
         setProfileMessage("Profil kaydedildi ✅");
         setProfileSnapshot(normalized);
+        setPublicContactSnapshot(normalizedContact);
         setEditingProfile(false);
       }
     } catch {
@@ -603,11 +733,13 @@ function MyPageInner() {
   const startEditingProfile = () => {
     setProfileMessage("");
     setProfileSnapshot({ ...profile });
+    setPublicContactSnapshot({ ...publicContact });
     setEditingProfile(true);
   };
 
   const cancelEditingProfile = () => {
     if (profileSnapshot) setProfile(profileSnapshot);
+    if (publicContactSnapshot) setPublicContact(publicContactSnapshot);
     setEditingProfile(false);
   };
 
@@ -899,9 +1031,12 @@ function MyPageInner() {
                   }`}
                 >
                   {l.imageUrls?.[0] && (
-                    <img
+                    <Image
                       src={l.imageUrls[0]}
                       alt={l.title ? `${l.title} görseli` : "İlan görseli"}
+                      width={400}
+                      height={160}
+                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                       className="w-full h-36 sm:h-40 object-cover transition duration-300 group-hover:scale-105"
                     />
                   )}
@@ -964,9 +1099,12 @@ function MyPageInner() {
                 >
                   <div className="flex gap-3 sm:gap-4 items-center">
                     {l.imageUrls?.[0] && (
-                      <img
+                      <Image
                         src={l.imageUrls[0]}
                         alt={l.title ? `${l.title} görseli` : "İlan görseli"}
+                        width={80}
+                        height={80}
+                        sizes="80px"
                         className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-xl"
                       />
                     )}
@@ -1102,9 +1240,12 @@ function MyPageInner() {
           {/* ===== AVATAR (Profil Fotoğrafı) ===== */}
           <div className="flex items-center gap-3 sm:gap-4">
             {profile.avatarUrl ? (
-              <img
+              <Image
                 src={profile.avatarUrl}
                 alt="Profil fotoğrafı"
+                width={80}
+                height={80}
+                sizes="80px"
                 className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border"
               />
             ) : (
@@ -1226,6 +1367,92 @@ function MyPageInner() {
             }
             placeholder="Website / Instagram"
           />
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+            <div className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-slate-500">
+              Görünürlük
+            </div>
+            <div className="text-[11px] sm:text-xs text-slate-500">
+              Bu ayarlar ilan sayfasında <b>herkese açık</b> profil bilgilerini kontrol eder.
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={profile.showPhone}
+                onChange={(e) =>
+                  setProfile({ ...profile, showPhone: e.target.checked })
+                }
+                disabled={!editingProfile}
+              />
+              Telefon numaram görünsün
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={profile.showAddress}
+                onChange={(e) =>
+                  setProfile({ ...profile, showAddress: e.target.checked })
+                }
+                disabled={!editingProfile}
+              />
+              Adresim görünsün
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={profile.showWebsiteInstagram}
+                onChange={(e) =>
+                  setProfile({
+                    ...profile,
+                    showWebsiteInstagram: e.target.checked,
+                  })
+                }
+                disabled={!editingProfile}
+              />
+              Website / Instagram görünsün
+            </label>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-3">
+            <div className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-slate-500">
+              İzinli İletişim (Giriş yapanlar)
+            </div>
+            <div className="text-[11px] sm:text-xs text-slate-500">
+              Bu bilgiler sadece <b>giriş yapmış</b> kullanıcılara gösterilir. İlan sayfasında
+              ayrı bir bölüm olarak görünür.
+            </div>
+            <input
+              disabled={!editingProfile}
+              className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
+              value={publicContact.phone}
+              onChange={(e) =>
+                setPublicContact({ ...publicContact, phone: e.target.value })
+              }
+              placeholder="Telefon (giriş yapanlara)"
+            />
+            <input
+              disabled={!editingProfile}
+              className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
+              value={publicContact.email}
+              onChange={(e) =>
+                setPublicContact({ ...publicContact, email: e.target.value })
+              }
+              placeholder="E-posta (giriş yapanlara)"
+            />
+            <textarea
+              disabled={!editingProfile}
+              rows={2}
+              className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
+              value={publicContact.address}
+              onChange={(e) =>
+                setPublicContact({ ...publicContact, address: e.target.value })
+              }
+              placeholder="Adres (giriş yapanlara)"
+            />
+          </div>
 
           {!editingProfile ? (
             <button

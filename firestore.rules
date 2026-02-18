@@ -76,6 +76,43 @@ service cloud.firestore {
       return (v is string) && (v.size() <= max);
     }
 
+    // ✅ NEW: public profile PII guard (only store if explicitly public)
+    function isPublicPhoneAllowed(data) {
+      return !("phone" in data)
+        || (data.phone == "")
+        || (
+          (data.phone is string)
+          && data.phone.size() <= 20
+          && data.showPhone == true
+        );
+    }
+
+    function isPublicAddressAllowed(data) {
+      return !("address" in data)
+        || (data.address == "")
+        || (
+          (data.address is string)
+          && data.address.size() <= 200
+          && data.showAddress == true
+        );
+    }
+
+    function isPublicWebsiteAllowed(data) {
+      return !("websiteInstagram" in data)
+        || (data.websiteInstagram == "")
+        || (
+          (data.websiteInstagram is string)
+          && data.websiteInstagram.size() <= 200
+          && data.showWebsiteInstagram == true
+        );
+    }
+
+    function isPublicProfileSafe(data) {
+      return isPublicPhoneAllowed(data)
+        && isPublicAddressAllowed(data)
+        && isPublicWebsiteAllowed(data);
+    }
+
     // 🔒 Onboarding tamam mı?
     function onboardingCompleted() {
       return exists(/databases/$(database)/documents/publicProfiles/$(request.auth.uid))
@@ -368,8 +405,9 @@ service cloud.firestore {
     match /publicProfiles/{uid} {
       allow read: if true;
 
-      allow create, update: if (signedIn()
-        && request.auth.uid == uid) || isAdmin();
+      allow create, update: if (
+        (signedIn() && request.auth.uid == uid) || isAdmin()
+      ) && isPublicProfileSafe(request.resource.data);
 
       allow delete: if signedIn() && request.auth.uid == uid;
     }
@@ -387,21 +425,21 @@ service cloud.firestore {
 
       allow create: if signedIn()
         && (request.auth.uid == uid || isAdmin())
-        && nonEmptyString(request.resource.data.phone, 20)
-        && request.resource.data.phone.matches("^[0-9]{10,15}$")
-        && nonEmptyString(request.resource.data.address, 200)
+        && optionalString(request.resource.data.phone, 20)
+        && optionalString(request.resource.data.address, 200)
+        && optionalString(request.resource.data.websiteInstagram, 200)
         && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) )
         && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) );
 
       allow update: if signedIn()
         && (request.auth.uid == uid || isAdmin())
-        && nonEmptyString(request.resource.data.phone, 20)
-        && request.resource.data.phone.matches("^[0-9]{10,15}$")
-        && nonEmptyString(request.resource.data.address, 200)
+        && optionalString(request.resource.data.phone, 20)
+        && optionalString(request.resource.data.address, 200)
+        && optionalString(request.resource.data.websiteInstagram, 200)
         && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) )
         && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) )
         && request.resource.data.diff(resource.data).changedKeys()
-          .hasOnly(["phone", "address", "createdAt", "updatedAt"]);
+          .hasOnly(["phone", "address", "websiteInstagram", "createdAt", "updatedAt"]);
 
       allow delete: if false;
     }

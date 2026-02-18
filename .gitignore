@@ -23,6 +23,9 @@
 # misc
 .DS_Store
 *.pem
+_tmp_*.html
+lighthouse-*.json
+lighthouse-report.html
 
 # debug
 npm-debug.log*
