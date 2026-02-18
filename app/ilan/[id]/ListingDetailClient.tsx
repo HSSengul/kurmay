@@ -545,6 +545,11 @@ export default function ListingDetailClient({
     return `/${categorySlug}/${subCategorySlug}`;
   }, [listing?.categoryName, listing?.subCategoryName]);
 
+  const reportHref = useMemo(() => {
+    if (!listingId) return "/raporla";
+    return `/raporla?targetId=${encodeURIComponent(listingId)}`;
+  }, [listingId]);
+
   const canMessageSeller = useMemo(() => {
     if (!listing) return false;
     if (!currentUserId) return false;
@@ -1026,6 +1031,13 @@ export default function ListingDetailClient({
                   >
                     Satıcı profili →
                   </button>
+
+                  <Link
+                    href={reportHref}
+                    className="w-full border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold py-2.5 rounded-2xl text-center"
+                  >
+                    İlanı raporla
+                  </Link>
                 </div>
               </div>
 
