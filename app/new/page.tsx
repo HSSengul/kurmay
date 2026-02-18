@@ -157,6 +157,22 @@ export default function NewListingPage() {
     function sanitizeFileName(name: string) {
       return name.replace(/[^a-zA-Z0-9_.-]/g, "_");
     }
+    async function geocodeAddress(address: string) {
+      const q = normalizeSpaces(address || "");
+      if (!q) return null;
+      try {
+        const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data?.ok) return null;
+        const lat = Number(data.lat);
+        const lng = Number(data.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return { lat, lng, label: String(data.label || q) };
+      } catch {
+        return null;
+      }
+    }
   // ...tüm state, fonksiyonlar ve JSX buraya taşındı...
   // ...dosyanın geri kalanı sadece bu fonksiyonun içinde olacak...
 // ...component fonksiyonu içindeki kodlar burada devam ediyor...
@@ -1313,9 +1329,10 @@ export default function NewListingPage() {
       }
 
       failStep = "precheckReads";
-      const [profileSnap, userSnap] = await Promise.all([
+      const [profileSnap, userSnap, privateSnap] = await Promise.all([
         getDocFromServer(doc(db, "publicProfiles", userId)),
         getDocFromServer(doc(db, "users", userId)),
+        getDocFromServer(doc(db, "privateProfiles", userId)),
       ]);
 
       if (profileSnap.metadata.fromCache || userSnap.metadata.fromCache) {
@@ -1338,6 +1355,7 @@ export default function NewListingPage() {
       const profileOk =
         profileSnap.exists() && profileData?.onboardingCompleted === true;
       const userData = userSnap.exists() ? (userSnap.data() as any) : null;
+      const privateData = privateSnap.exists() ? (privateSnap.data() as any) : null;
       const banUntilDate = userData?.banUntil?.toDate?.()
         ? userData.banUntil.toDate()
         : userData?.banUntil instanceof Date
@@ -1427,6 +1445,36 @@ export default function NewListingPage() {
         (auth.currentUser?.email ? auth.currentUser.email.split("@")[0] : "");
       const safeOwnerName = String(rawOwnerName || "").trim().slice(0, 120);
 
+      const allowPublicAddress = profileData?.showAddress !== false;
+      const rawAddress = allowPublicAddress
+        ? profileData?.address || userData?.address || ""
+        : "";
+      const locationAddress = normalizeSpaces(String(rawAddress || ""));
+      const locationFromProfile = allowPublicAddress ? privateData?.location : null;
+      let location = null as
+        | { address: string; lat: number; lng: number }
+        | null;
+
+      if (
+        locationFromProfile &&
+        Number.isFinite(Number(locationFromProfile.lat)) &&
+        Number.isFinite(Number(locationFromProfile.lng))
+      ) {
+        location = {
+          lat: Number(locationFromProfile.lat),
+          lng: Number(locationFromProfile.lng),
+          address: String(
+            locationFromProfile.address || locationAddress || ""
+          ),
+        };
+      } else {
+        const geo = locationAddress ? await geocodeAddress(locationAddress) : null;
+        location =
+          geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)
+            ? { address: geo.label || locationAddress, lat: geo.lat, lng: geo.lng }
+            : null;
+      }
+
       basePayload = {
         title: safeTitle,
         price: priceNumber,
@@ -1436,6 +1484,8 @@ export default function NewListingPage() {
         subCategoryName: safeSubCategoryName,
         ownerId,
         ownerName: safeOwnerName,
+        location: location,
+        locationAddress: locationAddress || null,
         imageUrls: [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),

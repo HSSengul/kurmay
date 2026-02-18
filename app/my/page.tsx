@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { devError } from "@/lib/logger";
 import { buildListingPath } from "@/lib/listingUrl";
+import AddressPinMap from "./AddressPinMap";
 import {
   collection,
   query,
@@ -52,12 +53,20 @@ type PublicProfile = {
   showWebsiteInstagram: boolean;
   avatarUrl?: string;
   onboardingCompleted?: boolean;
+  location?: ProfileLocation | null;
+};
+
+type ProfileLocation = {
+  lat: number;
+  lng: number;
+  address?: string;
 };
 
 type PrivateProfile = {
   phone: string;
   address: string;
   websiteInstagram: string;
+  location?: ProfileLocation | null;
 };
 
 type PublicContact = {
@@ -200,6 +209,9 @@ function MyPageInner() {
     onboardingCompleted: false,
   });
   const [profileSnapshot, setProfileSnapshot] = useState<PublicProfile | null>(null);
+  const [profileLocation, setProfileLocation] = useState<ProfileLocation | null>(null);
+  const [profileLocationSnapshot, setProfileLocationSnapshot] =
+    useState<ProfileLocation | null>(null);
 
   const [publicContact, setPublicContact] = useState<PublicContact>({
     phone: "",
@@ -433,6 +445,8 @@ function MyPageInner() {
 
         setProfile(emptyProfile);
         setProfileSnapshot(emptyProfile);
+        setProfileLocation(null);
+        setProfileLocationSnapshot(null);
 
         setPublicContact({ phone: "", email: "", address: "" });
         setPublicContactSnapshot({ phone: "", email: "", address: "" });
@@ -443,6 +457,7 @@ function MyPageInner() {
       } else {
         const d = publicSnap.data();
         let privateData: Partial<PrivateProfile> = {};
+        let loadedLocation: ProfileLocation | null = null;
         try {
           const privateSnap = await getDoc(privateRef);
           if (privateSnap.exists()) {
@@ -451,7 +466,21 @@ function MyPageInner() {
               phone: p.phone || "",
               address: p.address || "",
               websiteInstagram: p.websiteInstagram || "",
+              location: p.location || null,
             };
+
+            const loc = p.location;
+            if (
+              loc &&
+              Number.isFinite(Number(loc.lat)) &&
+              Number.isFinite(Number(loc.lng))
+            ) {
+              loadedLocation = {
+                lat: Number(loc.lat),
+                lng: Number(loc.lng),
+                address: String(loc.address || ""),
+              };
+            }
           }
         } catch {
           privateData = {};
@@ -477,6 +506,8 @@ function MyPageInner() {
 
         setProfile(loadedProfile);
         setProfileSnapshot(loadedProfile);
+        setProfileLocation(loadedLocation);
+        setProfileLocationSnapshot(loadedLocation);
 
         try {
           const contactSnap = await getDoc(
@@ -605,6 +636,18 @@ function MyPageInner() {
       const rawPhone = normalizeSpaces(profile.phone || "");
       const rawAddress = normalizeSpaces(profile.address || "");
       const rawWebsite = (profile.websiteInstagram || "").trim();
+      const normalizedLocation =
+        profileLocation &&
+        Number.isFinite(profileLocation.lat) &&
+        Number.isFinite(profileLocation.lng)
+          ? {
+              lat: Number(profileLocation.lat),
+              lng: Number(profileLocation.lng),
+              address: normalizeSpaces(
+                String(profileLocation.address || rawAddress || "")
+              ),
+            }
+          : null;
 
       const normalized: PublicProfile = {
         ...profile,
@@ -636,6 +679,7 @@ function MyPageInner() {
         phone: rawPhone,
         address: rawAddress,
         websiteInstagram: rawWebsite,
+        location: normalizedLocation,
       };
 
       await setDoc(
@@ -647,17 +691,18 @@ function MyPageInner() {
         { merge: true }
       );
 
-      const publicPayload: PublicProfile = {
-        ...normalized,
-        phone: normalized.showPhone ? normalized.phone : "",
-        address: normalized.showAddress ? normalized.address : "",
-        websiteInstagram: normalized.showWebsiteInstagram
-          ? normalized.websiteInstagram
-          : "",
-        onboardingCompleted: shouldCompleteOnboarding
-          ? true
-          : !!normalized.onboardingCompleted,
-      };
+        const publicPayload: PublicProfile = {
+          ...normalized,
+          phone: normalized.showPhone ? normalized.phone : "",
+          address: normalized.showAddress ? normalized.address : "",
+          websiteInstagram: normalized.showWebsiteInstagram
+            ? normalized.websiteInstagram
+            : "",
+          location: normalized.showAddress ? normalizedLocation : null,
+          onboardingCompleted: shouldCompleteOnboarding
+            ? true
+            : !!normalized.onboardingCompleted,
+        };
 
       await setDoc(
         doc(db, "publicProfiles", userId),
@@ -683,26 +728,28 @@ function MyPageInner() {
         { merge: true }
       );
 
-      if (shouldCompleteOnboarding) {
-        setProfile((p) => ({ ...p, onboardingCompleted: true }));
-        setProfileSnapshot({
-          ...normalized,
-          onboardingCompleted: true,
-        });
-        setPublicContactSnapshot(normalizedContact);
-        setProfileMessage("Profil tamamlandı ✅ Artık ilan verebilirsin.");
-        setEditingProfile(false);
-        setOnboardingForced(false);
-        setOnboardingBannerDismissed(false);
+        if (shouldCompleteOnboarding) {
+          setProfile((p) => ({ ...p, onboardingCompleted: true }));
+          setProfileSnapshot({
+            ...normalized,
+            onboardingCompleted: true,
+          });
+          setProfileLocationSnapshot(normalizedLocation);
+          setPublicContactSnapshot(normalizedContact);
+          setProfileMessage("Profil tamamlandı ✅ Artık ilan verebilirsin.");
+          setEditingProfile(false);
+          setOnboardingForced(false);
+          setOnboardingBannerDismissed(false);
 
         // Query temizle (UX)
         router.replace("/my");
-      } else {
-        setProfileMessage("Profil kaydedildi ✅");
-        setProfileSnapshot(normalized);
-        setPublicContactSnapshot(normalizedContact);
-        setEditingProfile(false);
-      }
+        } else {
+          setProfileMessage("Profil kaydedildi ✅");
+          setProfileSnapshot(normalized);
+          setProfileLocationSnapshot(normalizedLocation);
+          setPublicContactSnapshot(normalizedContact);
+          setEditingProfile(false);
+        }
     } catch {
       setProfileMessage("Profil kaydedilirken hata oluştu ❌");
     } finally {
@@ -734,12 +781,14 @@ function MyPageInner() {
     setProfileMessage("");
     setProfileSnapshot({ ...profile });
     setPublicContactSnapshot({ ...publicContact });
+    setProfileLocationSnapshot(profileLocation);
     setEditingProfile(true);
   };
 
   const cancelEditingProfile = () => {
     if (profileSnapshot) setProfile(profileSnapshot);
     if (publicContactSnapshot) setPublicContact(publicContactSnapshot);
+    setProfileLocation(profileLocationSnapshot || null);
     setEditingProfile(false);
   };
 
@@ -1331,14 +1380,32 @@ function MyPageInner() {
             placeholder="Adres *"
           />
 
-          {profile.address && (
+          {editingProfile ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <div className="text-[11px] sm:text-xs uppercase tracking-[0.2em] text-slate-500">
+                Adres Pin
+              </div>
+              <div className="text-[11px] sm:text-xs text-slate-500">
+                Harita üzerinde bir pin seçerek adresini kaydedebilirsin.
+              </div>
+              <AddressPinMap
+                value={profileLocation}
+                address={profile.address}
+                disabled={!editingProfile}
+                onChange={(loc) => setProfileLocation(loc)}
+                onAddressResolved={(label) =>
+                  setProfile((prev) => ({ ...prev, address: label }))
+                }
+              />
+            </div>
+          ) : profile.address ? (
             <iframe
               className="w-full h-36 rounded-2xl border border-slate-200"
               src={`https://www.google.com/maps?q=${encodeURIComponent(
                 profile.address
               )}&output=embed`}
             />
-          )}
+          ) : null}
 
           <input
             disabled={!editingProfile}

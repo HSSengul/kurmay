@@ -240,6 +240,187 @@ async function incGlobalStat(fields: Record<string, number>) {
   await ref.set(payload, { merge: true });
 }
 
+function getTRDayRangeMs(dateKey: string) {
+  const startMs = Date.parse(`${dateKey}T00:00:00+03:00`);
+  const safeStart = Number.isFinite(startMs)
+    ? startMs
+    : Date.now();
+  return {
+    startMs: safeStart,
+    endMs: safeStart + 24 * 60 * 60 * 1000,
+  };
+}
+
+async function countQuery(q: FirebaseFirestore.Query): Promise<number> {
+  const snap = await q.count().get();
+  const v = snap.data()?.count;
+  return typeof v === "number" ? v : 0;
+}
+
+async function safeCount(label: string, q: FirebaseFirestore.Query): Promise<number> {
+  try {
+    return await countQuery(q);
+  } catch (e) {
+    logger.error("recomputeAdminStatsNow count failed", { label, error: e });
+    return 0;
+  }
+}
+
+/**
+ * ✅ Callable: Admin stats recompute (global + today)
+ */
+export const recomputeAdminStatsNow = onCall(
+  { cors: true },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Giriş gerekli.");
+
+    const ok = await isAdminUid(uid);
+    if (!ok) throw new HttpsError("permission-denied", "Sadece admin.");
+
+    try {
+      const db = admin.firestore();
+      const dateKey = toDateKeyTR(new Date());
+      const { startMs, endMs } = getTRDayRangeMs(dateKey);
+      const startTs = admin.firestore.Timestamp.fromMillis(startMs);
+      const endTs = admin.firestore.Timestamp.fromMillis(endMs);
+
+      // global totals
+      const [
+        totalUsers,
+        totalListings,
+        totalConversations,
+        totalMessages,
+        totalReports,
+        totalAutoFlags,
+      ] = await Promise.all([
+        safeCount("totalUsers", db.collection("users")),
+        safeCount("totalListings", db.collection("listings")),
+        safeCount("totalConversations", db.collection("conversations")),
+        safeCount("totalMessages", db.collectionGroup("messages")),
+        safeCount("totalReports", db.collection("reports")),
+        safeCount("totalAutoFlags", db.collection("autoFlags")),
+      ]);
+
+      // today stats
+      const [
+        newUsers,
+        newListings,
+        newConversations,
+        newMessages,
+        reportsOpened,
+        reportsResolved,
+        autoFlagsOpened,
+      ] = await Promise.all([
+        safeCount(
+          "newUsers",
+          db
+            .collection("users")
+            .where("createdAt", ">=", startTs)
+            .where("createdAt", "<", endTs)
+        ),
+        safeCount(
+          "newListings",
+          db
+            .collection("listings")
+            .where("createdAt", ">=", startTs)
+            .where("createdAt", "<", endTs)
+        ),
+        safeCount(
+          "newConversations",
+          db
+            .collection("conversations")
+            .where("createdAt", ">=", startTs)
+            .where("createdAt", "<", endTs)
+        ),
+        safeCount(
+          "newMessages",
+          db
+            .collectionGroup("messages")
+            .where("createdAt", ">=", startTs)
+            .where("createdAt", "<", endTs)
+        ),
+        safeCount(
+          "reportsOpened",
+          db
+            .collection("reports")
+            .where("createdAt", ">=", startTs)
+            .where("createdAt", "<", endTs)
+        ),
+        // resolvedAt set olduğunda zaten resolved sayıyoruz -> composite index gerekmesin
+        safeCount(
+          "reportsResolved",
+          db
+            .collection("reports")
+            .where("resolvedAt", ">=", startTs)
+            .where("resolvedAt", "<", endTs)
+        ),
+        safeCount(
+          "autoFlagsOpened",
+          db
+            .collection("autoFlags")
+            .where("createdAt", ">=", startTs)
+            .where("createdAt", "<", endTs)
+        ),
+      ]);
+
+      await Promise.all([
+        db.collection("adminStats").doc("global").set(
+          {
+            totalUsers,
+            totalListings,
+            totalConversations,
+            totalMessages,
+            totalReports,
+            totalAutoFlags,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        ),
+        db.collection("adminStatsDaily").doc(dateKey).set(
+          {
+            dateKey,
+            newUsers,
+            newListings,
+            newConversations,
+            newMessages,
+            reportsOpened,
+            reportsResolved,
+            autoFlagsOpened,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        ),
+      ]);
+
+      return {
+        ok: true,
+        dateKey,
+        totals: {
+          totalUsers,
+          totalListings,
+          totalConversations,
+          totalMessages,
+          totalReports,
+          totalAutoFlags,
+        },
+        today: {
+          newUsers,
+          newListings,
+          newConversations,
+          newMessages,
+          reportsOpened,
+          reportsResolved,
+          autoFlagsOpened,
+        },
+      };
+    } catch (e) {
+      logger.error("recomputeAdminStatsNow fatal", e);
+      return { ok: false, error: "failed" };
+    }
+  }
+);
+
 function getUnreadForRole(data: any, role: "buyer" | "seller"): number {
   if (!data) return 0;
   if (data?.deletedFor?.[role]) return 0;

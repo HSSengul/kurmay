@@ -109,6 +109,7 @@ const buildCategoryState = (items: HeaderCategoryInput[]) => {
 
 type UserUnreadDoc = {
   unreadCount?: number;
+  role?: string;
 };
 
 /* ================= HELPERS ================= */
@@ -161,6 +162,7 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
 
   // Unread
   const [unreadTotal, setUnreadTotal] = useState(0);
+  const adminSessionRequested = useRef(false);
 
   // Categories + Subs
   const initialState = buildCategoryState(initialCategories);
@@ -351,7 +353,7 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
     const ref = doc(db, "users", user.uid);
     const unsub = onSnapshot(
       ref,
-      (snap) => {
+      async (snap) => {
         if (!snap.exists()) {
           setUnreadTotal(0);
           return;
@@ -359,6 +361,20 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
         const data = snap.data() as UserUnreadDoc;
         const total = typeof data?.unreadCount === "number" ? data.unreadCount : 0;
         setUnreadTotal(total);
+
+        if (data?.role === "admin" && !adminSessionRequested.current) {
+          adminSessionRequested.current = true;
+          try {
+            const token = await user.getIdToken();
+            await fetch("/api/admin/session", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ idToken: token }),
+            });
+          } catch {
+            // ignore
+          }
+        }
       },
       () => {
         // ignore unread errors to avoid breaking header
@@ -380,6 +396,12 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
   };
 
   const handleLogout = async () => {
+    try {
+      await fetch("/api/admin/session", { method: "DELETE" });
+    } catch {
+      // ignore
+    }
+    adminSessionRequested.current = false;
     await signOut(auth);
     closeAllMenus();
     router.push("/login");
@@ -488,6 +510,14 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                 className="w-full px-3 py-2.5 rounded-full border border-[#ead8c5] bg-white/80 hover:bg-[#f7ede2] text-sm font-semibold text-[#3f2a1a] flex items-center justify-center text-center"
               >
                 Ana Sayfa
+              </Link>
+
+              <Link
+                href="/harita"
+                onClick={() => setMobileOpen(false)}
+                className="w-full px-3 py-2.5 rounded-full border border-[#ead8c5] bg-white/80 hover:bg-[#f7ede2] text-sm font-semibold text-[#3f2a1a] flex items-center justify-center text-center"
+              >
+                Harita
               </Link>
 
               {isSignedIn && (
@@ -820,6 +850,13 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                 className="bg-[#1f2a24] hover:bg-[#2b3b32] text-white px-4 py-2 rounded-full text-sm font-semibold transition shadow-sm"
               >
                 + İlan Ver
+              </Link>
+
+              <Link
+                href="/harita"
+                className="px-3 py-2 rounded-full text-sm font-semibold text-[#3f2a1a] hover:bg-[#f7ede2]"
+              >
+                Harita
               </Link>
 
               <Link

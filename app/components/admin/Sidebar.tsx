@@ -55,6 +55,7 @@ export default function Sidebar() {
         {/* ✅ NEW: AutoFlags */}
         <SideItem href="/admin/auto-flags" label="Oto Bayraklar" icon="🧠" />
 
+        <SideItem href="/admin/haritalar" label="Harita Ayarları" icon="🗺️" />
         <SideItem href="/admin/logs" label="Loglar" icon="🧾" />
         <SideItem href="/admin/settings" label="Ayarlar" icon="⚙️" />
       </div>

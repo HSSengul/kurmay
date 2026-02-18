@@ -13,6 +13,7 @@ import {
   query,
   where,
 } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 import { db } from "@/lib/firebase";
 import {
@@ -202,6 +203,7 @@ export default function AdminDashboardPage() {
   const [openFlags, setOpenFlags] = useState<AutoFlagRow[]>([]);
 
   const [loading, setLoading] = useState(false);
+  const [recalcLoading, setRecalcLoading] = useState(false);
 
   const trendMax = useMemo(() => {
     const maxUsers = Math.max(...trend7.map((d) => safeNum(d.newUsers, 0)), 0);
@@ -354,6 +356,29 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function recomputeStats() {
+    if (!db) return;
+    setRecalcLoading(true);
+    try {
+      const fn = httpsCallable(getFunctions(), "recomputeAdminStatsNow");
+      await fn({});
+      await loadDashboard();
+      showToast({
+        type: "success",
+        title: "Yeniden hesaplandı",
+        text: "Admin istatistikleri güncellendi.",
+      });
+    } catch {
+      showToast({
+        type: "error",
+        title: "Hata",
+        text: "Hesaplama çalıştırılamadı.",
+      });
+    } finally {
+      setRecalcLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadDashboard();
   }, []);
@@ -411,6 +436,17 @@ export default function AdminDashboardPage() {
               )}
             >
               ⟳ Yenile
+            </button>
+
+            <button
+              type="button"
+              onClick={recomputeStats}
+              className={cx(
+                "px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 active:bg-gray-100 text-sm",
+                recalcLoading ? "opacity-60 pointer-events-none" : ""
+              )}
+            >
+              ⟳ Yeniden Hesapla
             </button>
 
             <Link

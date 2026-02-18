@@ -76,6 +76,16 @@ service cloud.firestore {
       return (v is string) && (v.size() <= max);
     }
 
+    // ✅ NEW: optional location helper (lat/lng)
+    function isValidLocation(m) {
+      return (m is map)
+        && (m.lat is number)
+        && (m.lng is number)
+        && (m.lat >= -90 && m.lat <= 90)
+        && (m.lng >= -180 && m.lng <= 180)
+        && (!("address" in m) || optionalString(m.address, 200));
+    }
+
     // ✅ NEW: public profile PII guard (only store if explicitly public)
     function isPublicPhoneAllowed(data) {
       return !("phone" in data)
@@ -107,10 +117,20 @@ service cloud.firestore {
         );
     }
 
+    function isPublicLocationAllowed(data) {
+      return !("location" in data)
+        || (data.location == null)
+        || (
+          (data.showAddress == true)
+          && isValidLocation(data.location)
+        );
+    }
+
     function isPublicProfileSafe(data) {
       return isPublicPhoneAllowed(data)
         && isPublicAddressAllowed(data)
-        && isPublicWebsiteAllowed(data);
+        && isPublicWebsiteAllowed(data)
+        && isPublicLocationAllowed(data);
     }
 
     // 🔒 Onboarding tamam mı?
@@ -428,6 +448,11 @@ service cloud.firestore {
         && optionalString(request.resource.data.phone, 20)
         && optionalString(request.resource.data.address, 200)
         && optionalString(request.resource.data.websiteInstagram, 200)
+        && (
+          !("location" in request.resource.data)
+          || request.resource.data.location == null
+          || isValidLocation(request.resource.data.location)
+        )
         && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) )
         && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) );
 
@@ -436,10 +461,22 @@ service cloud.firestore {
         && optionalString(request.resource.data.phone, 20)
         && optionalString(request.resource.data.address, 200)
         && optionalString(request.resource.data.websiteInstagram, 200)
+        && (
+          !("location" in request.resource.data)
+          || request.resource.data.location == null
+          || isValidLocation(request.resource.data.location)
+        )
         && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) )
         && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) )
         && request.resource.data.diff(resource.data).changedKeys()
-          .hasOnly(["phone", "address", "websiteInstagram", "createdAt", "updatedAt"]);
+          .hasOnly([
+            "phone",
+            "address",
+            "websiteInstagram",
+            "location",
+            "createdAt",
+            "updatedAt"
+          ]);
 
       allow delete: if false;
     }
@@ -520,6 +557,11 @@ service cloud.firestore {
 
     match /adminSettings/{docId} {
       allow read, write: if isAdmin();
+    }
+
+    match /publicSettings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /adminLogs/{logId} {
