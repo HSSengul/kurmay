@@ -236,6 +236,7 @@ export default function CategoryClient({
   /* ================= UI STATES ================= */
 
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [sortMode, setSortMode] = useState<"newest" | "priceAsc" | "priceDesc">(
     "newest"
@@ -437,6 +438,10 @@ export default function CategoryClient({
     sortMode,
     viewMode,
   ]);
+
+  useEffect(() => {
+    if (appliedFiltersCount > 0) setFiltersOpen(true);
+  }, [appliedFiltersCount]);
 
   /* ================= LOAD BRAND + MODELS + LISTINGS (PAGINATION) ================= */
 
@@ -979,10 +984,11 @@ export default function CategoryClient({
         )}
 
         {/* ================= TOOLBAR (INLINE FILTERS) ================= */}
+        {/* ================= TOOLBAR (INLINE FILTERS) ================= */}
         <div className="rounded-2xl border border-slate-200/70 bg-white/90 shadow-sm p-4 sm:p-5 backdrop-blur">
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar flex-nowrap pb-1">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs text-slate-600 shrink-0">
-              <span>Gösteriliyor</span>
+              <span>G?steriliyor</span>
               <span className="font-semibold text-slate-900">
                 {Math.min(visibleListings.length, sortedListings.length)}
               </span>
@@ -990,36 +996,81 @@ export default function CategoryClient({
               <span>{sortedListings.length}</span>
             </div>
 
-            <input
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[220px]"
-              placeholder="Ara..."
-            />
-
             {appliedFiltersCount > 0 && (
               <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs text-emerald-700 shrink-0">
                 Filtre: <span className="font-semibold">{appliedFiltersCount}</span>
               </div>
             )}
 
-            <div className="h-7 w-px bg-slate-200/80 shrink-0" />
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((v) => !v)}
+              className="md:hidden inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shrink-0"
+            >
+              Filtreler
+              <svg
+                className={`w-3.5 h-3.5 transition ${filtersOpen ? "rotate-180" : ""}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
 
+            <div className="ml-auto flex items-center gap-2">
+              {category?.id && hasMore && (
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => fetchMore(category.id)}
+                  className={`rounded-full border border-slate-200 bg-white px-3 py-2 text-xs shrink-0 ${loadingMore ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"}`}
+                >
+                  {loadingMore ? "Y?kleniyor..." : "Daha fazla ilan y?kle"}
+                </button>
+              )}
+
+              <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("grid")}
+                  className={`px-3 py-2 text-sm ${viewMode === "grid" ? "bg-emerald-50 text-emerald-700 font-semibold" : "hover:bg-slate-50"}`}
+                >
+                  Grid
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("list")}
+                  className={`px-3 py-2 text-sm ${viewMode === "list" ? "bg-emerald-50 text-emerald-700 font-semibold" : "hover:bg-slate-50"}`}
+                >
+                  Liste
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 hidden md:flex md:flex-wrap md:items-center gap-2">
+            <input
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[220px]"
+              placeholder="Ara..."
+            />
             <input
               value={minPrice}
               onChange={(e) => setMinPrice(cleanDigits(e.target.value))}
               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
-              placeholder="Min (₺)"
+              placeholder="Min (?)"
               inputMode="numeric"
             />
             <input
               value={maxPrice}
               onChange={(e) => setMaxPrice(cleanDigits(e.target.value))}
               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
-              placeholder="Max (₺)"
+              placeholder="Max (?)"
               inputMode="numeric"
             />
-
             {filterVisibility.showYear && (
               <>
                 <select
@@ -1027,7 +1078,7 @@ export default function CategoryClient({
                   onChange={(e) => setYearMin(cleanDigits(e.target.value))}
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
                 >
-                  <option value="">Yıl min</option>
+                  <option value="">Y?l min</option>
                   {yearOptions.map((y) => (
                     <option key={y} value={y}>
                       {y}
@@ -1039,7 +1090,7 @@ export default function CategoryClient({
                   onChange={(e) => setYearMax(cleanDigits(e.target.value))}
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
                 >
-                  <option value="">Yıl max</option>
+                  <option value="">Y?l max</option>
                   {yearOptions.map((y) => (
                     <option key={y} value={y}>
                       {y}
@@ -1048,7 +1099,6 @@ export default function CategoryClient({
                 </select>
               </>
             )}
-
             {filterVisibility.showGender && (
               <select
                 value={gender}
@@ -1063,19 +1113,17 @@ export default function CategoryClient({
                 ))}
               </select>
             )}
-
             {filterVisibility.showWear && (
               <select
                 value={wearFilter}
                 onChange={(e) => setWearFilter(e.target.value as any)}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
               >
-                <option value="">Aşınma</option>
-                <option value="wear">Aşınma var</option>
-                <option value="noWear">Aşınma yok</option>
+                <option value="">A??nma</option>
+                <option value="wear">A??nma var</option>
+                <option value="noWear">A??nma yok</option>
               </select>
             )}
-
             <select
               value={sortMode}
               onChange={(e) =>
@@ -1087,40 +1135,13 @@ export default function CategoryClient({
               <option value="priceAsc">Fiyat (artan)</option>
               <option value="priceDesc">Fiyat (azalan)</option>
             </select>
-
             <button
               type="button"
               onClick={clearFilters}
               className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 shrink-0"
             >
-              Sıfırla
+              S?f?rla
             </button>
-
-            <div className="ml-auto flex rounded-xl border border-slate-200 overflow-hidden bg-white shrink-0">
-              <button
-                type="button"
-                onClick={() => setViewMode("grid")}
-                className={`px-3 py-2 text-sm ${
-                  viewMode === "grid"
-                    ? "bg-emerald-50 text-emerald-700 font-semibold"
-                    : "hover:bg-slate-50"
-                }`}
-              >
-                Grid
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("list")}
-                className={`px-3 py-2 text-sm ${
-                  viewMode === "list"
-                    ? "bg-emerald-50 text-emerald-700 font-semibold"
-                    : "hover:bg-slate-50"
-                }`}
-              >
-                Liste
-              </button>
-            </div>
-
             {filterVisibility.showYear && (
               <button
                 type="button"
@@ -1136,22 +1157,106 @@ export default function CategoryClient({
                 onClick={() => applyPreset("noWear")}
                 className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50 shrink-0"
               >
-                Aşınma yok
-              </button>
-            )}
-            {category?.id && hasMore && (
-              <button
-                type="button"
-                disabled={loadingMore}
-                onClick={() => fetchMore(category.id)}
-                className={`rounded-full border border-slate-200 bg-white px-3 py-2 text-sm shrink-0 ${
-                  loadingMore ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"
-                }`}
-              >
-                {loadingMore ? "Yükleniyor..." : "Daha fazla ilan yükle"}
+                A??nma yok
               </button>
             )}
           </div>
+
+          {filtersOpen && (
+            <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar flex-nowrap pb-1 md:hidden">
+              <input
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[220px]"
+                placeholder="Ara..."
+              />
+              <input
+                value={minPrice}
+                onChange={(e) => setMinPrice(cleanDigits(e.target.value))}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
+                placeholder="Min (?)"
+                inputMode="numeric"
+              />
+              <input
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(cleanDigits(e.target.value))}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
+                placeholder="Max (?)"
+                inputMode="numeric"
+              />
+              {filterVisibility.showYear && (
+                <>
+                  <select
+                    value={yearMin}
+                    onChange={(e) => setYearMin(cleanDigits(e.target.value))}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
+                  >
+                    <option value="">Y?l min</option>
+                    {yearOptions.map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={yearMax}
+                    onChange={(e) => setYearMax(cleanDigits(e.target.value))}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
+                  >
+                    <option value="">Y?l max</option>
+                    {yearOptions.map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              {filterVisibility.showGender && (
+                <select
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[120px]"
+                >
+                  <option value="">Cinsiyet</option>
+                  {genderOptions.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {filterVisibility.showWear && (
+                <select
+                  value={wearFilter}
+                  onChange={(e) => setWearFilter(e.target.value as any)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
+                >
+                  <option value="">A??nma</option>
+                  <option value="wear">A??nma var</option>
+                  <option value="noWear">A??nma yok</option>
+                </select>
+              )}
+              <select
+                value={sortMode}
+                onChange={(e) =>
+                  setSortMode(e.target.value as "newest" | "priceAsc" | "priceDesc")
+                }
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
+              >
+                <option value="newest">En yeni</option>
+                <option value="priceAsc">Fiyat (artan)</option>
+                <option value="priceDesc">Fiyat (azalan)</option>
+              </select>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 shrink-0"
+              >
+                S?f?rla
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ================= LISTINGS ================= */}

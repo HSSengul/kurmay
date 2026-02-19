@@ -262,6 +262,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
 
   const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]>("newest");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const resetFilters = () => {
     setSearchText("");
@@ -272,6 +273,21 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
     setSortBy("newest");
     setDisplayLimit(24);
   };
+
+  const activeFiltersCount = useMemo(() => {
+    let c = 0;
+    if (searchText.trim()) c++;
+    if (categoryFilter) c++;
+    if (subCategoryFilter) c++;
+    if (priceMin.trim()) c++;
+    if (priceMax.trim()) c++;
+    if (sortBy !== "newest") c++;
+    return c;
+  }, [searchText, categoryFilter, subCategoryFilter, priceMin, priceMax, sortBy]);
+
+  useEffect(() => {
+    if (activeFiltersCount > 0) setFiltersOpen(true);
+  }, [activeFiltersCount]);
 
   /* =======================
      URL INIT (read filters from URL)
@@ -796,13 +812,38 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
           )}
 
           <div className="mt-4 border border-slate-200/70 rounded-2xl bg-white/80 p-3">
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-slate-800">Filtreler</div>
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((v) => !v)}
+                className="md:hidden inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-white"
+              >
+                {activeFiltersCount > 0 ? (
+                  <span className="inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-emerald-600 text-white text-[10px]">
+                    {activeFiltersCount}
+                  </span>
+                ) : null}
+                {filtersOpen ? "Kapat" : "Aç"}
+                <svg
+                  className={`w-3.5 h-3.5 transition ${filtersOpen ? "rotate-180" : ""}`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-3 hidden md:flex md:flex-wrap md:items-center gap-2">
               <input
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder="Ara..."
                 aria-label="Arama"
-                className="col-span-2 h-9 sm:h-10 w-full sm:w-[160px] rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                className="h-9 sm:h-10 w-full sm:w-[160px] rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
               />
 
               <select
@@ -864,7 +905,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                   setSortBy(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
                 }
                 aria-label="Sıralama"
-                className="col-span-2 h-9 sm:h-10 w-full sm:w-[150px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                className="h-9 sm:h-10 w-full sm:w-[150px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
               >
                 <option value="newest">En yeni</option>
                 <option value="price_asc">Fiyat (artan)</option>
@@ -874,11 +915,97 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
               <button
                 type="button"
                 onClick={resetFilters}
-                className="col-span-2 h-9 sm:h-10 rounded-full border border-slate-200/80 px-3 sm:px-4 text-sm text-slate-700 bg-white/70 hover:bg-white shadow-sm"
+                className="h-9 sm:h-10 rounded-full border border-slate-200/80 px-3 sm:px-4 text-sm text-slate-700 bg-white/70 hover:bg-white shadow-sm"
               >
                 Sıfırla
               </button>
             </div>
+
+            {filtersOpen && (
+              <div className="mt-3 grid grid-cols-2 gap-2 md:hidden">
+                <input
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="Ara..."
+                  aria-label="Arama"
+                  className="col-span-2 h-9 sm:h-10 w-full sm:w-[160px] rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                />
+
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setCategoryFilter(next);
+                    if (subCategoryFilter) setSubCategoryFilter("");
+                  }}
+                  aria-label="Kategori"
+                  className="h-9 sm:h-10 w-full sm:w-[140px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                >
+                  <option value="">Kategori</option>
+                  {activeMainCategories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={subCategoryFilter}
+                  onChange={(e) => setSubCategoryFilter(e.target.value)}
+                  aria-label="Alt kategori"
+                  disabled={filteredSubCategories.length === 0}
+                  className="h-9 sm:h-10 w-full sm:w-[170px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)] disabled:opacity-60"
+                >
+                  <option value="">Alt kategori</option>
+                  {filteredSubCategories.map((sub) => (
+                    <option key={sub.id} value={sub.id}>
+                      {sub.name}
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  type="number"
+                  value={priceMin}
+                  onChange={(e) => setPriceMin(e.target.value)}
+                  className="h-9 sm:h-10 w-full sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  placeholder="Min TL"
+                  aria-label="Minimum fiyat"
+                  min={0}
+                />
+
+                <input
+                  type="number"
+                  value={priceMax}
+                  onChange={(e) => setPriceMax(e.target.value)}
+                  className="h-9 sm:h-10 w-full sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  placeholder="Max TL"
+                  aria-label="Maksimum fiyat"
+                  min={0}
+                />
+
+                <select
+                  value={sortBy}
+                  onChange={(e) =>
+                    setSortBy(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
+                  }
+                  aria-label="Sıralama"
+                  className="col-span-2 h-9 sm:h-10 w-full sm:w-[150px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                >
+                  <option value="newest">En yeni</option>
+                  <option value="price_asc">Fiyat (artan)</option>
+                  <option value="price_desc">Fiyat (azalan)</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="col-span-2 h-9 sm:h-10 rounded-full border border-slate-200/80 px-3 sm:px-4 text-sm text-slate-700 bg-white/70 hover:bg-white shadow-sm"
+                >
+                  Sıfırla
+                </button>
+              </div>
+            )}
           </div>
         </section>
 
@@ -1206,5 +1333,3 @@ export default function HomeClient(props: HomeClientProps) {
     </Suspense>
   );
 }
-
-

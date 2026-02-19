@@ -148,6 +148,9 @@ function safeSlug(obj: { slug?: string; nameLower?: string; name?: string }) {
 export default function Header({ initialCategories = [] }: HeaderProps) {
   const router = useRouter();
   const headerRef = useRef<HTMLDivElement>(null);
+  const mobileSearchRef = useRef<HTMLDivElement>(null);
+  const mobileSearchButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
 
   const [user, setUser] = useState<User | null>(null);
 
@@ -156,6 +159,7 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
 
   // Mobile drawer
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   // Search
   const [searchText, setSearchText] = useState("");
@@ -253,6 +257,34 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
+
+  /* ================= MOBILE SEARCH ================= */
+
+  useEffect(() => {
+    if (!mobileSearchOpen) return;
+    const id = window.setTimeout(() => {
+      mobileSearchInputRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [mobileSearchOpen]);
+
+  useEffect(() => {
+    if (!mobileSearchOpen) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (
+        mobileSearchRef.current?.contains(t) ||
+        mobileSearchButtonRef.current?.contains(t)
+      ) {
+        return;
+      }
+      setMobileSearchOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [mobileSearchOpen]);
 
   /* ================= LOAD CATEGORIES ================= */
 
@@ -393,6 +425,7 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
   const closeAllMenus = () => {
     closeDesktopMenus();
     setMobileOpen(false);
+    setMobileSearchOpen(false);
   };
 
   const handleLogout = async () => {
@@ -503,37 +536,87 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 pb-8 pt-2">
-            <div
-              className={cx(
-                "grid gap-2",
-                isSignedIn ? "grid-cols-3" : "grid-cols-2"
-              )}
-            >
-              <Link
-                href="/"
-                onClick={() => setMobileOpen(false)}
-                className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-semibold text-[#1f2a1a] inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
-              >
-                <svg
-                  className="w-4 h-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex-1 rounded-2xl border border-[#1f2a24] bg-white/90 py-2 text-center text-[11px] font-semibold text-[#1f2a1a] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3 10.5L12 3l9 7.5V21a1 1 0 01-1 1h-5v-7H9v7H4a1 1 0 01-1-1v-10.5z"
-                  />
-                </svg>
-                Ana Sayfa
-              </Link>
+                  <div className="flex flex-col items-center gap-1">
+                    <svg
+                      className="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 10.5L12 3l9 7.5V21a1 1 0 01-1 1h-5v-7H9v7H4a1 1 0 01-1-1v-10.5z"
+                      />
+                    </svg>
+                    Ana Sayfa
+                  </div>
+                </Link>
+
+                <Link
+                  href={isSignedIn ? "/my/messages" : "/login"}
+                  onClick={() => setMobileOpen(false)}
+                  className="flex-1 rounded-2xl border border-[#1f2a24] bg-white/90 py-2 text-center text-[11px] font-semibold text-[#1f2a1a] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white relative"
+                >
+                  <div className="flex flex-col items-center gap-1">
+                    <svg
+                      className="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
+                      />
+                    </svg>
+                    Mesajlar
+                  </div>
+                  {isSignedIn && displayUnreadTotal > 0 && (
+                    <span className="absolute -top-1 -right-1 inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] items-center justify-center">
+                      {displayUnreadTotal > 99 ? "99+" : displayUnreadTotal}
+                    </span>
+                  )}
+                </Link>
+
+                <Link
+                  href={isSignedIn ? "/my" : "/login"}
+                  onClick={() => setMobileOpen(false)}
+                  className="flex-1 rounded-2xl border border-[#1f2a24] bg-white/90 py-2 text-center text-[11px] font-semibold text-[#1f2a1a] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
+                >
+                  <div className="flex flex-col items-center gap-1">
+                    <svg
+                      className="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z"
+                      />
+                    </svg>
+                    Hesabım
+                  </div>
+                </Link>
+              </div>
 
               <Link
                 href="/harita"
                 onClick={() => setMobileOpen(false)}
-                className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-semibold text-[#1f2a1a] inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
+                className="w-full px-4 py-3 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-semibold text-[#1f2a1a] inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
               >
                 <svg
                   className="w-4 h-4"
@@ -552,62 +635,28 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                 Harita
               </Link>
 
-              {isSignedIn && (
-                <Link
-                  href="/my/messages"
-                  onClick={() => setMobileOpen(false)}
-                  className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-semibold text-[#1f2a1a] inline-flex items-center justify-center gap-2 text-center relative transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
+              <Link
+                href="/new"
+                onClick={() => setMobileOpen(false)}
+                className="w-full px-4 py-3 rounded-full border border-[#1f2a24] bg-[#1f2a24] text-white text-sm font-bold shadow-sm inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#2b3b32] hover:shadow-md"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
                 >
-                  <svg
-                    className="w-4 h-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
-                    />
-                  </svg>
-                  Mesajlar
-                  {displayUnreadTotal > 0 && (
-                    <span className="absolute -top-1 -right-1 inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] items-center justify-center">
-                      {displayUnreadTotal > 99 ? "99+" : displayUnreadTotal}
-                    </span>
-                  )}
-                </Link>
-              )}
-
-              {isSignedIn && (
-                <Link
-                  href="/my"
-                  onClick={() => setMobileOpen(false)}
-                  className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-semibold text-[#1f2a1a] inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white"
-                >
-                  <svg
-                    className="w-4 h-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z"
-                    />
-                  </svg>
-                  Hesabım
-                </Link>
-              )}
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+                </svg>
+                Ürün Sat / İlan Ver
+              </Link>
 
               {!isSignedIn && (
                 <Link
                   href="/login"
                   onClick={() => setMobileOpen(false)}
-                  className="w-full px-3 py-2.5 rounded-full border border-[#1f2a24] bg-[#1f2a24] text-white text-sm font-bold shadow-sm inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#2b3b32] hover:shadow-md"
+                  className="w-full px-4 py-3 rounded-full border border-[#1f2a24] bg-white/90 text-sm font-bold text-[#1f2a1a] shadow-sm inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white hover:shadow-md"
                 >
                   <svg
                     className="w-4 h-4"
@@ -626,7 +675,6 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                 </Link>
               )}
             </div>
-
             <div className="mt-4">
               <div className="text-xs uppercase tracking-wide text-[#9f6b3b] mb-2">
                 Kategoriler
@@ -716,25 +764,6 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                   })}
                 </div>
               )}
-            </div>
-
-            <div className="mt-6">
-              <Link
-                href="/new"
-                onClick={() => setMobileOpen(false)}
-                className="px-4 py-3 rounded-full border border-[#1f2a24] bg-[#1f2a24] text-white text-sm font-bold shadow-sm inline-flex items-center justify-center gap-2 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#2b3b32] hover:shadow-md"
-              >
-                <svg
-                  className="w-4 h-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
-                </svg>
-                Ürün Sat / İlan Ver
-              </Link>
             </div>
 
             {isSignedIn && (
@@ -916,7 +945,7 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
           </div>
 
           {/* CENTER: Desktop search */}
-          <div className="flex flex-1 max-w-xs md:max-w-md min-w-0">
+          <div className="hidden md:flex flex-1 max-w-xs md:max-w-md min-w-0">
             <div className="w-full relative">
               <input
                 value={searchText}
@@ -948,6 +977,36 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
                 </svg>
               </button>
             </div>
+          </div>
+
+          {/* MOBILE: Search button */}
+          <div className="md:hidden flex-1 flex justify-center">
+            <button
+              ref={mobileSearchButtonRef}
+              onClick={() => setMobileSearchOpen((v) => !v)}
+              className={cx(
+                "px-3 py-2 rounded-full text-xs font-semibold inline-flex items-center gap-2 border border-[#1f2a24] shadow-sm transition-all duration-200",
+                mobileSearchOpen
+                  ? "bg-[#1f2a24] text-white"
+                  : "bg-white/90 text-[#1f2a24] hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white hover:shadow-md"
+              )}
+              aria-label="Ara"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              Ara
+            </button>
           </div>
 
           {/* RIGHT */}
@@ -1112,6 +1171,7 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
             <button
               onClick={() => {
                 setCatOpenId(null);
+                setMobileSearchOpen(false);
                 setMobileOpen(true);
               }}
               className="md:hidden w-10 h-10 rounded-full hover:bg-[#f7ede2] flex items-center justify-center"
@@ -1133,6 +1193,43 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
             </button>
           </div>
         </div>
+
+        {mobileSearchOpen && (
+          <div ref={mobileSearchRef} className="md:hidden px-4 pb-3">
+            <div className="relative">
+              <input
+                ref={mobileSearchInputRef}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitSearch()}
+                placeholder="Ürün, oyun, figür, kart..."
+                className={cx(
+                  "w-full rounded-full border border-[#ead8c5] bg-white/90 px-4 py-3 pr-12 text-sm text-[#3f2a1a] placeholder:text-[#9b7b5a]",
+                  "focus:outline-none focus:ring-2 focus:ring-[#e7c49b] focus:border-[#d9b28a]"
+                )}
+              />
+              <button
+                onClick={submitSearch}
+                aria-label="Ara"
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full hover:bg-[#f7ede2] flex items-center justify-center"
+              >
+                <svg
+                  className="w-5 h-5 text-[#5a4330]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* ✅ Portal drawer */}

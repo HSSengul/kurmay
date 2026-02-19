@@ -75,9 +75,50 @@ type PublicContact = {
   address: string;
 };
 
+type PublicContactVisibility = {
+  phone: boolean;
+  email: boolean;
+  address: boolean;
+};
+
 /* =======================
    HELPERS
 ======================= */
+
+function ToggleRow({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-sm text-slate-700">{label}</span>
+      <button
+        type="button"
+        onClick={() => {
+          if (!disabled) onChange(!checked);
+        }}
+        aria-pressed={checked}
+        aria-label={label}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+          checked ? "bg-[#1f2a24]" : "bg-slate-300"
+        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+      >
+        <span
+          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition ${
+            checked ? "translate-x-5" : "translate-x-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
 
 function normalizeSpaces(v: string) {
   return (v || "").replace(/\s+/g, " ").trim();
@@ -184,7 +225,7 @@ function MyPageInner() {
   }, [searchParams]);
 
   const [userId, setUserId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [listingQuery, setListingQuery] = useState("");
   const [listingSort, setListingSort] = useState<
     "newest" | "price_asc" | "price_desc" | "title"
@@ -220,6 +261,14 @@ function MyPageInner() {
   });
   const [publicContactSnapshot, setPublicContactSnapshot] =
     useState<PublicContact | null>(null);
+  const [publicContactVisibility, setPublicContactVisibility] =
+    useState<PublicContactVisibility>({
+      phone: false,
+      email: false,
+      address: false,
+    });
+  const [publicContactVisibilitySnapshot, setPublicContactVisibilitySnapshot] =
+    useState<PublicContactVisibility | null>(null);
 
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -450,6 +499,12 @@ function MyPageInner() {
 
         setPublicContact({ phone: "", email: "", address: "" });
         setPublicContactSnapshot({ phone: "", email: "", address: "" });
+        setPublicContactVisibility({ phone: false, email: false, address: false });
+        setPublicContactVisibilitySnapshot({
+          phone: false,
+          email: false,
+          address: false,
+        });
 
         // İlk giriş onboarding zorla + düzenleme modunu aç
         setOnboardingForced(true);
@@ -520,15 +575,34 @@ function MyPageInner() {
               email: c.email || "",
               address: c.address || "",
             };
+            const loadedVisibility: PublicContactVisibility = {
+              phone: !!(c.phone || ""),
+              email: !!(c.email || ""),
+              address: !!(c.address || ""),
+            };
             setPublicContact(loadedContact);
             setPublicContactSnapshot(loadedContact);
+            setPublicContactVisibility(loadedVisibility);
+            setPublicContactVisibilitySnapshot(loadedVisibility);
           } else {
             setPublicContact({ phone: "", email: "", address: "" });
             setPublicContactSnapshot({ phone: "", email: "", address: "" });
+            setPublicContactVisibility({ phone: false, email: false, address: false });
+            setPublicContactVisibilitySnapshot({
+              phone: false,
+              email: false,
+              address: false,
+            });
           }
         } catch {
           setPublicContact({ phone: "", email: "", address: "" });
           setPublicContactSnapshot({ phone: "", email: "", address: "" });
+          setPublicContactVisibility({ phone: false, email: false, address: false });
+          setPublicContactVisibilitySnapshot({
+            phone: false,
+            email: false,
+            address: false,
+          });
         }
 
         // Onboarding gerekiyorsa kullanıcıyı düzenlemeye zorla
@@ -714,9 +788,15 @@ function MyPageInner() {
       );
 
       const normalizedContact: PublicContact = {
-        phone: digitsOnly(publicContact.phone || ""),
-        email: (publicContact.email || "").trim(),
-        address: normalizeSpaces(publicContact.address || ""),
+        phone: publicContactVisibility.phone
+          ? digitsOnly(publicContact.phone || "")
+          : "",
+        email: publicContactVisibility.email
+          ? (publicContact.email || "").trim()
+          : "",
+        address: publicContactVisibility.address
+          ? normalizeSpaces(publicContact.address || "")
+          : "",
       };
 
       await setDoc(
