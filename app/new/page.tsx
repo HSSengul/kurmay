@@ -62,7 +62,7 @@ type SchemaField = {
   placeholder?: string;
   min?: number | null;
   max?: number | null;
-  options?: string[];
+  options?: Array<string | { value: string; label: string }>;
 };
 
 /**
@@ -154,9 +154,33 @@ export default function NewListingPage() {
     function formatMaybeInt(val: string) {
       return val.replace(/[^0-9]/g, "");
     }
-    function sanitizeFileName(name: string) {
-      return name.replace(/[^a-zA-Z0-9_.-]/g, "_");
-    }
+function sanitizeFileName(name: string) {
+  return name.replace(/[^a-zA-Z0-9_.-]/g, "_");
+}
+
+type OptionLike = string | { value: string; label: string };
+
+function normalizeOption(opt: OptionLike | any) {
+  if (typeof opt === "string") return { value: opt, label: opt };
+  if (opt && typeof opt === "object") {
+    const value =
+      "value" in opt
+        ? String(opt.value ?? "")
+        : String(opt.label ?? opt.name ?? "");
+    const label =
+      "label" in opt ? String(opt.label ?? value) : String(value);
+    return { value, label };
+  }
+  const fallback = String(opt ?? "");
+  return { value: fallback, label: fallback };
+}
+
+function normalizeOptions(list: OptionLike[] | undefined) {
+  const raw = Array.isArray(list) ? list : [];
+  return raw
+    .map((opt) => normalizeOption(opt))
+    .filter((opt) => opt.value !== "" || opt.label !== "");
+}
     async function geocodeAddress(address: string) {
       const q = normalizeSpaces(address || "");
       if (!q) return null;
@@ -869,14 +893,14 @@ export default function NewListingPage() {
       }
 
       if (f.type === "select") {
-        const opts = Array.isArray(f.options) ? f.options : [];
+        const opts = normalizeOptions(f.options).map((o) => o.value);
         if (opts.length > 0 && !opts.includes(String(v))) {
           return `"${f.label}" geçersiz seçim.`;
         }
       }
 
       if (f.type === "multiselect") {
-        const opts = Array.isArray(f.options) ? f.options : [];
+        const opts = normalizeOptions(f.options).map((o) => o.value);
         if (!Array.isArray(v)) return `"${f.label}" liste olmalı.`;
         if (opts.length > 0) {
           for (const item of v) {
@@ -2389,9 +2413,9 @@ export default function NewListingPage() {
                             required={f.required}
                           >
                             <option value="">Seç</option>
-                            {(f.options || []).map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
+                            {normalizeOptions(f.options).map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
                               </option>
                             ))}
                           </select>
@@ -2431,9 +2455,9 @@ export default function NewListingPage() {
                             disabled={loading || uploading}
                             required={f.required}
                           >
-                            {(f.options || []).map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
+                            {normalizeOptions(f.options).map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
                               </option>
                             ))}
                           </select>
