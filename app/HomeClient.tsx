@@ -1080,6 +1080,20 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                     const category = safeText(l.categoryName, "");
                     const subCategory = safeText(l.subCategoryName, "");
                     const ago = timeAgoTR(l.createdAt);
+                    const attrs = (l as any)?.attributes || {};
+                    const sellerName =
+                      l.ownerName ||
+                      (l as any)?.ownerDisplayName ||
+                      (l as any)?.sellerName ||
+                      "";
+                    const officialNameRaw =
+                      attrs.gameName ||
+                      attrs.consoleModel ||
+                      attrs.modelName ||
+                      attrs.model ||
+                      "";
+                    const officialName =
+                      officialNameRaw || safeText(l.subCategoryName, "—");
 
                     return (
                       <Link
