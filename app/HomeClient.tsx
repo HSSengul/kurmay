@@ -824,16 +824,9 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                     {activeFiltersCount}
                   </span>
                 ) : null}
-                {filtersOpen ? "Kapat" : "Aç"}
-                <svg
-                  className={`w-3.5 h-3.5 transition ${filtersOpen ? "rotate-180" : ""}`}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
-                </svg>
+                <span className="text-sm leading-none">
+                  {filtersOpen ? "−" : "+"}
+                </span>
               </button>
             </div>
 
@@ -1087,20 +1080,6 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                     const category = safeText(l.categoryName, "");
                     const subCategory = safeText(l.subCategoryName, "");
                     const ago = timeAgoTR(l.createdAt);
-                    const attrs = (l as any)?.attributes || {};
-                    const sellerName =
-                      l.ownerName ||
-                      (l as any)?.ownerDisplayName ||
-                      (l as any)?.sellerName ||
-                      "";
-                    const officialNameRaw =
-                      attrs.gameName ||
-                      attrs.consoleModel ||
-                      attrs.modelName ||
-                      attrs.model ||
-                      "";
-                    const officialName =
-                      officialNameRaw || safeText(l.subCategoryName, "—");
 
                     return (
                       <Link
@@ -1206,7 +1185,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                             )}
                           </div>
 
-                          <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-3">
                               <div className="font-semibold line-clamp-2 text-sm sm:text-base">
                                 {safeText(l.title, "İlan")}
@@ -1216,15 +1195,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                               </div>
                             </div>
 
-                            <div className="text-xs sm:text-sm text-slate-600 line-clamp-1">
-                              {officialName}
-                            </div>
-
-                            <div className="text-[11px] sm:text-xs text-slate-500">
-                              {sellerName || "Satıcı"}
-                            </div>
-
-                            <div className="flex items-center justify-between gap-2 text-[11px] sm:text-xs text-slate-400">
+                            <div className="mt-1 flex items-center justify-between gap-2 text-[11px] sm:text-xs text-slate-500">
                               <div className="truncate">
                                 {category}
                                 {subCategory ? ` / ${subCategory}` : ""}

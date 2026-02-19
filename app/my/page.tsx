@@ -1080,14 +1080,6 @@ function MyPageInner() {
                 {filteredListings.length}
               </div>
             </div>
-            <div className="rounded-2xl border border-[#e7dfe2] bg-[#f6f0f2] p-2.5 sm:p-3">
-              <div className="text-[10px] sm:text-xs uppercase tracking-[0.18em] text-[#8e5c69]">
-                Son ilan
-              </div>
-              <div className="text-lg sm:text-xl font-semibold mt-1.5">
-                {listingStats.latestLabel || "-"}
-              </div>
-            </div>
           </div>
         </section>
       {/* ================= ONBOARDING BANNER ================= */}
