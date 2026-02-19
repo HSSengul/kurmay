@@ -1030,34 +1030,29 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
             </div>
           </div>
 
-          {/* MOBILE: Search button */}
+          {/* MOBILE: Harita button */}
           <div className="md:hidden flex-1 flex justify-center">
-            <button
-              ref={mobileSearchButtonRef}
-              onClick={() => setMobileSearchOpen((v) => !v)}
-              className={cx(
-                "px-3 py-2 rounded-full text-xs font-semibold inline-flex items-center gap-2 border border-[#1f2a24] shadow-sm transition-all duration-200",
-                mobileSearchOpen
-                  ? "bg-[#1f2a24] text-white"
-                  : "bg-white/90 text-[#1f2a24] hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white hover:shadow-md"
-              )}
-              aria-label="Ara"
+            <Link
+              href="/harita"
+              className="px-3 py-2 rounded-full text-xs font-semibold inline-flex items-center gap-2 border border-[#1f2a24] shadow-sm transition-all duration-200 bg-white/90 text-[#1f2a24] hover:-translate-y-0.5 hover:bg-[#1f2a24] hover:text-white hover:shadow-md"
+              aria-label="Harita"
             >
               <svg
                 className="w-4 h-4"
+                viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
-                viewBox="0 0 24 24"
               >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"
+                  d="M12 22s7-5.33 7-11a7 7 0 10-14 0c0 5.67 7 11 7 11z"
                 />
+                <circle cx="12" cy="11" r="2.5" />
               </svg>
-              Ara
-            </button>
+              Harita
+            </Link>
           </div>
 
           {/* RIGHT */}
