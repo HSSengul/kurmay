@@ -1142,9 +1142,9 @@ function MyPageInner() {
         <div className="relative bg-white/90 border border-white/70 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-[0_25px_60px_-45px_rgba(15,23,42,0.45)] my-fade-up my-fade-delay-2">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-5 sm:mb-6">
             <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center justify-between gap-3">
                 <h2 className="text-xl sm:text-2xl font-semibold">Benim ilanlarım</h2>
-                <div className="flex items-center rounded-full border border-slate-200 bg-white p-1">
+                <div className="ml-auto flex items-center rounded-full border border-slate-200 bg-white p-1 shrink-0">
                   <button
                     onClick={() => setViewMode("grid")}
                     disabled={onboardingNeeded}

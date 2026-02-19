@@ -1019,7 +1019,14 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+              <Link
+                href="/new"
+                className="bg-[color:var(--market-accent)] hover:bg-[color:var(--market-accent-strong)] text-white font-semibold px-4 py-2 rounded-full text-sm shadow-sm"
+              >
+                İlan Ver
+              </Link>
+
               <div className="inline-flex rounded-full border border-slate-200/70 bg-white/80 p-1">
                 <button
                   type="button"
@@ -1044,13 +1051,6 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                   Liste
                 </button>
               </div>
-
-              <Link
-                href="/new"
-                className="bg-[color:var(--market-accent)] hover:bg-[color:var(--market-accent-strong)] text-white font-semibold px-4 py-2 rounded-full text-sm shadow-sm"
-              >
-                İlan Ver
-              </Link>
             </div>
           </div>
 
