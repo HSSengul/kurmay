@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Sora } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
@@ -269,6 +269,10 @@ function MyPageInner() {
     });
   const [publicContactVisibilitySnapshot, setPublicContactVisibilitySnapshot] =
     useState<PublicContactVisibility | null>(null);
+
+  const pinSaveTimerRef = useRef<number | null>(null);
+  const lastPinnedKeyRef = useRef<string>("");
+  const pinSaveInFlightRef = useRef(false);
 
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -837,6 +841,101 @@ function MyPageInner() {
     }
   };
 
+  const autoSavePinnedAddress = async (loc: ProfileLocation) => {
+    if (!userId || !db) return;
+    if (pinSaveInFlightRef.current) return;
+
+    const cleanAddress = normalizeSpaces(
+      String(loc.address || profile.address || "")
+    );
+    const normalizedLoc = {
+      lat: Number(loc.lat),
+      lng: Number(loc.lng),
+      address: cleanAddress,
+    };
+
+    pinSaveInFlightRef.current = true;
+    try {
+      await setDoc(
+        doc(db, "privateProfiles", userId),
+        {
+          address: cleanAddress,
+          location: normalizedLoc,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      if (profile.showAddress) {
+        await setDoc(
+          doc(db, "publicProfiles", userId),
+          {
+            address: cleanAddress,
+            location: normalizedLoc,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+
+      setProfileLocationSnapshot(normalizedLoc);
+      if (profile.showAddress) {
+        setProfileSnapshot((prev) =>
+          prev
+            ? {
+                ...prev,
+                address: cleanAddress,
+              }
+            : prev
+        );
+      }
+    } catch (e) {
+      devError("autoSavePinnedAddress error", e);
+    } finally {
+      pinSaveInFlightRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (!editingProfile || !userId) return;
+    if (!profileLocation) return;
+    if (
+      !Number.isFinite(profileLocation.lat) ||
+      !Number.isFinite(profileLocation.lng)
+    ) {
+      return;
+    }
+
+    const key = `${profileLocation.lat.toFixed(5)}|${profileLocation.lng.toFixed(
+      5
+    )}|${normalizeSpaces(String(profileLocation.address || profile.address || ""))}`;
+
+    if (key === lastPinnedKeyRef.current) return;
+    lastPinnedKeyRef.current = key;
+
+    if (pinSaveTimerRef.current) {
+      window.clearTimeout(pinSaveTimerRef.current);
+    }
+
+    pinSaveTimerRef.current = window.setTimeout(() => {
+      autoSavePinnedAddress(profileLocation);
+    }, 700);
+
+    return () => {
+      if (pinSaveTimerRef.current) {
+        window.clearTimeout(pinSaveTimerRef.current);
+      }
+    };
+  }, [
+    editingProfile,
+    userId,
+    profileLocation?.lat,
+    profileLocation?.lng,
+    profileLocation?.address,
+    profile.address,
+    profile.showAddress,
+  ]);
+
   /* =======================
      DELETE LISTING
   ======================= */
@@ -861,6 +960,7 @@ function MyPageInner() {
     setProfileMessage("");
     setProfileSnapshot({ ...profile });
     setPublicContactSnapshot({ ...publicContact });
+    setPublicContactVisibilitySnapshot({ ...publicContactVisibility });
     setProfileLocationSnapshot(profileLocation);
     setEditingProfile(true);
   };
@@ -868,6 +968,8 @@ function MyPageInner() {
   const cancelEditingProfile = () => {
     if (profileSnapshot) setProfile(profileSnapshot);
     if (publicContactSnapshot) setPublicContact(publicContactSnapshot);
+    if (publicContactVisibilitySnapshot)
+      setPublicContactVisibility(publicContactVisibilitySnapshot);
     setProfileLocation(profileLocationSnapshot || null);
     setEditingProfile(false);
   };
@@ -961,7 +1063,7 @@ function MyPageInner() {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 sm:mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 gap-2 mt-3 sm:mt-4">
             <div className="rounded-2xl border border-[#ead8c5] bg-[#f8f2e7] p-2.5 sm:p-3">
               <div className="text-[10px] sm:text-xs uppercase tracking-[0.18em] text-[#a26b3c]">
                 Toplam ilan
@@ -1524,45 +1626,26 @@ function MyPageInner() {
             <div className="text-[11px] sm:text-xs text-slate-500">
               Bu ayarlar ilan sayfasında <b>herkese açık</b> profil bilgilerini kontrol eder.
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                className="rounded border-slate-300"
-                checked={profile.showPhone}
-                onChange={(e) =>
-                  setProfile({ ...profile, showPhone: e.target.checked })
-                }
-                disabled={!editingProfile}
-              />
-              Telefon numaram görünsün
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                className="rounded border-slate-300"
-                checked={profile.showAddress}
-                onChange={(e) =>
-                  setProfile({ ...profile, showAddress: e.target.checked })
-                }
-                disabled={!editingProfile}
-              />
-              Adresim görünsün
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                className="rounded border-slate-300"
-                checked={profile.showWebsiteInstagram}
-                onChange={(e) =>
-                  setProfile({
-                    ...profile,
-                    showWebsiteInstagram: e.target.checked,
-                  })
-                }
-                disabled={!editingProfile}
-              />
-              Website / Instagram görünsün
-            </label>
+            <ToggleRow
+              label="Telefon numaram görünsün"
+              checked={profile.showPhone}
+              disabled={!editingProfile}
+              onChange={(next) => setProfile({ ...profile, showPhone: next })}
+            />
+            <ToggleRow
+              label="Adresim görünsün"
+              checked={profile.showAddress}
+              disabled={!editingProfile}
+              onChange={(next) => setProfile({ ...profile, showAddress: next })}
+            />
+            <ToggleRow
+              label="Website / Instagram görünsün"
+              checked={profile.showWebsiteInstagram}
+              disabled={!editingProfile}
+              onChange={(next) =>
+                setProfile({ ...profile, showWebsiteInstagram: next })
+              }
+            />
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-3">
@@ -1573,8 +1656,34 @@ function MyPageInner() {
               Bu bilgiler sadece <b>giriş yapmış</b> kullanıcılara gösterilir. İlan sayfasında
               ayrı bir bölüm olarak görünür.
             </div>
+            <div className="space-y-2">
+              <ToggleRow
+                label="Telefonu göster"
+                checked={publicContactVisibility.phone}
+                disabled={!editingProfile}
+                onChange={(next) =>
+                  setPublicContactVisibility((p) => ({ ...p, phone: next }))
+                }
+              />
+              <ToggleRow
+                label="E-posta göster"
+                checked={publicContactVisibility.email}
+                disabled={!editingProfile}
+                onChange={(next) =>
+                  setPublicContactVisibility((p) => ({ ...p, email: next }))
+                }
+              />
+              <ToggleRow
+                label="Adresi göster"
+                checked={publicContactVisibility.address}
+                disabled={!editingProfile}
+                onChange={(next) =>
+                  setPublicContactVisibility((p) => ({ ...p, address: next }))
+                }
+              />
+            </div>
             <input
-              disabled={!editingProfile}
+              disabled={!editingProfile || !publicContactVisibility.phone}
               className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
               value={publicContact.phone}
               onChange={(e) =>
@@ -1583,7 +1692,7 @@ function MyPageInner() {
               placeholder="Telefon (giriş yapanlara)"
             />
             <input
-              disabled={!editingProfile}
+              disabled={!editingProfile || !publicContactVisibility.email}
               className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
               value={publicContact.email}
               onChange={(e) =>
@@ -1592,7 +1701,7 @@ function MyPageInner() {
               placeholder="E-posta (giriş yapanlara)"
             />
             <textarea
-              disabled={!editingProfile}
+              disabled={!editingProfile || !publicContactVisibility.address}
               rows={2}
               className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
               value={publicContact.address}

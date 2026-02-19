@@ -1188,14 +1188,14 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                         prefetch={false}
                         className="block"
                       >
-                        <div className="border border-slate-200/70 rounded-2xl bg-white/90 hover:shadow-[0_12px_30px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5 p-3 flex gap-4">
-                          <div className="relative w-28 h-24 sm:w-32 sm:h-24 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0">
+                        <div className="border border-slate-200/70 rounded-2xl bg-white/90 hover:shadow-[0_12px_30px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5 p-2.5 sm:p-3 flex gap-3 items-center">
+                          <div className="relative w-20 h-16 sm:w-24 sm:h-20 rounded-lg overflow-hidden bg-slate-100 flex-shrink-0">
                             {thumb ? (
                               <Image
                                 src={thumb}
                                 alt={safeText(l.title, "İlan")}
                                 fill
-                                sizes="140px"
+                                sizes="120px"
                                 quality={45}
                                 className="object-cover"
                               />
@@ -1206,25 +1206,25 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                             )}
                           </div>
 
-                          <div className="min-w-0 flex-1 space-y-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="font-semibold line-clamp-2 text-[15px]">
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="font-semibold line-clamp-2 text-sm sm:text-base">
                                 {safeText(l.title, "İlan")}
                               </div>
-                              <div className="text-[color:var(--market-accent)] font-semibold text-[18px] shrink-0">
+                              <div className="text-[color:var(--market-accent)] font-semibold text-base sm:text-lg shrink-0">
                                 {formatPriceTRY(l.price)}
                               </div>
                             </div>
 
-                            <div className="text-sm text-slate-600 line-clamp-1">
+                            <div className="text-xs sm:text-sm text-slate-600 line-clamp-1">
                               {officialName}
                             </div>
 
-                            <div className="text-xs text-slate-500">
+                            <div className="text-[11px] sm:text-xs text-slate-500">
                               {sellerName || "Satıcı"}
                             </div>
 
-                            <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                            <div className="flex items-center justify-between gap-2 text-[11px] sm:text-xs text-slate-400">
                               <div className="truncate">
                                 {category}
                                 {subCategory ? ` / ${subCategory}` : ""}

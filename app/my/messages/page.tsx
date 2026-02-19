@@ -646,7 +646,7 @@ export default function MessagesPage() {
         </div>
       )}
 
-      <div className="sticky top-[calc(var(--app-header-height,0px)+12px)] z-10 bg-[#fffaf3]/95 backdrop-blur border border-[#ead8c5] rounded-2xl px-4 sm:px-5 py-4 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.45)] my-fade-up">
+      <div className="bg-[#fffaf3]/95 backdrop-blur border border-[#ead8c5] rounded-2xl px-4 sm:px-5 py-4 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.45)] my-fade-up">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-xl sm:text-2xl font-semibold leading-tight tracking-tight text-[#3f2a1a]">

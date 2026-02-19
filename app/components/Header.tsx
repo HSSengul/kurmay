@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import {
   doc,
@@ -112,6 +113,11 @@ type UserUnreadDoc = {
   role?: string;
 };
 
+type AdminSettingsDoc = {
+  siteName?: string;
+  brandLogoUrl?: string;
+};
+
 /* ================= HELPERS ================= */
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -178,6 +184,10 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
     initialCategories.length === 0
   );
 
+  // Branding
+  const [siteName, setSiteName] = useState("KURMAY");
+  const [brandLogoUrl, setBrandLogoUrl] = useState("");
+
   // Desktop selected category
   const [desktopActiveCatId, setDesktopActiveCatId] = useState<string | null>(
     initialState.firstId
@@ -211,6 +221,23 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
+    return () => unsub();
+  }, []);
+
+  /* ================= BRAND SETTINGS ================= */
+
+  useEffect(() => {
+    if (!db) return;
+    const unsub = onSnapshot(doc(db, "adminSettings", "global"), (snap) => {
+      if (!snap.exists()) {
+        setSiteName("KURMAY");
+        setBrandLogoUrl("");
+        return;
+      }
+      const d = snap.data() as AdminSettingsDoc;
+      setSiteName((d.siteName || "KURMAY").toString());
+      setBrandLogoUrl((d.brandLogoUrl || "").toString());
+    });
     return () => unsub();
   }, []);
 
@@ -475,10 +502,22 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
         <div className="absolute inset-0 w-screen h-[100dvh] bg-[#fffaf3] flex flex-col">
           <div className="px-4 py-3 border-b border-[#f0e2d1] flex items-center justify-between">
             <div className="flex items-center gap-2 text-lg font-semibold text-[#3f2a1a]">
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1f2a24] text-xs font-bold text-white">
-                K
-              </span>
-              KURMAY
+              {brandLogoUrl ? (
+                <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-full overflow-hidden border border-[#1f2a24]/10 bg-white">
+                  <Image
+                    src={brandLogoUrl}
+                    alt={`${siteName || "KURMAY"} logo`}
+                    fill
+                    sizes="32px"
+                    className="object-cover"
+                  />
+                </span>
+              ) : (
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1f2a24] text-xs font-bold text-white">
+                  K
+                </span>
+              )}
+              {siteName || "KURMAY"}
             </div>
             <button
               onClick={() => setMobileOpen(false)}
@@ -901,10 +940,22 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
               href="/"
               className="flex items-center gap-2 text-lg sm:text-xl font-semibold tracking-tight text-[#3f2a1a]"
             >
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-[#1f2a24] text-xs font-bold text-white shadow-sm">
-                K
-              </span>
-              KURMAY
+              {brandLogoUrl ? (
+                <span className="relative inline-flex h-9 w-9 items-center justify-center rounded-2xl overflow-hidden border border-[#1f2a24]/10 bg-white shadow-sm">
+                  <Image
+                    src={brandLogoUrl}
+                    alt={`${siteName || "KURMAY"} logo`}
+                    fill
+                    sizes="36px"
+                    className="object-cover"
+                  />
+                </span>
+              ) : (
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-[#1f2a24] text-xs font-bold text-white shadow-sm">
+                  K
+                </span>
+              )}
+              {siteName || "KURMAY"}
             </Link>
 
             {/* DESKTOP: Categories mega */}

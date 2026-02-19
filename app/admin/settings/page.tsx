@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
-import { auth, db } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import {
   Field,
   ToastView,
@@ -15,6 +16,7 @@ import { devError, getFriendlyErrorMessage } from "@/lib/logger";
 
 type AdminSettings = {
   siteName: string;
+  brandLogoUrl?: string;
   maintenanceMode: boolean;
   maintenanceMessage: string;
 
@@ -33,6 +35,7 @@ type AdminSettings = {
 
 const DEFAULTS: AdminSettings = {
   siteName: "İlanSitesi",
+  brandLogoUrl: "",
   maintenanceMode: false,
   maintenanceMessage: "Kısa bir bakım yapıyoruz. Lütfen biraz sonra tekrar deneyin.",
   allowNewListings: true,
@@ -97,6 +100,7 @@ export default function AdminSettingsPage() {
   const [form, setForm] = useState<AdminSettings>(DEFAULTS);
   const [initial, setInitial] = useState<AdminSettings>(DEFAULTS);
   const [bannedWordsText, setBannedWordsText] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
 
   const dirty = useMemo(
     () => JSON.stringify(form) !== JSON.stringify(initial),
@@ -133,6 +137,50 @@ export default function AdminSettingsPage() {
       cancelled = true;
     };
   }, []);
+
+  async function uploadBrandLogo(file: File) {
+    if (!file || !db || !storage) return;
+    setError(null);
+
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    const maxBytes = 2 * 1024 * 1024;
+
+    if (!allowed.includes(file.type)) {
+      setError("Sadece JPG / PNG / WEBP yükleyebilirsin.");
+      return;
+    }
+    if (file.size > maxBytes) {
+      setError("Logo çok büyük. 2MB altı yükle.");
+      return;
+    }
+
+    try {
+      setLogoUploading(true);
+      const safeName = file.name.replace(/[^\w.-]+/g, "_");
+      const imageRef = ref(
+        storage,
+        `brandAssets/logo/${Date.now()}_${safeName}`
+      );
+      await uploadBytes(imageRef, file);
+      const url = await getDownloadURL(imageRef);
+
+      const payload = {
+        brandLogoUrl: url,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth?.currentUser?.uid || null,
+      };
+
+      await setDoc(doc(db, "adminSettings", "global"), payload, { merge: true });
+
+      setForm((p) => ({ ...p, brandLogoUrl: url }));
+      setInitial((p) => ({ ...p, brandLogoUrl: url }));
+    } catch (e) {
+      devError("Admin logo upload error", e);
+      setError(getFriendlyErrorMessage(e, "Logo yüklenemedi."));
+    } finally {
+      setLogoUploading(false);
+    }
+  }
 
   async function save() {
     if (!db) return;
@@ -203,6 +251,52 @@ export default function AdminSettingsPage() {
               onChange={(v) => setForm((p) => ({ ...p, siteName: v }))}
               placeholder="Site adı"
             />
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-slate-900">
+                Logo (Header)
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-full border border-slate-200 bg-white flex items-center justify-center overflow-hidden">
+                  {form.brandLogoUrl ? (
+                    <img
+                      src={form.brandLogoUrl}
+                      alt="Logo"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-xs text-slate-500">Yok</span>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <Field
+                    label="Logo URL"
+                    value={form.brandLogoUrl || ""}
+                    onChange={(v) =>
+                      setForm((p) => ({ ...p, brandLogoUrl: v }))
+                    }
+                    placeholder="https://..."
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    disabled={logoUploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) uploadBrandLogo(file);
+                    }}
+                  />
+                  {logoUploading ? "Yükleniyor..." : "Logo yükle"}
+                </label>
+                <div className="text-xs text-slate-500">
+                  JPG / PNG / WEBP, max 2MB
+                </div>
+              </div>
+            </div>
             <Toggle
               label="Bakım modu"
               value={form.maintenanceMode}
