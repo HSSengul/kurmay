@@ -1009,29 +1009,29 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
           id="latest-listings"
           className="bg-white/90 backdrop-blur border border-white/70 rounded-2xl shadow-[0_10px_30px_rgba(15,23,42,0.08)] p-5 sm:p-6"
         >
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
+          <div className="flex items-start sm:items-center justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="text-lg sm:text-xl font-semibold tracking-tight">
                 Son ilanlar
               </h2>
-              <div className="text-xs text-[color:var(--market-muted)] mt-1">
+              <div className="text-[11px] sm:text-xs text-[color:var(--market-muted)] mt-1">
                 {totalFound} sonuç
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <Link
                 href="/new"
-                className="bg-[color:var(--market-accent)] hover:bg-[color:var(--market-accent-strong)] text-white font-semibold px-4 py-2 rounded-full text-sm shadow-sm"
+                className="bg-[color:var(--market-accent)] hover:bg-[color:var(--market-accent-strong)] text-white font-semibold px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm shadow-sm"
               >
                 İlan Ver
               </Link>
 
-              <div className="inline-flex rounded-full border border-slate-200/70 bg-white/80 p-1">
+              <div className="inline-flex rounded-full border border-slate-200/70 bg-white/80 p-0.5 sm:p-1">
                 <button
                   type="button"
                   onClick={() => setViewMode("grid")}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition ${
                     viewMode === "grid"
                       ? "bg-[color:var(--market-accent)] text-white"
                       : "text-slate-600 hover:bg-white"
@@ -1042,7 +1042,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                 <button
                   type="button"
                   onClick={() => setViewMode("list")}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition ${
                     viewMode === "list"
                       ? "bg-[color:var(--market-accent)] text-white"
                       : "text-slate-600 hover:bg-white"
