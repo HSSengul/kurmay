@@ -35,7 +35,9 @@ type ListingDoc = {
 };
 
 const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL?.trim() || "http://localhost:3000";
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "") ||
+  "http://localhost:3000";
 
 const clampMeta = (v: string, max = 160) => {
   const t = (v || "").replace(/\s+/g, " ").trim();

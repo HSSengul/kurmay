@@ -360,19 +360,29 @@ export default function AdminDashboardPage() {
     if (!db) return;
     setRecalcLoading(true);
     try {
-      const fn = httpsCallable(getFunctions(), "recomputeAdminStatsNow");
-      await fn({});
+      const fn = httpsCallable(getFunctions(undefined, "us-central1"), "recomputeAdminStatsNow");
+      const res = await fn({});
+      const data = (res?.data || {}) as any;
+      if (data && data.ok === false) {
+        throw new Error(String(data.error || "Hesaplama çalıştırılamadı."));
+      }
       await loadDashboard();
       showToast({
         type: "success",
         title: "Yeniden hesaplandı",
         text: "Admin istatistikleri güncellendi.",
       });
-    } catch {
+    } catch (err: any) {
+      const msg =
+        err?.code === "permission-denied"
+          ? "Yetki hatası. Admin rolü gerekli."
+          : err?.message
+          ? String(err.message)
+          : "Hesaplama çalıştırılamadı.";
       showToast({
         type: "error",
         title: "Hata",
-        text: "Hesaplama çalıştırılamadı.",
+        text: msg,
       });
     } finally {
       setRecalcLoading(false);
