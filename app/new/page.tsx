@@ -103,6 +103,8 @@ export default function NewListingPage() {
     const [price, setPrice] = useState("");
     const [condition, setCondition] = useState("");
     const [description, setDescription] = useState("");
+    const [isTradable, setIsTradable] = useState(false);
+    const [isShippable, setIsShippable] = useState(false);
     // Dosyalar
     const [newFiles, setNewFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -208,10 +210,11 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     { value: "good", label: "İyi" },
     { value: "used", label: "Kullanılmış" },
     { value: "forParts", label: "Parça / Arızalı" },
+    { value: "pnp", label: "PNP" },
   ];
 
   const conditionLabel = (
-    v: "" | "new" | "likeNew" | "good" | "used" | "forParts"
+    v: "" | "new" | "likeNew" | "good" | "used" | "forParts" | "pnp"
   ) => {
     const x = conditionOptions.find((o) => o.value === v);
     return x ? x.label : "";
@@ -231,6 +234,37 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     "w-full border border-[#ead8c5] rounded-2xl px-4 py-3 text-sm text-[#3f2a1a] bg-white/80 placeholder:text-[#9b7b5a] focus:outline-none focus:ring-2 focus:ring-[#e7c49b] focus:border-[#e7c49b] min-h-[140px]";
   const helperTextClass = "text-xs text-[#8a6a4f]";
   const mutedTextClass = "text-sm text-[#6b4b33]";
+
+  const ToggleRow = ({
+    label,
+    value,
+    onChange,
+    disabled,
+  }: {
+    label: string;
+    value: boolean;
+    onChange: (next: boolean) => void;
+    disabled?: boolean;
+  }) => (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+      <div className="text-sm font-semibold text-[#5a4330]">{label}</div>
+      <button
+        type="button"
+        onClick={() => !disabled && onChange(!value)}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+          value ? "bg-[#1f2a24]" : "bg-slate-300"
+        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+        aria-pressed={value}
+        aria-label={label}
+      >
+        <span
+          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition ${
+            value ? "translate-x-5" : "translate-x-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
 
   type ConsoleFieldVisibility = {
     consoleModel: boolean;
@@ -1525,8 +1559,10 @@ function normalizeOptions(list: OptionLike[] | undefined) {
         description: safeDescription,
         conditionKey: condition,
         conditionLabel: conditionLabel(
-          condition as "" | "new" | "likeNew" | "good" | "used" | "forParts"
+          condition as "" | "new" | "likeNew" | "good" | "used" | "forParts" | "pnp"
         ),
+        isTradable,
+        shippingAvailable: isShippable,
 
         // ✅ dynamic attributes (kategori bazli schema)
         schemaVersion: schemaExists ? schemaVersion : null,
@@ -2005,6 +2041,21 @@ function normalizeOptions(list: OptionLike[] | undefined) {
                   ))}
                 </select>
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <ToggleRow
+                label="Takas edilebilir mi?"
+                value={isTradable}
+                onChange={setIsTradable}
+                disabled={loading || uploading}
+              />
+              <ToggleRow
+                label="Kargo için uygun mu?"
+                value={isShippable}
+                onChange={setIsShippable}
+                disabled={loading || uploading}
+              />
             </div>
 
             {isBoardGameCategory && (

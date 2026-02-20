@@ -36,6 +36,8 @@ type Listing = {
 
   conditionKey?: string;
   conditionLabel?: string;
+  isTradable?: boolean;
+  shippingAvailable?: boolean;
 
   attributes?: Record<string, any>;
   imageUrls?: string[];
@@ -160,6 +162,37 @@ export default function EditListingPage() {
   const helperTextClass = "text-xs text-[#8a6a4f]";
   const mutedTextClass = "text-sm text-[#6b4b33]";
 
+  const ToggleRow = ({
+    label,
+    value,
+    onChange,
+    disabled,
+  }: {
+    label: string;
+    value: boolean;
+    onChange: (next: boolean) => void;
+    disabled?: boolean;
+  }) => (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#ead8c5] bg-white/80 px-4 py-3">
+      <div className="text-sm font-semibold text-[#5a4330]">{label}</div>
+      <button
+        type="button"
+        onClick={() => !disabled && onChange(!value)}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+          value ? "bg-[#1f2a24]" : "bg-slate-300"
+        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+        aria-pressed={value}
+        aria-label={label}
+      >
+        <span
+          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition ${
+            value ? "translate-x-5" : "translate-x-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
+
   /* ================= CONDITION ================= */
 
   const conditionOptions = [
@@ -169,10 +202,11 @@ export default function EditListingPage() {
     { value: "good", label: "İyi" },
     { value: "used", label: "Kullanılmış" },
     { value: "forParts", label: "Parça / Arızalı" },
+    { value: "pnp", label: "PNP" },
   ];
 
   const conditionLabel = (
-    v: "" | "new" | "likeNew" | "good" | "used" | "forParts"
+    v: "" | "new" | "likeNew" | "good" | "used" | "forParts" | "pnp"
   ) => {
     const x = conditionOptions.find((o) => o.value === v);
     return x ? x.label : "";
@@ -615,6 +649,8 @@ export default function EditListingPage() {
   const [price, setPrice] = useState("");
   const [condition, setCondition] = useState("");
   const [description, setDescription] = useState("");
+  const [isTradable, setIsTradable] = useState(false);
+  const [isShippable, setIsShippable] = useState(false);
 
   /* ================= IMAGES ================= */
 
@@ -644,6 +680,8 @@ export default function EditListingPage() {
       price,
       condition,
       description,
+      isTradable,
+      isShippable,
       categoryId,
       subCategoryId,
       attributes,
@@ -660,6 +698,8 @@ export default function EditListingPage() {
     price,
     condition,
     description,
+    isTradable,
+    isShippable,
     categoryId,
     subCategoryId,
     attributes,
@@ -791,6 +831,8 @@ export default function EditListingPage() {
         setPrice(String(data.price ?? ""));
         setCondition((data.conditionKey as any) || "");
         setDescription(data.description || "");
+        setIsTradable(!!(data as any).isTradable);
+        setIsShippable(!!(data as any).shippingAvailable);
 
         setCategoryId(resolvedCategoryId);
         setSubCategoryId(resolvedSubCategoryId);
@@ -813,6 +855,8 @@ export default function EditListingPage() {
             price: String(data.price ?? ""),
             condition: data.conditionKey || "",
             description: data.description || "",
+            isTradable: !!(data as any).isTradable,
+            isShippable: !!(data as any).shippingAvailable,
             categoryId: resolvedCategoryId,
             subCategoryId: resolvedSubCategoryId,
             attributes: rawAttrs,
@@ -1134,6 +1178,8 @@ export default function EditListingPage() {
           "",
         conditionKey: condition,
         conditionLabel: conditionLabel(condition as any),
+        isTradable,
+        shippingAvailable: isShippable,
         attributes: attributesForSave,
         updatedAt: serverTimestamp(),
       });
@@ -1490,6 +1536,21 @@ export default function EditListingPage() {
                   ))}
                 </select>
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <ToggleRow
+                label="Takas edilebilir mi?"
+                value={isTradable}
+                onChange={setIsTradable}
+                disabled={saving || uploading}
+              />
+              <ToggleRow
+                label="Kargo için uygun mu?"
+                value={isShippable}
+                onChange={setIsShippable}
+                disabled={saving || uploading}
+              />
             </div>
 
             {isBoardGameCategory && (

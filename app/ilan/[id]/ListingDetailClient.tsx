@@ -34,8 +34,10 @@ type Listing = {
   subCategoryName: string;
 
   // ✅ yeni sistem alanları
-  conditionKey?: "new" | "likeNew" | "good" | "used" | "forParts" | "";
+  conditionKey?: "new" | "likeNew" | "good" | "used" | "forParts" | "pnp" | "";
   conditionLabel?: string;
+  isTradable?: boolean;
+  shippingAvailable?: boolean;
   schemaVersion?: number | null;
   attributes?: Record<string, any>;
   status?: "active" | "draft" | "sold";
@@ -608,6 +610,20 @@ export default function ListingDetailClient({
     };
   }, [listing?.attributes]);
 
+  const tradeText =
+    listing?.isTradable == null
+      ? "Belirtilmemiş"
+      : listing.isTradable
+      ? "Evet"
+      : "Hayır";
+
+  const shippingText =
+    listing?.shippingAvailable == null
+      ? "Belirtilmemiş"
+      : listing.shippingAvailable
+      ? "Uygun"
+      : "Uygun değil";
+
   const boardGameAgeLabel = useMemo(() => {
     const age = safeText(boardGameDetails.suggestedAge).trim();
     if (!age) return "";
@@ -767,34 +783,31 @@ export default function ListingDetailClient({
           <div className="space-y-6">
             {/* TITLE */}
             <div className={`${cardClass} p-5 sm:p-6`}>
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 space-y-2">
-                  <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#3f2a1a]">
+              <div className="min-w-0 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#3f2a1a] flex-1 min-w-0">
                     {listing.title}
                   </h1>
-                  <div className="flex items-center gap-2 text-xs sm:text-sm text-[#7a5a40] whitespace-nowrap overflow-x-auto">
-                    <span className="font-medium text-[#6b4b33]">
-                      {listing.categoryName} / {listing.subCategoryName}
-                    </span>
-                    {(listing.conditionLabel || listing.conditionKey) && (
-                      <>
-                        <span className="text-[#c3a58a]">•</span>
-                        <span>{listing.conditionLabel || listing.conditionKey}</span>
-                      </>
-                    )}
-                    {publishedAt && (
-                      <>
-                        <span className="text-[#c3a58a]">•</span>
-                        <span>Yayın tarihi: {publishedAt}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="rounded-2xl border border-[#ead8c5] bg-[#fff7ed] px-4 py-2 text-2xl sm:text-3xl font-semibold text-[#1f2a24]">
+                  <div className="rounded-2xl border border-[#ead8c5] bg-[#fff7ed] px-4 py-2 text-xl sm:text-3xl font-semibold text-[#1f2a24] shrink-0">
                     {fmtTL(Number(listing.price ?? 0))}
                   </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-[#7a5a40] whitespace-nowrap overflow-x-auto">
+                  <span className="font-medium text-[#6b4b33]">
+                    {listing.categoryName} / {listing.subCategoryName}
+                  </span>
+                  {(listing.conditionLabel || listing.conditionKey) && (
+                    <>
+                      <span className="text-[#c3a58a]">•</span>
+                      <span>{listing.conditionLabel || listing.conditionKey}</span>
+                    </>
+                  )}
+                  {publishedAt && (
+                    <>
+                      <span className="text-[#c3a58a]">•</span>
+                      <span>Yayın tarihi: {publishedAt}</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -867,44 +880,62 @@ export default function ListingDetailClient({
                   <div className="space-y-3">
                     <div className={sectionTitleClass}>İlan Detayları</div>
                     {isBoardGameCategory ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 md:col-span-2">
-                          <div className="text-xs text-[#8a6a4f]">İlan başlığı</div>
-                          <div className="text-sm font-semibold text-[#3f2a1a]">
-                            {listing.title}
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-4 gap-2">
+                          <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 col-span-3">
+                            <div className="text-xs text-[#8a6a4f]">İlan başlığı</div>
+                            <div className="text-sm font-semibold text-[#3f2a1a]">
+                              {listing.title}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 col-span-1 text-right">
+                            <div className="text-xs text-[#8a6a4f]">Fiyat</div>
+                            <div className="text-sm font-semibold text-[#3f2a1a]">
+                              {fmtTL(Number(listing.price ?? 0))}
+                            </div>
                           </div>
                         </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
+                            <div className="text-xs text-[#8a6a4f]">Durum</div>
+                            <div className="text-sm font-semibold text-[#3f2a1a]">
+                              {listing.conditionLabel || listing.conditionKey || "Belirtilmemiş"}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
+                            <div className="text-xs text-[#8a6a4f]">Takas edilebilir mi?</div>
+                            <div className="text-sm font-semibold text-[#3f2a1a]">
+                              {tradeText}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
+                            <div className="text-xs text-[#8a6a4f]">Kargo için uygun mu?</div>
+                            <div className="text-sm font-semibold text-[#3f2a1a]">
+                              {shippingText}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
+                            <div className="text-xs text-[#8a6a4f]">Dil</div>
+                            <div className="text-sm font-semibold text-[#3f2a1a]">
+                              {boardGameDetails.language || "Belirtilmemiş"}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
+                            <div className="text-xs text-[#8a6a4f]">İçerik tam mı?</div>
+                            <div className="text-sm font-semibold text-[#3f2a1a]">
+                              {boardGameDetails.completeContent || "Belirtilmemiş"}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
+                            <div className="text-xs text-[#8a6a4f]">Sleeve kullanıldı mı?</div>
+                            <div className="text-sm font-semibold text-[#3f2a1a]">
+                              {boardGameDetails.sleeved || "Belirtilmemiş"}
+                            </div>
+                          </div>
+                        </div>
+
                         <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
-                          <div className="text-xs text-[#8a6a4f]">Fiyat (TL)</div>
-                          <div className="text-sm font-semibold text-[#3f2a1a]">
-                            {fmtTL(Number(listing.price ?? 0))}
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
-                          <div className="text-xs text-[#8a6a4f]">Durum</div>
-                          <div className="text-sm font-semibold text-[#3f2a1a]">
-                            {listing.conditionLabel || listing.conditionKey || "Belirtilmemiş"}
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
-                          <div className="text-xs text-[#8a6a4f]">Dil</div>
-                          <div className="text-sm font-semibold text-[#3f2a1a]">
-                            {boardGameDetails.language || "Belirtilmemiş"}
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
-                          <div className="text-xs text-[#8a6a4f]">İçerik tam mı?</div>
-                          <div className="text-sm font-semibold text-[#3f2a1a]">
-                            {boardGameDetails.completeContent || "Belirtilmemiş"}
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 md:col-span-2">
-                          <div className="text-xs text-[#8a6a4f]">Sleeve kullanıldı mı?</div>
-                          <div className="text-sm font-semibold text-[#3f2a1a]">
-                            {boardGameDetails.sleeved || "Belirtilmemiş"}
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 md:col-span-2">
                           <div className="text-xs text-[#8a6a4f]">Açıklama</div>
                           <div className="text-sm text-[#5a4330] whitespace-pre-line">
                             {listing.description || "Satıcı açıklama eklememiş."}
@@ -922,6 +953,14 @@ export default function ListingDetailClient({
                           ) : (
                             <div className="text-[#9b7b5a]">Ürün durumu belirtilmemiş.</div>
                           )}
+                          <div>
+                            <span className="font-semibold">Takas edilebilir mi:</span>{" "}
+                            {tradeText}
+                          </div>
+                          <div>
+                            <span className="font-semibold">Kargo için uygun mu:</span>{" "}
+                            {shippingText}
+                          </div>
 
                           <div className="pt-3 border-t border-[#ead8c5]">
                             {listing.description ? (

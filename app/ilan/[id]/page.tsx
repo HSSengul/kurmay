@@ -20,8 +20,10 @@ type ListingDoc = {
   modelId?: string;
   modelName?: string;
   imageUrls?: string[];
-  conditionKey?: string;
+  conditionKey?: "new" | "likeNew" | "good" | "used" | "forParts" | "pnp" | "";
   conditionLabel?: string;
+  isTradable?: boolean;
+  shippingAvailable?: boolean;
   createdAt?: any;
   ownerId: string;
 };
@@ -161,6 +163,7 @@ export default async function ListingDetailPage({
       | "good"
       | "used"
       | "forParts"
+      | "pnp"
       | undefined,
   };
 
