@@ -3,6 +3,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import ListingDetailClient from "./ListingDetailClient";
 import { fetchDocument } from "@/lib/firestoreRest";
 import { buildListingPath, extractListingId } from "@/lib/listingUrl";
+import { serializeJsonLd } from "@/lib/serializeJsonLd";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
@@ -199,7 +200,7 @@ export default async function ListingDetailPage({
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
       />
       <ListingDetailClient
         initialListing={normalizedListing}

@@ -1,14 +1,40 @@
 import { NextResponse } from "next/server";
+import { checkRateLimit, getRequestIp } from "@/lib/apiRateLimit";
 
 export const runtime = "nodejs";
 
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 60;
+
 export async function GET(request: Request) {
+  const ip = getRequestIp(request);
+  const rate = checkRateLimit(`geocode:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { ok: false, error: "rate_limited" },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rate.retryAfterSec),
+          "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+          "X-RateLimit-Remaining": "0",
+        },
+      }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get("q") || "").trim();
 
   if (!q) {
     return NextResponse.json(
       { ok: false, error: "missing_query" },
+      { status: 400 }
+    );
+  }
+  if (q.length > 250) {
+    return NextResponse.json(
+      { ok: false, error: "query_too_long" },
       { status: 400 }
     );
   }

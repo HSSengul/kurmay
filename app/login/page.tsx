@@ -68,6 +68,20 @@ function isAllowedEmail(email: string) {
   return ALLOWED_EMAIL_DOMAINS.has(domain);
 }
 
+function sanitizeNextPath(input: string | null) {
+  const raw = (input || "").trim();
+  if (!raw.startsWith("/")) return "/";
+  if (raw.startsWith("//") || raw.startsWith("/\\")) return "/";
+
+  try {
+    const parsed = new URL(raw, "https://local.invalid");
+    if (parsed.origin !== "https://local.invalid") return "/";
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "/";
+  }
+}
+
 function firebaseErrorToTR(code?: string) {
   switch (code) {
     case "auth/user-not-found":
@@ -174,8 +188,7 @@ function LoginPageInner() {
 
   // ?next=/my gibi bir kullanım için
   const nextPath = useMemo(() => {
-    const n = params.get("next");
-    return n && n.startsWith("/") ? n : "/";
+    return sanitizeNextPath(params.get("next"));
   }, [params]);
 
   // Modlar:

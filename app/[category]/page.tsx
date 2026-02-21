@@ -7,6 +7,7 @@ import {
   runActiveQueryByField,
 } from "@/lib/firestoreRest";
 import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
+import { serializeJsonLd } from "@/lib/serializeJsonLd";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
@@ -259,7 +260,7 @@ export default async function CategoryPage({
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify([breadcrumbJson, itemListJson]),
+          __html: serializeJsonLd([breadcrumbJson, itemListJson]),
         }}
       />
       <CategoryClient
