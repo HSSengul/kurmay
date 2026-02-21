@@ -8,6 +8,7 @@ type CategoryDoc = {
   nameLower?: string;
   slug?: string;
   parentId?: string | null;
+  enabled?: boolean;
 };
 
 type SubCategoryDoc = {
@@ -16,7 +17,7 @@ type SubCategoryDoc = {
   nameLower?: string;
   slug?: string;
   parentId?: string | null;
-  categoryId?: string | null;
+  enabled?: boolean;
 };
 
 type ListingDoc = {
@@ -58,8 +59,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     items.push({ url, lastModified });
   };
 
-  const categories = await listCollection<CategoryDoc>("categories");
-  const subCategories = await listCollection<SubCategoryDoc>("subCategories");
+  const categoriesAll = await listCollection<CategoryDoc>("categories");
+  const categories = categoriesAll.filter((c) => !c.parentId && c.enabled !== false);
+  const subCategories = categoriesAll
+    .filter((c) => !!c.parentId && c.enabled !== false)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      nameLower: c.nameLower,
+      slug: c.slug,
+      parentId: c.parentId,
+      enabled: c.enabled,
+    })) as SubCategoryDoc[];
   const listings = await listCollection<ListingDoc>("listings", 500, 10);
 
   const categoryMap = new Map<string, CategoryDoc>();
@@ -73,7 +84,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   for (const s of subCategories) {
-    const parentId = s.categoryId || s.parentId || "";
+    const parentId = s.parentId || "";
     const parent = categoryMap.get(parentId || "");
     if (!parent) continue;
     const catSlug = safeSlug(

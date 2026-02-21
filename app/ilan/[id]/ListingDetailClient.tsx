@@ -59,6 +59,14 @@ type Listing = {
   accessories?: string;
 
   description?: string;
+  locationAddress?: string | null;
+  locationCity?: string | null;
+  locationDistrict?: string | null;
+  location?: {
+    address?: string;
+    lat?: number;
+    lng?: number;
+  } | null;
 
   imageUrls?: string[];
 
@@ -174,6 +182,86 @@ const formatDateTR = (value: any) => {
 const safeText = (v: any) => {
   if (v === null || v === undefined) return "";
   return String(v);
+};
+
+const normalizeSpaces = (v: string) => (v || "").replace(/\s+/g, " ").trim();
+
+const cleanLocationToken = (v: string) =>
+  normalizeSpaces(v || "").replace(/^[-|/\\]+|[-|/\\]+$/g, "");
+
+const isPostalCodeToken = (v: string) => /^\d{5}$/.test((v || "").trim());
+
+const isCountryToken = (v: string) => {
+  const n = cleanLocationToken(v).toLocaleLowerCase("tr-TR");
+  return (
+    n === "turkiye" ||
+    n === "türkiye" ||
+    n === "turkey" ||
+    n === "turkiye cumhuriyeti" ||
+    n === "türkiye cumhuriyeti"
+  );
+};
+
+const isRegionToken = (v: string) => {
+  const n = cleanLocationToken(v).toLocaleLowerCase("tr-TR");
+  return (
+    n.includes("bölgesi") ||
+    n.includes("bolgesi") ||
+    n.includes("region")
+  );
+};
+
+const isUsefulLocationToken = (v: string) => {
+  const token = cleanLocationToken(v);
+  if (!token) return false;
+  if (/^\d+$/.test(token)) return false;
+  if (isCountryToken(token) || isRegionToken(token) || isPostalCodeToken(token)) {
+    return false;
+  }
+  return true;
+};
+
+const sanitizeRegionValue = (v: string) => {
+  const token = cleanLocationToken(v);
+  return isUsefulLocationToken(token) ? token : "";
+};
+
+const extractCityDistrict = (address: string) => {
+  const cleaned = normalizeSpaces(address);
+  if (!cleaned) return { city: "", district: "" };
+
+  const parts = cleaned
+    .split(",")
+    .map((p) => cleanLocationToken(p))
+    .filter(Boolean);
+
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const part = parts[i];
+    if (!part.includes("/")) continue;
+    const slashParts = part
+      .split("/")
+      .map((p) => cleanLocationToken(p))
+      .filter(isUsefulLocationToken);
+    const slashAlphaParts = slashParts.filter((p) =>
+      /[A-Za-zÇĞİÖŞÜçğıöşü]/.test(p)
+    );
+    if (slashAlphaParts.length >= 2) {
+      return {
+        district: slashAlphaParts[slashAlphaParts.length - 2],
+        city: slashAlphaParts[slashAlphaParts.length - 1],
+      };
+    }
+  }
+
+  const meaningful = parts.filter(isUsefulLocationToken);
+  if (meaningful.length >= 2) {
+    return {
+      district: meaningful[meaningful.length - 2],
+      city: meaningful[meaningful.length - 1],
+    };
+  }
+
+  return { city: meaningful[0] || "", district: "" };
 };
 
 const onlyDigits = (s: string) => (s || "").replace(/\D/g, "");
@@ -648,6 +736,25 @@ export default function ListingDetailClient({
 
   const publishedAt = useMemo(() => formatDateTR(listing?.createdAt), [listing?.createdAt]);
 
+  const listingRegionText = useMemo(() => {
+    const storedCity = sanitizeRegionValue(safeText(listing?.locationCity));
+    const storedDistrict = sanitizeRegionValue(safeText(listing?.locationDistrict));
+
+    const rawAddress = normalizeSpaces(
+      safeText(listing?.locationAddress || listing?.location?.address || "")
+    );
+    const parsed = rawAddress ? extractCityDistrict(rawAddress) : { city: "", district: "" };
+
+    const city = storedCity || parsed.city;
+    const district = storedDistrict || parsed.district;
+    return [city, district].filter(Boolean).join(" / ");
+  }, [
+    listing?.locationAddress,
+    listing?.locationCity,
+    listing?.locationDistrict,
+    listing?.location?.address,
+  ]);
+
 
   const pageWrapClass =
     "min-h-screen bg-[#f7f4ef] bg-[radial-gradient(circle_at_top,_#fff7ed,_#f7f4ef_60%)]";
@@ -995,6 +1102,15 @@ export default function ListingDetailClient({
                         </div>
                       </>
                     )}
+
+                    <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
+                      <div className="text-xs text-[#8a6a4f]">
+                        Konum (şehir / ilçe)
+                      </div>
+                      <div className="text-sm font-semibold text-[#3f2a1a]">
+                        {listingRegionText || "Belirtilmemiş"}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

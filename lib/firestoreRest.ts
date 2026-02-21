@@ -289,16 +289,13 @@ export async function runCollectionQuery<T = Record<string, any>>({
 }
 
 export function normTRAscii(input: string) {
-  return (input || "")
-    .toLocaleLowerCase("tr-TR")
-    .trim()
-    .replaceAll("ı", "i")
-    .replaceAll("ş", "s")
-    .replaceAll("ğ", "g")
-    .replaceAll("ü", "u")
-    .replaceAll("ö", "o")
-    .replaceAll("ç", "c")
-    .replaceAll("İ", "i")
+  const lowered = (input || "").toLocaleLowerCase("tr-TR").trim();
+  if (!lowered) return "";
+
+  return lowered
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i")
     .replace(/[\/]+/g, " ")
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")

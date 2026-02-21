@@ -1,4 +1,4 @@
-{
+﻿{
   "indexes": [
     {
       "collectionGroup": "reports",
@@ -6,6 +6,71 @@
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "resolvedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "listings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "categoryId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "listings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "subCategoryId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "listings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ownerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "conversations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "participants", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "lastMessageAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "conversations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "listingId", "order": "ASCENDING" },
+        { "fieldPath": "buyerId", "order": "ASCENDING" },
+        { "fieldPath": "sellerId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "conversations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "draft", "order": "ASCENDING" },
+        { "fieldPath": "draftExpiresAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "autoFlags",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "autoFlags",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     }
   ],

@@ -12,13 +12,16 @@ type CategoryDoc = {
   name: string;
   nameLower?: string;
   slug?: string;
+  parentId?: string | null;
+  enabled?: boolean;
 };
 
 type SubCategoryDoc = {
   id: string;
   name: string;
   nameLower?: string;
-  categoryId?: string;
+  parentId?: string | null;
+  enabled?: boolean;
 };
 
 type ListingDoc = {
@@ -31,7 +34,6 @@ type ListingDoc = {
   subCategoryName?: string;
   imageUrls?: string[];
   createdAt?: any;
-  brandId?: string;
 };
 
 const siteUrl =
@@ -87,6 +89,20 @@ const buildListingMeta = (listings: ListingDoc[]) => {
 
 const LISTINGS_BATCH = 60;
 
+const matchesCategoryKey = (
+  key: string,
+  rawKey: string,
+  doc: { id?: string; slug?: string; nameLower?: string; name?: string }
+) => {
+  const normKeys = [doc.id, doc.slug, doc.nameLower, doc.name].map((x) =>
+    normTRAscii(String(x || ""))
+  );
+  const slugKeys = [doc.slug, doc.nameLower, doc.name].map((x) =>
+    slugifyTR(String(x || ""))
+  );
+  return normKeys.includes(key) || slugKeys.includes(rawKey);
+};
+
 export async function generateMetadata({
   params,
 }: {
@@ -94,14 +110,13 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const resolved = await params;
   const categorySlug = resolved.category ? decodeURIComponent(resolved.category) : "";
-  const categories = await listCollection<CategoryDoc>("categories");
+  const categoriesAll = await listCollection<CategoryDoc>("categories");
+  const categories = categoriesAll.filter(
+    (c) => !c.parentId && c.enabled !== false
+  );
   const key = normTRAscii(categorySlug);
-  const match = categories.find((c) => {
-    const keys = [c.id, c.slug, c.nameLower, c.name].map((x) =>
-      normTRAscii(String(x || ""))
-    );
-    return keys.includes(key);
-  });
+  const slugKey = slugifyTR(categorySlug);
+  const match = categories.find((c) => matchesCategoryKey(key, slugKey, c));
 
   if (!match) {
     return {
@@ -112,20 +127,12 @@ export async function generateMetadata({
 
   const canonicalSlug = slugifyTR(match.slug || match.nameLower || match.name);
   const title = `${match.name} | İlanlar`;
-  let listingsForMeta = await runQueryByField<ListingDoc>({
+  const listingsForMeta = await runQueryByField<ListingDoc>({
     collectionId: "listings",
     fieldPath: "categoryId",
     value: match.id,
     limit: 6,
   });
-  if (listingsForMeta.length === 0) {
-    listingsForMeta = await runQueryByField<ListingDoc>({
-      collectionId: "listings",
-      fieldPath: "brandId",
-      value: match.id,
-      limit: 6,
-    });
-  }
 
   const extraMeta = buildListingMeta(listingsForMeta);
   const description = clampMeta(
@@ -169,14 +176,13 @@ export default async function CategoryPage({
 }) {
   const resolved = await params;
   const categorySlug = resolved.category ? decodeURIComponent(resolved.category) : "";
-  const categories = await listCollection<CategoryDoc>("categories");
+  const categoriesAll = await listCollection<CategoryDoc>("categories");
+  const categories = categoriesAll.filter(
+    (c) => !c.parentId && c.enabled !== false
+  );
   const key = normTRAscii(categorySlug);
-  const match = categories.find((c) => {
-    const keys = [c.id, c.slug, c.nameLower, c.name].map((x) =>
-      normTRAscii(String(x || ""))
-    );
-    return keys.includes(key);
-  });
+  const slugKey = slugifyTR(categorySlug);
+  const match = categories.find((c) => matchesCategoryKey(key, slugKey, c));
 
   if (!match) notFound();
 
@@ -192,14 +198,13 @@ export default async function CategoryPage({
     nameLower: match.nameLower || normTRAscii(match.name),
   };
 
-  const subCategoriesAll = await listCollection<SubCategoryDoc>("subCategories");
-  const subCategories = subCategoriesAll
-    .filter((s) => s.categoryId === match.id)
+  const subCategories = categoriesAll
+    .filter((s) => !!s.parentId && s.parentId === match.id && s.enabled !== false)
     .map((s) => ({
       id: s.id,
       name: s.name,
       nameLower: s.nameLower || normTRAscii(s.name),
-      categoryId: s.categoryId,
+      categoryId: s.parentId || undefined,
     }))
     .sort((a, b) =>
       (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")

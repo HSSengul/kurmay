@@ -7,7 +7,7 @@ export default function AdminSubCategoriesRedirect() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/admin/categories/subcategories");
+    router.replace("/admin/categories");
   }, [router]);
 
   return null;

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHmac } from "crypto";
 
 export const runtime = "nodejs";
 
@@ -7,6 +8,29 @@ type LookupResponse = {
     localId?: string;
   }>;
 };
+
+type AdminSessionPayload = {
+  uid: string;
+  role: "admin";
+  exp: number;
+};
+
+const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
+
+function getSessionSecret() {
+  return (
+    process.env.ADMIN_SESSION_SECRET ||
+    process.env.FIREBASE_ADMIN_SESSION_SECRET ||
+    process.env.NEXTAUTH_SECRET ||
+    ""
+  );
+}
+
+function signAdminSession(payload: AdminSessionPayload, secret: string) {
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const sig = createHmac("sha256", secret).update(body).digest("base64url");
+  return `${body}.${sig}`;
+}
 
 function getFieldString(fields: any, key: string): string | null {
   const v = fields?.[key];
@@ -18,10 +42,11 @@ function getFieldString(fields: any, key: string): string | null {
 export async function POST(request: Request) {
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "";
+  const sessionSecret = getSessionSecret();
 
-  if (!apiKey || !projectId) {
+  if (!apiKey || !projectId || !sessionSecret) {
     return NextResponse.json(
-      { ok: false, error: "missing_env" },
+      { ok: false, error: "missing_env_or_session_secret" },
       { status: 500 }
     );
   }
@@ -93,10 +118,19 @@ export async function POST(request: Request) {
       );
     }
 
+    const token = signAdminSession(
+      {
+        uid,
+        role: "admin",
+        exp: Date.now() + EIGHT_HOURS_MS,
+      },
+      sessionSecret
+    );
+
     const res = NextResponse.json({ ok: true });
     res.cookies.set({
       name: "admin_session",
-      value: "1",
+      value: token,
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",

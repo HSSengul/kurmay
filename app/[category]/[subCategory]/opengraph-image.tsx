@@ -13,6 +13,7 @@ type CategoryDoc = {
   nameLower?: string;
   slug?: string;
   parentId?: string | null;
+  enabled?: boolean;
 };
 
 type SubCategoryDoc = {
@@ -20,8 +21,8 @@ type SubCategoryDoc = {
   name: string;
   nameLower?: string;
   slug?: string;
-  categoryId?: string | null;
   parentId?: string | null;
+  enabled?: boolean;
 };
 
 const normTRAscii = (input: string) => {
@@ -41,6 +42,20 @@ const normTRAscii = (input: string) => {
     .trim();
 };
 
+const matchesDocKey = (
+  normalizedKey: string,
+  slugKey: string,
+  doc: { id?: string; slug?: string; nameLower?: string; name?: string }
+) => {
+  const normKeys = [doc.id, doc.slug, doc.nameLower, doc.name].map((x) =>
+    normTRAscii(String(x || ""))
+  );
+  const slugKeys = [doc.slug, doc.nameLower, doc.name].map((x) =>
+    slugifyTR(String(x || ""))
+  );
+  return normKeys.includes(normalizedKey) || slugKeys.includes(slugKey);
+};
+
 const clamp = (value: string, max = 72) => {
   const text = (value || "").replace(/\s+/g, " ").trim();
   if (!text) return "";
@@ -57,23 +72,29 @@ export default async function OpenGraphImage({
     ? decodeURIComponent(params.subCategory)
     : "";
 
-  const categories = await listCollectionEdge<CategoryDoc>("categories");
-  const subCategories = await listCollectionEdge<SubCategoryDoc>("subCategories");
+  const categoriesAll = await listCollectionEdge<CategoryDoc>("categories");
+  const categories = categoriesAll.filter((c) => !c.parentId && c.enabled !== false);
+  const subCategories = categoriesAll
+    .filter((c) => !!c.parentId && c.enabled !== false)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      nameLower: c.nameLower,
+      slug: c.slug,
+      parentId: c.parentId || undefined,
+      enabled: c.enabled,
+    })) as SubCategoryDoc[];
   const key = normTRAscii(rawCategory);
-  const matchCategory = categories.find((c) => {
-    const keys = [c.id, c.slug, c.nameLower, c.name].map((x) =>
-      normTRAscii(String(x || ""))
-    );
-    return keys.includes(key);
-  });
+  const categorySlugKey = slugifyTR(rawCategory);
+  const matchCategory = categories.find((c) =>
+    matchesDocKey(key, categorySlugKey, c)
+  );
 
   const subKey = normTRAscii(rawSubCategory);
+  const subSlugKey = slugifyTR(rawSubCategory);
   const matchSub = subCategories.find((s) => {
-    if ((s.categoryId || s.parentId) !== matchCategory?.id) return false;
-    const keys = [s.id, s.slug, s.nameLower, s.name].map((x) =>
-      normTRAscii(String(x || ""))
-    );
-    return keys.includes(subKey);
+    if (s.parentId !== matchCategory?.id) return false;
+    return matchesDocKey(subKey, subSlugKey, s);
   });
 
   const categoryTitle = clamp(matchCategory?.name || rawCategory || "Kategori");

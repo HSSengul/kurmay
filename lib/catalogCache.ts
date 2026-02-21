@@ -86,8 +86,16 @@ export async function getSubCategoriesCached(opts?: { force?: boolean }) {
     }
   }
 
-  const snap = await getDocs(collection(db, "subCategories"));
-  const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+  // Tek kaynak: categories koleksiyonundaki parentId alanı.
+  // Legacy subCategories koleksiyonunu artık okumuyoruz.
+  const categories = await getCategoriesCached(opts);
+  const data = (categories || [])
+    .filter((d: any) => d?.parentId)
+    .map((d: any) => ({
+      id: d.id,
+      ...(d as any),
+      categoryId: d.categoryId || d.parentId,
+    }));
   const entry: CacheEntry<any[]> = { data, ts: Date.now() };
   subCategoriesCache = entry;
   writeSession(SUBCATEGORY_CACHE_KEY, entry);

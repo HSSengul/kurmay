@@ -98,13 +98,9 @@ const normTR = (v?: string) =>
 
 const normTRAscii = (v?: string) =>
   normTR(v)
-    .replaceAll("ı", "i")
-    .replaceAll("ş", "s")
-    .replaceAll("ğ", "g")
-    .replaceAll("ü", "u")
-    .replaceAll("ö", "o")
-    .replaceAll("ç", "c")
-    .replaceAll("İ", "i")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i")
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -504,6 +500,7 @@ export default function SubCategoryClient({
           ...(d as any),
         }));
         const categoryKey = normTRAscii(categorySlug);
+        const categorySlugKey = slugifyTR(categorySlug);
         const matchCategory = categoryDocs.find((c) => {
           const keys = [
             c.id,
@@ -511,11 +508,16 @@ export default function SubCategoryClient({
             c.nameLower,
             c.name,
           ].map((x) => normTRAscii(x));
-          return keys.includes(categoryKey);
+          const slugs = [c.slug, c.nameLower, c.name].map((x) =>
+            slugifyTR(String(x || ""))
+          );
+          return keys.includes(categoryKey) || slugs.includes(categorySlugKey);
         });
-        if (!matchCategory) throw new Error("Kategori bulunamadı.");
+        if (!matchCategory) throw new Error("Kategori bulunamadi.");
 
-        const canonicalCategorySlug = normTRAscii(matchCategory.name);
+        const canonicalCategorySlug = slugifyTR(
+          matchCategory.slug || matchCategory.nameLower || matchCategory.name || ""
+        );
 
         const b: Category = {
           id: matchCategory.id,
@@ -539,6 +541,7 @@ export default function SubCategoryClient({
             (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
           ) as SubCategory[];
         const subKey = normTRAscii(subCategorySlug);
+        const subSlugKey = slugifyTR(subCategorySlug);
         const matchSub = subDocs.find((s) => {
           const keys = [
             s.id,
@@ -546,15 +549,20 @@ export default function SubCategoryClient({
             s.nameLower,
             s.name,
           ].map((x) => normTRAscii(x));
-          return keys.includes(subKey);
+          const slugs = [s.slug, s.nameLower, s.name].map((x) =>
+            slugifyTR(String(x || ""))
+          );
+          return keys.includes(subKey) || slugs.includes(subSlugKey);
         });
-        if (!matchSub) throw new Error("Alt kategori bulunamadı.");
+        if (!matchSub) throw new Error("Alt kategori bulunamadi.");
 
-        const canonicalSubSlug = normTRAscii(matchSub.name);
+        const canonicalSubSlug = slugifyTR(
+          matchSub.slug || matchSub.nameLower || matchSub.name || ""
+        );
         if (
           canonicalCategorySlug &&
           canonicalSubSlug &&
-          (categoryKey !== canonicalCategorySlug || subKey !== canonicalSubSlug)
+          (categorySlugKey !== canonicalCategorySlug || subSlugKey !== canonicalSubSlug)
         ) {
           const qs = searchParams?.toString();
           const canonicalPath = `/${encodeURIComponent(

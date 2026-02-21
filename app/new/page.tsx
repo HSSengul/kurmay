@@ -5,13 +5,12 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
   getDocFromServer,
   serverTimestamp,
-  updateDoc,
+  setDoc,
 } from "firebase/firestore";
 
 import { onAuthStateChanged } from "firebase/auth";
@@ -20,13 +19,15 @@ import { appCheck, auth, db, storage } from "@/lib/firebase";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { getCategoriesCached } from "@/lib/catalogCache";
 import { devError, devWarn, getFriendlyErrorMessage } from "@/lib/logger";
-import { buildListingPath } from "@/lib/listingUrl";
+import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
 
 /* ================= TYPES ================= */
 
 type Category = {
   id: string; // categories doc id
   name: string;
+  nameLower?: string;
+  slug?: string;
   enabled?: boolean;
   order?: number;
   parentId?: string | null;
@@ -35,6 +36,8 @@ type Category = {
 type SubCategory = {
   id: string; // categories doc id
   name: string;
+  nameLower?: string;
+  slug?: string;
   parentId: string;
   enabled?: boolean;
   order?: number;
@@ -120,10 +123,25 @@ export default function NewListingPage() {
     details?: Record<string, string>;
   } | null>(null);
     // Kategori türleri
-    const [isBoardGameCategory, setIsBoardGameCategory] = useState(false);
-    const [isConsoleCategory, setIsConsoleCategory] = useState(false);
-    const [isHandheldCategory, setIsHandheldCategory] = useState(false);
+    const selectedMainCategory = useMemo(
+      () => allCategories.find((c) => c.id === categoryId && c.parentId == null) || null,
+      [allCategories, categoryId]
+    );
+    const selectedMainCategorySlug = useMemo(
+      () =>
+        slugifyTR(
+          selectedMainCategory?.slug ||
+            selectedMainCategory?.nameLower ||
+            selectedMainCategory?.name ||
+            ""
+        ),
+      [selectedMainCategory]
+    );
 
+    const isBoardGameCategory = selectedMainCategorySlug === "kutu-oyunlari";
+    const isConsoleCategory = selectedMainCategorySlug === "konsollar";
+    const isHandheldCategory = selectedMainCategorySlug === "el-konsollari";
+    const isConsoleGameCategory = selectedMainCategorySlug === "konsol-oyunlari";
     const isConsoleLike = isConsoleCategory || isHandheldCategory;
 
     // Sabit: schema zorunlu mu?
@@ -149,6 +167,35 @@ export default function NewListingPage() {
     }
     function normalizeSpaces(str: string) {
       return str.replace(/\s+/g, " ").trim();
+    }
+    function cleanLocationToken(v: string) {
+      return normalizeSpaces(v || "").replace(/^[-|/\\]+|[-|/\\]+$/g, "");
+    }
+    function isPostalCodeToken(v: string) {
+      return /^\d{5}$/.test((v || "").trim());
+    }
+    function isCountryToken(v: string) {
+      const n = cleanLocationToken(v).toLocaleLowerCase("tr-TR");
+      return (
+        n === "turkiye" ||
+        n === "türkiye" ||
+        n === "turkey" ||
+        n === "turkiye cumhuriyeti" ||
+        n === "türkiye cumhuriyeti"
+      );
+    }
+    function isRegionToken(v: string) {
+      const n = cleanLocationToken(v).toLocaleLowerCase("tr-TR");
+      return n.includes("bölgesi") || n.includes("bolgesi") || n.includes("region");
+    }
+    function isUsefulLocationToken(v: string) {
+      const token = cleanLocationToken(v);
+      if (!token) return false;
+      if (/^\d+$/.test(token)) return false;
+      if (isCountryToken(token) || isRegionToken(token) || isPostalCodeToken(token)) {
+        return false;
+      }
+      return true;
     }
     function clampString(val: any, max: number) {
       return normalizeSpaces(String(val || "")).slice(0, max);
@@ -199,6 +246,42 @@ function normalizeOptions(list: OptionLike[] | undefined) {
         return null;
       }
     }
+    function extractCityDistrict(address: string) {
+      const cleaned = normalizeSpaces(address || "");
+      if (!cleaned) return { city: "", district: "" };
+
+      const parts = cleaned
+        .split(",")
+        .map((p) => cleanLocationToken(p))
+        .filter(Boolean);
+
+      for (let i = parts.length - 1; i >= 0; i -= 1) {
+        const part = parts[i];
+        if (!part.includes("/")) continue;
+        const slashParts = part
+          .split("/")
+          .map((p) => cleanLocationToken(p))
+          .filter(isUsefulLocationToken);
+        const slashAlphaParts = slashParts.filter((p) =>
+          /[A-Za-zÇĞİÖŞÜçğıöşü]/.test(p)
+        );
+        if (slashAlphaParts.length >= 2) {
+          const district = slashAlphaParts[slashAlphaParts.length - 2];
+          const city = slashAlphaParts[slashAlphaParts.length - 1];
+          return { city, district };
+        }
+      }
+
+      const meaningful = parts.filter(isUsefulLocationToken);
+
+      if (meaningful.length >= 2) {
+        const district = meaningful[meaningful.length - 2];
+        const city = meaningful[meaningful.length - 1];
+        return { city, district };
+      }
+
+      return { city: meaningful[0] || "", district: "" };
+    }
   // ...tüm state, fonksiyonlar ve JSX buraya taşındı...
   // ...dosyanın geri kalanı sadece bu fonksiyonun içinde olacak...
 // ...component fonksiyonu içindeki kodlar burada devam ediyor...
@@ -210,11 +293,10 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     { value: "good", label: "İyi" },
     { value: "used", label: "Kullanılmış" },
     { value: "forParts", label: "Parça / Arızalı" },
-    { value: "pnp", label: "PNP" },
   ];
 
   const conditionLabel = (
-    v: "" | "new" | "likeNew" | "good" | "used" | "forParts" | "pnp"
+    v: "" | "new" | "likeNew" | "good" | "used" | "forParts"
   ) => {
     const x = conditionOptions.find((o) => o.value === v);
     return x ? x.label : "";
@@ -597,20 +679,20 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     };
   })();
 
-  /**
-   * ✅ HOOK ORDER FIX:
-   * Bu memo kesinlikle return'lerden SONRA olmamalı.
-   * Yoksa ilk render'da gateChecking return eder ve useMemo çağrılmaz -> sonraki render'da çağrılır -> hook order bozulur.
-   */
-  const schemaStatusText = useMemo(() => {
-    if (!categoryId) return "Önce kategori seç";
-    if (schemaLoading) return "Şema yükleniyor...";
-    if (schemaExists) return `Şema hazır (v${schemaVersion})`;
-    return `Şema yok${REQUIRE_SCHEMA ? " (Şema zorunlu)" : ""}`;
-  }, [categoryId, schemaLoading, schemaExists, schemaVersion, REQUIRE_SCHEMA]);
-
   const schemaFieldsToRender = useMemo(() => {
     if (!schemaExists || schemaFields.length === 0) return [];
+
+    const formatNorm = String(attributes.format || "")
+      .toLocaleLowerCase("tr-TR")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+
+    const hidePhysicalOnlyConsoleGameFields =
+      isConsoleGameCategory &&
+      (formatNorm.includes("dijital") ||
+        formatNorm.includes("digital") ||
+        formatNorm.includes("dlc"));
 
     const skip = new Set<string>();
 
@@ -627,16 +709,29 @@ function normalizeOptions(list: OptionLike[] | undefined) {
       skip.add("onlineStatus");
     }
 
-    return schemaFields.filter((f) => !skip.has(f.key));
+    return schemaFields.filter((f) => {
+      if (skip.has(f.key)) return false;
+      if (
+        hidePhysicalOnlyConsoleGameFields &&
+        (f.key === "discCondition" || f.key === "box")
+      ) {
+        return false;
+      }
+      return true;
+    });
   }, [
     schemaExists,
     schemaFields,
     isBoardGameCategory,
     isConsoleLike,
+    isConsoleGameCategory,
+    attributes.format,
     boardgameAttrKeys,
     boardgameLegacyKeys,
     consoleAttrKeys,
   ]);
+
+  const isCategorySelectionComplete = Boolean(categoryId && subCategoryId);
 
   /* ================= AUTH + GATE CHECK ================= */
 
@@ -728,6 +823,8 @@ function normalizeOptions(list: OptionLike[] | undefined) {
           .map((d: any) => ({
             id: d.id,
             name: safeString(d.name, ""),
+            nameLower: safeString(d.nameLower, ""),
+            slug: safeString(d.slug, ""),
             enabled: d.enabled,
             order: d.order ?? 0,
             parentId: d.parentId ?? null,
@@ -877,6 +974,33 @@ function normalizeOptions(list: OptionLike[] | undefined) {
       return next;
     });
   }, [isConsoleLike, isHandheldCategory, isHandheldModel, subCategoryId]);
+
+  useEffect(() => {
+    if (!isConsoleGameCategory) return;
+
+    const formatNorm = String(attributes.format || "")
+      .toLocaleLowerCase("tr-TR")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+
+    const isDigital =
+      formatNorm.includes("dijital") ||
+      formatNorm.includes("digital") ||
+      formatNorm.includes("dlc");
+
+    if (!isDigital) return;
+
+    setAttributes((prev) => {
+      if (prev.discCondition == null && prev.box == null) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete (next as any).discCondition;
+      delete (next as any).box;
+      return next;
+    });
+  }, [isConsoleGameCategory, attributes.format]);
 
   /* ================= ATTR HELPERS ================= */
 
@@ -1503,12 +1627,14 @@ function normalizeOptions(list: OptionLike[] | undefined) {
         (auth.currentUser?.email ? auth.currentUser.email.split("@")[0] : "");
       const safeOwnerName = String(rawOwnerName || "").trim().slice(0, 120);
 
-      const allowPublicAddress = profileData?.showAddress !== false;
-      const rawAddress = allowPublicAddress
-        ? profileData?.address || userData?.address || ""
-        : "";
+      const rawAddress =
+        privateData?.address ||
+        profileData?.address ||
+        userData?.address ||
+        profileSummary?.address ||
+        "";
       const locationAddress = normalizeSpaces(String(rawAddress || ""));
-      const locationFromProfile = allowPublicAddress ? privateData?.location : null;
+      const locationFromProfile = privateData?.location;
       let location = null as
         | { address: string; lat: number; lng: number }
         | null;
@@ -1533,6 +1659,11 @@ function normalizeOptions(list: OptionLike[] | undefined) {
             : null;
       }
 
+      const locationLabel = normalizeSpaces(
+        String(location?.address || locationAddress || "")
+      );
+      const cityDistrict = extractCityDistrict(locationLabel);
+
       basePayload = {
         title: safeTitle,
         price: priceNumber,
@@ -1544,22 +1675,21 @@ function normalizeOptions(list: OptionLike[] | undefined) {
         ownerName: safeOwnerName,
         location: location,
         locationAddress: locationAddress || null,
-        imageUrls: [],
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        locationCity: cityDistrict.city || null,
+        locationDistrict: cityDistrict.district || null,
       };
 
-      const listingRef = await addDoc(collection(db, "listings"), basePayload);
-
       failStep = "uploadImages";
+      const listingRef = doc(collection(db, "listings"));
       const imageUrls = await uploadFilesWithProgress(listingRef.id, newFiles);
 
-      failStep = "updateDoc";
-      await updateDoc(listingRef, {
+      failStep = "setDoc";
+      await setDoc(listingRef, {
+        ...basePayload,
         description: safeDescription,
         conditionKey: condition,
         conditionLabel: conditionLabel(
-          condition as "" | "new" | "likeNew" | "good" | "used" | "forParts" | "pnp"
+          condition as "" | "new" | "likeNew" | "good" | "used" | "forParts"
         ),
         isTradable,
         shippingAvailable: isShippable,
@@ -1570,6 +1700,7 @@ function normalizeOptions(list: OptionLike[] | undefined) {
 
         status: "active",
         imageUrls,
+        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
@@ -1635,12 +1766,7 @@ function normalizeOptions(list: OptionLike[] | undefined) {
           basePayload.ownerId === auth.currentUser?.uid
         );
         debugDetails.payloadPriceType = typeof basePayload.price;
-        debugDetails.payloadImageUrlsIsArray = String(
-          Array.isArray(basePayload.imageUrls)
-        );
-        debugDetails.payloadImageUrlsLen = Array.isArray(basePayload.imageUrls)
-          ? String(basePayload.imageUrls.length)
-          : "n/a";
+        debugDetails.payloadHasLocation = String(!!basePayload.location);
         debugDetails.payloadCategoryNameType = typeof basePayload.categoryName;
         debugDetails.payloadSubCategoryNameType =
           typeof basePayload.subCategoryName;
@@ -1804,20 +1930,6 @@ function normalizeOptions(list: OptionLike[] | undefined) {
                   value={categoryId}
                   onChange={(e) => {
                     setCategoryId(e.target.value);
-                    // 'Kutu Oyunları' kategorisinin id'sini burada kontrol et
-                    const selected = categories.find(c => c.id === e.target.value || c.name === e.target.value);
-                    // Kategori adı veya id'si ile kontrol et
-                    const isBoardGame =
-                      !!selected &&
-                      (selected.name === "Kutu Oyunları" || selected.id === "kutu-oyunlari");
-                    const isConsole =
-                      !!selected && (selected.name === "Konsollar" || selected.id === "konsollar");
-                    const isHandheld =
-                      !!selected &&
-                      (selected.name === "El Konsolları" || selected.id === "el-konsollari");
-                    setIsBoardGameCategory(isBoardGame);
-                    setIsConsoleCategory(isConsole);
-                    setIsHandheldCategory(isHandheld);
                   }}
                   className={selectClass}
                   disabled={loading || uploading}
@@ -1887,6 +1999,17 @@ function normalizeOptions(list: OptionLike[] | undefined) {
             {/* Schema status intentionally hidden */}
           </div>
 
+          {!isCategorySelectionComplete && (
+            <div className={`${sectionCardClass} space-y-2`}>
+              <div className={sectionTitleClass}>Kategori seçimi gerekli</div>
+              <p className={mutedTextClass}>
+                Devam etmek için önce kategori ve alt kategori seç.
+              </p>
+            </div>
+          )}
+
+          {isCategorySelectionComplete && (
+            <>
           {/* Kutu Oyunları özel alanları: kategori seçilince göster */}
           {isBoardGameCategory && (
             <div className={`${sectionCardClass} space-y-4`}>
@@ -2640,7 +2763,12 @@ function normalizeOptions(list: OptionLike[] | undefined) {
           <div className="flex flex-col sm:flex-row gap-3">
             <button
               type="submit"
-              disabled={loading || uploading || preparingImages}
+              disabled={
+                !isCategorySelectionComplete ||
+                loading ||
+                uploading ||
+                preparingImages
+              }
               className="flex-1 bg-[#1f2a24] hover:bg-[#2b3b32] text-white font-semibold py-3 rounded-full disabled:opacity-50"
             >
               {uploading
@@ -2665,6 +2793,8 @@ function normalizeOptions(list: OptionLike[] | undefined) {
             <b>{REQUIRE_SCHEMA ? "zorunlu" : "opsiyonel"}</b>. Şema yoksa{" "}
             {REQUIRE_SCHEMA ? "ilan yayınlayamazsın." : "dinamik alanlar gelmez."}
           </div>
+            </>
+          )}
         </form>
       </div>
     </div>

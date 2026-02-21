@@ -4,12 +4,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { deleteField, doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
 import { getCategoriesCached } from "@/lib/catalogCache";
 import { devError, devWarn, getFriendlyErrorMessage } from "@/lib/logger";
-import { buildListingPath } from "@/lib/listingUrl";
+import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
 import {
   ref,
   uploadBytesResumable,
@@ -245,9 +245,21 @@ export default function EditListingPage() {
     return list;
   }, [allCategories, categoryId]);
 
-  const [isBoardGameCategory, setIsBoardGameCategory] = useState(false);
-  const [isConsoleCategory, setIsConsoleCategory] = useState(false);
-  const [isHandheldCategory, setIsHandheldCategory] = useState(false);
+  const selectedMainCategory = useMemo(
+    () => allCategories.find((c) => c.id === categoryId && c.parentId == null) || null,
+    [allCategories, categoryId]
+  );
+  const selectedMainCategorySlug = useMemo(
+    () =>
+      slugifyTR(
+        selectedMainCategory?.nameLower || selectedMainCategory?.name || ""
+      ),
+    [selectedMainCategory]
+  );
+
+  const isBoardGameCategory = selectedMainCategorySlug === "kutu-oyunlari";
+  const isConsoleCategory = selectedMainCategorySlug === "konsollar";
+  const isHandheldCategory = selectedMainCategorySlug === "el-konsollari";
   const isConsoleLike = isConsoleCategory || isHandheldCategory;
 
   useEffect(() => {
@@ -295,18 +307,6 @@ export default function EditListingPage() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    const selected = allCategories.find((c) => c.id === categoryId);
-    const name = selected?.name || "";
-    setIsBoardGameCategory(
-      name === "Kutu Oyunları" || categoryId === "kutu-oyunlari"
-    );
-    setIsConsoleCategory(name === "Konsollar" || categoryId === "konsollar");
-    setIsHandheldCategory(
-      name === "El Konsolları" || categoryId === "el-konsollari"
-    );
-  }, [allCategories, categoryId]);
 
   /* ================= ATTRIBUTES ================= */
 
@@ -1147,35 +1147,29 @@ export default function EditListingPage() {
       setSaving(true);
 
       const attributesForSave = buildAttributesForSave();
+      const selectedCategoryName =
+        categories.find((c) => c.id === categoryId)?.name ||
+        listing?.categoryName ||
+        listing?.brandName ||
+        "";
+      const selectedSubCategoryName =
+        subCategories.find((s) => s.id === subCategoryId)?.name ||
+        listing?.subCategoryName ||
+        listing?.modelName ||
+        "";
 
       await updateDoc(doc(db, "listings", listingId), {
         title: cleanTitle,
         description: cleanDescription,
         price: priceNumber,
         categoryId,
-        categoryName:
-          categories.find((c) => c.id === categoryId)?.name ||
-          listing?.categoryName ||
-          listing?.brandName ||
-          "",
+        categoryName: selectedCategoryName,
         subCategoryId,
-        subCategoryName:
-          subCategories.find((s) => s.id === subCategoryId)?.name ||
-          listing?.subCategoryName ||
-          listing?.modelName ||
-          "",
-        brandId: categoryId,
-        brandName:
-          categories.find((c) => c.id === categoryId)?.name ||
-          listing?.categoryName ||
-          listing?.brandName ||
-          "",
-        modelId: subCategoryId,
-        modelName:
-          subCategories.find((s) => s.id === subCategoryId)?.name ||
-          listing?.subCategoryName ||
-          listing?.modelName ||
-          "",
+        subCategoryName: selectedSubCategoryName,
+        brandId: deleteField(),
+        brandName: deleteField(),
+        modelId: deleteField(),
+        modelName: deleteField(),
         conditionKey: condition,
         conditionLabel: conditionLabel(condition as any),
         isTradable,

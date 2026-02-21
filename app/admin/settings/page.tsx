@@ -171,6 +171,15 @@ export default function AdminSettingsPage() {
       };
 
       await setDoc(doc(db, "adminSettings", "global"), payload, { merge: true });
+      await setDoc(
+        doc(db, "publicSettings", "global"),
+        {
+          siteName: form.siteName,
+          brandLogoUrl: url,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       setForm((p) => ({ ...p, brandLogoUrl: url }));
       setInitial((p) => ({ ...p, brandLogoUrl: url }));
@@ -201,6 +210,15 @@ export default function AdminSettingsPage() {
       };
 
       await setDoc(doc(db, "adminSettings", "global"), payload, { merge: true });
+      await setDoc(
+        doc(db, "publicSettings", "global"),
+        {
+          siteName: payload.siteName,
+          brandLogoUrl: payload.brandLogoUrl || "",
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       setForm(payload);
       setInitial(payload);

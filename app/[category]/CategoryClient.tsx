@@ -23,7 +23,7 @@ import {
   QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { getCategoriesCached, getSubCategoriesCached } from "@/lib/catalogCache";
+import { getCategoriesCached } from "@/lib/catalogCache";
 import { devError, getFriendlyErrorMessage } from "@/lib/logger";
 import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
 
@@ -91,13 +91,9 @@ const normTR = (v?: string) =>
 
 const normTRAscii = (v?: string) =>
   normTR(v)
-    .replaceAll("ı", "i")
-    .replaceAll("ş", "s")
-    .replaceAll("ğ", "g")
-    .replaceAll("ü", "u")
-    .replaceAll("ö", "o")
-    .replaceAll("ç", "c")
-    .replaceAll("İ", "i")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i")
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -531,17 +527,24 @@ export default function CategoryClient({
           ...(d as any),
         }));
         const key = normTRAscii(categorySlug);
+        const slugKey = slugifyTR(categorySlug);
         const matchCategory = categoryDocs.find((c) => {
           const keys = [c.id, c.slug, c.nameLower, c.name].map((x) =>
             normTRAscii(x)
           );
-          return keys.includes(key);
+          const slugs = [c.slug, c.nameLower, c.name].map((x) =>
+            slugifyTR(String(x || ""))
+          );
+          return keys.includes(key) || slugs.includes(slugKey);
         });
 
-        if (!matchCategory) throw new Error("Kategori bulunamadı.");
+        if (!matchCategory) throw new Error("Kategori bulunamadi.");
 
-        const canonicalCategorySlug = normTRAscii(matchCategory.name);
-        if (canonicalCategorySlug && key !== canonicalCategorySlug) {
+        const canonicalCategorySlug = slugifyTR(
+          matchCategory.slug || matchCategory.nameLower || matchCategory.name || ""
+        );
+        const currentSlug = slugifyTR(categorySlug);
+        if (canonicalCategorySlug && currentSlug !== canonicalCategorySlug) {
           const qs = searchParams?.toString();
           const canonicalPath = `/${encodeURIComponent(canonicalCategorySlug)}`;
           router.replace(qs ? `${canonicalPath}?${qs}` : canonicalPath);
@@ -557,13 +560,7 @@ export default function CategoryClient({
         setCategory(b);
 
         // 2) SUBCATEGORIES
-        let subDocs = (await getSubCategoriesCached()).filter(
-          (s: any) => s.categoryId === b.id
-        );
-        if (!subDocs.length) {
-          // fallback: subCategories still stored under categories with parentId
-          subDocs = categoryDocs.filter((s: any) => s.parentId === b.id);
-        }
+        const subDocs = categoryDocs.filter((s: any) => s.parentId === b.id);
 
         if (cancelled) return;
 
@@ -572,7 +569,7 @@ export default function CategoryClient({
             id: d.id,
             name: d.name,
             nameLower: d.nameLower,
-            categoryId: d.categoryId,
+            categoryId: d.parentId || undefined,
           }))
           .sort((a: any, b: any) =>
             (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")

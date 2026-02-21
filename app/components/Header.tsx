@@ -113,7 +113,7 @@ type UserUnreadDoc = {
   role?: string;
 };
 
-type AdminSettingsDoc = {
+type PublicBrandingDoc = {
   siteName?: string;
   brandLogoUrl?: string;
 };
@@ -228,16 +228,24 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
 
   useEffect(() => {
     if (!db) return;
-    const unsub = onSnapshot(doc(db, "adminSettings", "global"), (snap) => {
-      if (!snap.exists()) {
+    const unsub = onSnapshot(
+      doc(db, "publicSettings", "global"),
+      (snap) => {
+        if (!snap.exists()) {
+          setSiteName("KURMAY");
+          setBrandLogoUrl("");
+          return;
+        }
+        const d = snap.data() as PublicBrandingDoc;
+        setSiteName((d.siteName || "KURMAY").toString());
+        setBrandLogoUrl((d.brandLogoUrl || "").toString());
+      },
+      () => {
+        // If client cannot read admin settings by rules, keep safe defaults.
         setSiteName("KURMAY");
         setBrandLogoUrl("");
-        return;
       }
-      const d = snap.data() as AdminSettingsDoc;
-      setSiteName((d.siteName || "KURMAY").toString());
-      setBrandLogoUrl((d.brandLogoUrl || "").toString());
-    });
+    );
     return () => unsub();
   }, []);
 

@@ -14,6 +14,7 @@ type CategoryDoc = {
   nameLower?: string;
   slug?: string;
   parentId?: string | null;
+  enabled?: boolean;
 };
 
 type SubCategoryDoc = {
@@ -21,8 +22,8 @@ type SubCategoryDoc = {
   name: string;
   nameLower?: string;
   slug?: string;
-  categoryId?: string;
   parentId?: string | null;
+  enabled?: boolean;
 };
 
 type ListingDoc = {
@@ -35,7 +36,6 @@ type ListingDoc = {
   subCategoryName?: string;
   imageUrls?: string[];
   createdAt?: any;
-  modelId?: string;
 };
 
 const siteUrl =
@@ -95,12 +95,6 @@ const getCategoriesCached = unstable_cache(
   { revalidate: 300 }
 );
 
-const getSubCategoriesCached = unstable_cache(
-  async () => listCollection<SubCategoryDoc>("subCategories"),
-  ["kf_subcategories"],
-  { revalidate: 300 }
-);
-
 const getListingsForSubMeta = unstable_cache(
   async (subId: string) =>
     runQueryByField<ListingDoc>({
@@ -113,19 +107,21 @@ const getListingsForSubMeta = unstable_cache(
   { revalidate: 300 }
 );
 
-const getListingsForModelMeta = unstable_cache(
-  async (modelId: string) =>
-    runQueryByField<ListingDoc>({
-      collectionId: "listings",
-      fieldPath: "modelId",
-      value: modelId,
-      limit: 6,
-    }),
-  ["kf_sub_meta_listings_legacy"],
-  { revalidate: 300 }
-);
-
 const LISTINGS_BATCH = 60;
+
+const matchesDocKey = (
+  normalizedKey: string,
+  slugKey: string,
+  doc: { id?: string; slug?: string; nameLower?: string; name?: string }
+) => {
+  const normKeys = [doc.id, doc.slug, doc.nameLower, doc.name].map((x) =>
+    normTRAscii(String(x || ""))
+  );
+  const slugKeys = [doc.slug, doc.nameLower, doc.name].map((x) =>
+    slugifyTR(String(x || ""))
+  );
+  return normKeys.includes(normalizedKey) || slugKeys.includes(slugKey);
+};
 
 export async function generateMetadata({
   params,
@@ -138,26 +134,26 @@ export async function generateMetadata({
     ? decodeURIComponent(resolved.subCategory)
     : "";
 
-  const categories = await getCategoriesCached();
-  const subCategories = await getSubCategoriesCached();
-  const subCategoriesFallback: SubCategoryDoc[] = categories
-    .filter((c) => !!c.parentId)
+  const categoriesAll = await getCategoriesCached();
+  const categories = categoriesAll.filter(
+    (c) => !c.parentId && c.enabled !== false
+  );
+  const subCategories = categoriesAll
+    .filter((c) => !!c.parentId && c.enabled !== false)
     .map((c) => ({
       id: c.id,
       name: c.name,
       nameLower: c.nameLower,
       slug: c.slug,
-      categoryId: c.parentId || undefined,
       parentId: c.parentId || undefined,
-    }));
+      enabled: c.enabled,
+    })) as SubCategoryDoc[];
 
   const categoryKey = normTRAscii(categorySlug);
-  const matchCategory = categories.find((c) => {
-    const keys = [c.id, c.slug, c.nameLower, c.name].map((x) =>
-      normTRAscii(String(x || ""))
-    );
-    return keys.includes(categoryKey);
-  });
+  const categorySlugKey = slugifyTR(categorySlug);
+  const matchCategory = categories.find((c) =>
+    matchesDocKey(categoryKey, categorySlugKey, c)
+  );
   if (!matchCategory) {
     return {
       title: "Kategori bulunamadı",
@@ -166,21 +162,11 @@ export async function generateMetadata({
   }
 
   const subKey = normTRAscii(subCategorySlug);
-  const matchSub =
-    subCategories.find((s) => {
-      if ((s.categoryId || s.parentId) !== matchCategory.id) return false;
-      const keys = [s.id, s.slug, s.nameLower, s.name].map((x) =>
-        normTRAscii(String(x || ""))
-      );
-      return keys.includes(subKey);
-    }) ||
-    subCategoriesFallback.find((s) => {
-      if (s.parentId !== matchCategory.id) return false;
-      const keys = [s.id, s.slug, s.nameLower, s.name].map((x) =>
-        normTRAscii(String(x || ""))
-      );
-      return keys.includes(subKey);
-    });
+  const subSlugKey = slugifyTR(subCategorySlug);
+  const matchSub = subCategories.find((s) => {
+    if (s.parentId !== matchCategory.id) return false;
+    return matchesDocKey(subKey, subSlugKey, s);
+  });
   if (!matchSub) {
     return {
       title: "Alt kategori bulunamadı",
@@ -196,10 +182,7 @@ export async function generateMetadata({
   );
   const title = `${matchSub.name} | ${matchCategory.name}`;
 
-  let listingsForMeta = await getListingsForSubMeta(matchSub.id);
-  if (listingsForMeta.length === 0) {
-    listingsForMeta = await getListingsForModelMeta(matchSub.id);
-  }
+  const listingsForMeta = await getListingsForSubMeta(matchSub.id);
 
   const extraMeta = buildListingMeta(listingsForMeta);
   const description = clampMeta(
@@ -253,44 +236,34 @@ export default async function SubCategoryPage({
     ? decodeURIComponent(resolved.subCategory)
     : "";
 
-  const categories = await getCategoriesCached();
-  const subCategoriesAll = await getSubCategoriesCached();
-  const subCategoriesFallback: SubCategoryDoc[] = categories
-    .filter((c) => !!c.parentId)
+  const categoriesAll = await getCategoriesCached();
+  const categories = categoriesAll.filter(
+    (c) => !c.parentId && c.enabled !== false
+  );
+  const subCategoriesAll = categoriesAll
+    .filter((c) => !!c.parentId && c.enabled !== false)
     .map((c) => ({
       id: c.id,
       name: c.name,
       nameLower: c.nameLower,
       slug: c.slug,
-      categoryId: c.parentId || undefined,
       parentId: c.parentId || undefined,
-    }));
+      enabled: c.enabled,
+    })) as SubCategoryDoc[];
 
   const categoryKey = normTRAscii(categorySlug);
-  const matchCategory = categories.find((c) => {
-    const keys = [c.id, c.slug, c.nameLower, c.name].map((x) =>
-      normTRAscii(String(x || ""))
-    );
-    return keys.includes(categoryKey);
-  });
+  const categorySlugKey = slugifyTR(categorySlug);
+  const matchCategory = categories.find((c) =>
+    matchesDocKey(categoryKey, categorySlugKey, c)
+  );
   if (!matchCategory) notFound();
 
   const subKey = normTRAscii(subCategorySlug);
-  const matchSub =
-    subCategoriesAll.find((s) => {
-      if ((s.categoryId || s.parentId) !== matchCategory.id) return false;
-      const keys = [s.id, s.slug, s.nameLower, s.name].map((x) =>
-        normTRAscii(String(x || ""))
-      );
-      return keys.includes(subKey);
-    }) ||
-    subCategoriesFallback.find((s) => {
-      if (s.parentId !== matchCategory.id) return false;
-      const keys = [s.id, s.slug, s.nameLower, s.name].map((x) =>
-        normTRAscii(String(x || ""))
-      );
-      return keys.includes(subKey);
-    });
+  const subSlugKey = slugifyTR(subCategorySlug);
+  const matchSub = subCategoriesAll.find((s) => {
+    if (s.parentId !== matchCategory.id) return false;
+    return matchesDocKey(subKey, subSlugKey, s);
+  });
   if (!matchSub) notFound();
 
   const canonicalCategorySlug = slugifyTR(
@@ -320,20 +293,16 @@ export default async function SubCategoryPage({
     id: matchSub.id,
     name: matchSub.name,
     nameLower: matchSub.nameLower || normTRAscii(matchSub.name),
-    categoryId: (matchSub as any).categoryId || (matchSub as any).parentId || matchCategory.id,
+    categoryId: (matchSub as any).parentId || matchCategory.id,
   };
 
-  const subCategoriesSource = subCategoriesAll.length
-    ? subCategoriesAll
-    : subCategoriesFallback;
-
-  const subCategories = subCategoriesSource
-    .filter((s) => (s.categoryId || s.parentId) === matchCategory.id)
+  const subCategories = subCategoriesAll
+    .filter((s) => s.parentId === matchCategory.id)
     .map((s) => ({
       id: s.id,
       name: s.name,
       nameLower: s.nameLower || normTRAscii(s.name),
-      categoryId: (s as any).categoryId || (s as any).parentId,
+      categoryId: (s as any).parentId || undefined,
     }))
     .sort((a, b) =>
       (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")

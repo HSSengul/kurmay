@@ -69,10 +69,10 @@ type ListingSchemaDoc = {
 const TEMPLATE_BOARDGAME: SchemaField[] = [
   {
     key: "gameName",
-    label: "Oyunun Resmi Adı",
+    label: "Oyunun adi",
     type: "text",
     required: false,
-    placeholder: "Örn: Catan / Terraforming Mars",
+    placeholder: "Orn: Catan / Terraforming Mars",
   },
   {
     key: "minPlayers",
@@ -92,7 +92,7 @@ const TEMPLATE_BOARDGAME: SchemaField[] = [
   },
   {
     key: "minPlaytime",
-    label: "Minimum süre (dk)",
+    label: "Minimum sure (dk)",
     type: "number",
     required: false,
     min: 1,
@@ -100,7 +100,7 @@ const TEMPLATE_BOARDGAME: SchemaField[] = [
   },
   {
     key: "maxPlaytime",
-    label: "Maksimum süre (dk)",
+    label: "Maksimum sure (dk)",
     type: "number",
     required: false,
     min: 1,
@@ -108,7 +108,7 @@ const TEMPLATE_BOARDGAME: SchemaField[] = [
   },
   {
     key: "suggestedAge",
-    label: "Yaş önerisi",
+    label: "Yas onerisi",
     type: "select",
     required: false,
     options: ["3", "7", "13", "18"],
@@ -119,37 +119,72 @@ const TEMPLATE_BOARDGAME: SchemaField[] = [
     type: "select",
     required: false,
     options: [
-      "Türkçe",
-      "İngilizce",
+      "Turkce",
+      "Ingilizce",
       "Almanca",
-      "Fransızca",
-      "İtalyanca",
-      "İspanyolca",
-      "Diğer",
+      "Fransizca",
+      "Italyanca",
+      "Ispanyolca",
+      "Diger",
     ],
   },
   {
     key: "completeContent",
-    label: "İçerik tam mı?",
+    label: "Icerik tam mi?",
     type: "boolean",
     required: true,
   },
   {
     key: "sleeved",
-    label: "Sleeve kullanıldı mı?",
+    label: "Sleeve kullanildi mi?",
     type: "boolean",
     required: false,
   },
 ];
 
-// 🎮 Konsol (donanım)
+const TEMPLATE_CARDGAME: SchemaField[] = [
+  {
+    key: "gameName",
+    label: "Oyun adi",
+    type: "text",
+    required: true,
+    placeholder: "Orn: Exploding Kittens / Uno",
+  },
+  {
+    key: "playerRange",
+    label: "Oyuncu araligi",
+    type: "select",
+    required: false,
+    options: ["1-2", "2-4", "2-6", "4+", "Degisken"],
+  },
+  {
+    key: "language",
+    label: "Dil",
+    type: "select",
+    required: false,
+    options: ["Turkce", "Ingilizce", "Diger"],
+  },
+  {
+    key: "completeContent",
+    label: "Icerik tam mi?",
+    type: "boolean",
+    required: true,
+  },
+  {
+    key: "sleeved",
+    label: "Sleeve kullanildi mi?",
+    type: "boolean",
+    required: false,
+  },
+];
+
 const TEMPLATE_CONSOLE: SchemaField[] = [
   {
     key: "consoleModel",
-    label: "Model / Sürüm",
+    label: "Model / Surum",
     type: "text",
     required: true,
-    placeholder: "Örn: PS5 Slim / Series X / Switch OLED",
+    placeholder: "Orn: PS5 Slim / Series X / Switch OLED",
   },
   {
     key: "storage",
@@ -176,13 +211,13 @@ const TEMPLATE_CONSOLE: SchemaField[] = [
   },
   {
     key: "box",
-    label: "Kutu var mı?",
+    label: "Kutu var mi?",
     type: "boolean",
     required: false,
   },
   {
     key: "controllerCount",
-    label: "Kumanda sayısı",
+    label: "Kumanda sayisi",
     type: "number",
     required: false,
     min: 0,
@@ -190,14 +225,14 @@ const TEMPLATE_CONSOLE: SchemaField[] = [
   },
   {
     key: "accessories",
-    label: "Aksesuarlar / Ek parçalar",
+    label: "Aksesuarlar / Ek parcalar",
     type: "text",
     required: false,
-    placeholder: "Örn: 2. kontrolcü, dock, HDMI",
+    placeholder: "Orn: 2. kontrolcu, dock, HDMI",
   },
   {
     key: "purchaseYear",
-    label: "Satın alma yılı",
+    label: "Satin alma yili",
     type: "number",
     required: false,
     min: 1980,
@@ -208,50 +243,56 @@ const TEMPLATE_CONSOLE: SchemaField[] = [
     label: "Garanti durumu",
     type: "select",
     required: false,
-    options: ["Devam ediyor", "Bitmiş", "Bilinmiyor"],
+    options: ["Devam ediyor", "Bitmis", "Bilinmiyor"],
   },
   {
     key: "usageLevel",
-    label: "Kullanım yoğunluğu",
+    label: "Kullanim yogunlugu",
     type: "select",
     required: false,
-    options: ["Az", "Orta", "Yoğun"],
+    options: ["Az", "Orta", "Yogun"],
   },
   {
     key: "batteryHealth",
-    label: "Pil sağlığı",
+    label: "Pil sagligi",
     type: "select",
     required: false,
-    options: ["Çok iyi", "İyi", "Orta", "Zayıf", "Bilinmiyor"],
+    options: ["Cok iyi", "Iyi", "Orta", "Zayif", "Bilinmiyor"],
   },
   {
     key: "screenCondition",
     label: "Ekran durumu",
     type: "select",
     required: false,
-    options: ["Çiziksiz", "Hafif çizik", "Belirgin çizik", "Kırık", "Bilinmiyor"],
+    options: ["Ciziksiz", "Hafif cizik", "Belirgin cizik", "Kirik", "Bilinmiyor"],
   },
   {
     key: "stickDrift",
-    label: "Stick drift var mı?",
+    label: "Stick drift var mi?",
     type: "select",
     required: false,
     options: ["Yok", "Var", "Bilinmiyor"],
   },
 ];
 
-// 🕹️ Konsol oyunu (disk/kutu)
 const TEMPLATE_CONSOLE_GAME: SchemaField[] = [
   {
     key: "platform",
     label: "Platform",
     type: "select",
     required: true,
-    options: ["PS5", "PS4", "Xbox Series", "Xbox One", "Switch", "PC", "Diğer"],
+    options: ["PS5", "PS4", "Xbox Series", "Xbox One", "Switch", "PC", "Diger"],
+  },
+  {
+    key: "format",
+    label: "Format",
+    type: "select",
+    required: true,
+    options: ["Disk", "Kartus", "Dijital Kod", "DLC / Season Pass", "Koleksiyon / Steelbook"],
   },
   {
     key: "region",
-    label: "Bölge",
+    label: "Bolge",
     type: "select",
     required: false,
     options: ["PAL", "NTSC-U", "NTSC-J", "Bilinmiyor"],
@@ -261,37 +302,110 @@ const TEMPLATE_CONSOLE_GAME: SchemaField[] = [
     label: "Oyun dili",
     type: "select",
     required: false,
-    options: ["Türkçe", "İngilizce", "Karışık", "Bilinmiyor"],
+    options: ["Turkce", "Ingilizce", "Karisik", "Bilinmiyor"],
   },
   {
     key: "discCondition",
-    label: "Disk kondisyonu",
+    label: "Disk/Kartus kondisyonu",
     type: "select",
     required: false,
-    options: ["Çiziksiz", "Hafif çizik", "Belirgin çizik", "Bilinmiyor"],
+    options: ["Ciziksiz", "Hafif cizik", "Belirgin cizik", "Bilinmiyor"],
   },
   {
     key: "box",
-    label: "Kutu var mı?",
+    label: "Kutu var mi?",
     type: "boolean",
     required: false,
   },
 ];
 
-// 🃏 TCG / Koleksiyon kartı
+const TEMPLATE_RETRO_MIXED: SchemaField[] = [
+  {
+    key: "itemType",
+    label: "Urun tipi",
+    type: "select",
+    required: true,
+    options: ["Retro Konsol", "Retro Oyun", "Aksesuar / Parca", "Diger"],
+  },
+  {
+    key: "platform",
+    label: "Platform",
+    type: "select",
+    required: false,
+    options: [
+      "Atari",
+      "NES",
+      "SNES",
+      "Sega Master System",
+      "Sega Mega Drive",
+      "PS1",
+      "PS2",
+      "Nintendo 64",
+      "GameCube",
+      "Diger",
+    ],
+  },
+  {
+    key: "format",
+    label: "Format",
+    type: "select",
+    required: false,
+    options: ["Kartus", "Disk", "Kaset", "Dijital Kod", "Diger"],
+  },
+  {
+    key: "region",
+    label: "Bolge",
+    type: "select",
+    required: false,
+    options: ["PAL", "NTSC-U", "NTSC-J", "Bilinmiyor"],
+  },
+  {
+    key: "works",
+    label: "Calisiyor mu?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "modded",
+    label: "Modlu mu?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "box",
+    label: "Kutu var mi?",
+    type: "boolean",
+    required: false,
+  },
+];
+
 const TEMPLATE_TCG: SchemaField[] = [
   {
-    key: "game",
-    label: "TCG Türü",
+    key: "itemType",
+    label: "Urun tipi",
     type: "select",
     required: true,
     options: [
-      "Pokémon",
+      "Tekli Kart",
+      "Deck / Structure Deck",
+      "Booster / Pack",
+      "Booster Box",
+      "Koleksiyon / Lot",
+      "Aksesuar",
+    ],
+  },
+  {
+    key: "tcgName",
+    label: "TCG",
+    type: "select",
+    required: false,
+    options: [
+      "Pokemon",
       "Yu-Gi-Oh!",
       "Magic: The Gathering",
       "One Piece",
       "Lorcana",
-      "Diğer",
+      "Diger",
     ],
   },
   {
@@ -299,13 +413,13 @@ const TEMPLATE_TCG: SchemaField[] = [
     label: "Set / Seri",
     type: "text",
     required: false,
-    placeholder: "Örn: Base Set / Evolving Skies",
+    placeholder: "Orn: Scarlet & Violet",
   },
   {
-    key: "condition",
-    label: "Kondisyon",
+    key: "cardCondition",
+    label: "Kart kondisyonu",
     type: "select",
-    required: true,
+    required: false,
     options: ["Mint", "Near Mint", "Excellent", "Good", "Played", "Poor"],
   },
   {
@@ -315,58 +429,259 @@ const TEMPLATE_TCG: SchemaField[] = [
     required: false,
   },
   {
-    key: "isHolo",
-    label: "Holo / Foil",
-    type: "boolean",
+    key: "gradeCompany",
+    label: "Grading firmasi",
+    type: "select",
     required: false,
+    options: ["PSA", "BGS", "CGC", "Diger"],
+  },
+  {
+    key: "gradeScore",
+    label: "Grade puani",
+    type: "number",
+    required: false,
+    min: 1,
+    max: 10,
+  },
+  {
+    key: "accessoryType",
+    label: "Aksesuar tipi",
+    type: "select",
+    required: false,
+    options: ["Sleeve", "Binder", "Deck Box", "Playmat", "Token/Zar", "Diger"],
+  },
+  {
+    key: "language",
+    label: "Dil",
+    type: "select",
+    required: false,
+    options: ["Turkce", "Ingilizce", "Japonca", "Karisik", "Diger"],
   },
 ];
 
-// 🧸 Figür / Statue / Büst / Action figure
 const TEMPLATE_FIGURE: SchemaField[] = [
+  {
+    key: "figureType",
+    label: "Figur tipi",
+    type: "select",
+    required: true,
+    options: ["Action Figure", "Statue/Bust", "Funko", "Model Kit", "Diger"],
+  },
   {
     key: "brand",
     label: "Marka",
-    type: "select",
+    type: "text",
     required: false,
-    options: ["Funko", "Bandai", "Hasbro", "McFarlane", "Good Smile", "Diğer"],
+    placeholder: "Orn: Bandai / Hasbro / Good Smile",
   },
   {
     key: "series",
     label: "Seri / Evren",
     type: "text",
     required: false,
-    placeholder: "Örn: Marvel / Star Wars / Anime",
+    placeholder: "Orn: Marvel / Star Wars / Anime",
   },
   {
     key: "scale",
-    label: "Ölçek",
+    label: "Olcek",
     type: "select",
     required: false,
     options: ["1/12", "1/10", "1/8", "1/6", "N/A"],
   },
   {
     key: "box",
-    label: "Kutu var mı?",
+    label: "Kutu var mi?",
     type: "boolean",
     required: false,
   },
   {
     key: "accessoriesFull",
-    label: "Tüm parçalar var mı?",
+    label: "Tum parcalar var mi?",
     type: "boolean",
-    required: true,
+    required: false,
   },
 ];
 
-// 🧩 Aksesuar / Ekipman / Sleeve / Binder / Playmat / Kablo vb.
+const TEMPLATE_MINIATURE_WARGAME: SchemaField[] = [
+  {
+    key: "system",
+    label: "Sistem / Oyun",
+    type: "text",
+    required: false,
+    placeholder: "Orn: Warhammer 40K / AoS",
+  },
+  {
+    key: "faction",
+    label: "Faction",
+    type: "text",
+    required: false,
+    placeholder: "Orn: Space Marines",
+  },
+  {
+    key: "scale",
+    label: "Olcek",
+    type: "select",
+    required: false,
+    options: ["15mm", "28mm", "32mm", "54mm", "Diger"],
+  },
+  {
+    key: "painted",
+    label: "Boyali mi?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "assembled",
+    label: "Montajli mi?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "material",
+    label: "Malzeme",
+    type: "select",
+    required: false,
+    options: ["Plastik", "Recine", "Metal", "Diger"],
+  },
+];
+
+const TEMPLATE_RPG: SchemaField[] = [
+  {
+    key: "system",
+    label: "Sistem",
+    type: "text",
+    required: true,
+    placeholder: "Orn: D&D 5e / Pathfinder",
+  },
+  {
+    key: "productType",
+    label: "Urun tipi",
+    type: "select",
+    required: true,
+    options: [
+      "Core Rulebook",
+      "Adventure Module",
+      "Supplement",
+      "Starter Set",
+      "Dice/Accessory",
+      "Diger",
+    ],
+  },
+  {
+    key: "edition",
+    label: "Edition / Versiyon",
+    type: "text",
+    required: false,
+  },
+  {
+    key: "language",
+    label: "Dil",
+    type: "select",
+    required: false,
+    options: ["Turkce", "Ingilizce", "Diger"],
+  },
+  {
+    key: "hardcover",
+    label: "Ciltli mi?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "completeContent",
+    label: "Icerik tam mi?",
+    type: "boolean",
+    required: false,
+  },
+];
+
+const TEMPLATE_BOOK_GUIDE: SchemaField[] = [
+  {
+    key: "bookType",
+    label: "Urun tipi",
+    type: "select",
+    required: true,
+    options: ["Strateji Rehberi", "Artbook", "Lore Kitabi", "Roman/Comic", "Diger"],
+  },
+  {
+    key: "title",
+    label: "Kitap adi",
+    type: "text",
+    required: false,
+  },
+  {
+    key: "language",
+    label: "Dil",
+    type: "select",
+    required: false,
+    options: ["Turkce", "Ingilizce", "Diger"],
+  },
+  {
+    key: "coverType",
+    label: "Kapak tipi",
+    type: "select",
+    required: false,
+    options: ["Ciltli", "Karton Kapak", "Bilinmiyor"],
+  },
+  {
+    key: "pageCondition",
+    label: "Sayfa durumu",
+    type: "select",
+    required: false,
+    options: ["Temiz", "Notlu/Cizili", "Yipranmis", "Bilinmiyor"],
+  },
+];
+
+const TEMPLATE_PUZZLE: SchemaField[] = [
+  {
+    key: "itemType",
+    label: "Urun tipi",
+    type: "select",
+    required: true,
+    options: ["Puzzle", "3D Puzzle", "Zeka Oyunu", "Rubik/Twist", "Diger"],
+  },
+  {
+    key: "pieceCount",
+    label: "Parca sayisi",
+    type: "number",
+    required: false,
+    min: 10,
+    max: 50000,
+  },
+  {
+    key: "completeContent",
+    label: "Eksiksiz mi?",
+    type: "boolean",
+    required: true,
+  },
+  {
+    key: "box",
+    label: "Kutu var mi?",
+    type: "boolean",
+    required: false,
+  },
+];
+
 const TEMPLATE_ACCESSORY: SchemaField[] = [
+  {
+    key: "accessoryType",
+    label: "Aksesuar tipi",
+    type: "select",
+    required: true,
+    options: [
+      "Controller/Gamepad",
+      "Kablolar/Adaptor",
+      "Dock/Sarj",
+      "Headset/Mikrofon",
+      "Depolama",
+      "Diger",
+    ],
+  },
   {
     key: "compatibility",
     label: "Uyumluluk",
     type: "text",
-    required: true,
-    placeholder: "Örn: PS5 / Switch / PC",
+    required: false,
+    placeholder: "Orn: PS5 / Switch / PC",
   },
   {
     key: "original",
@@ -382,17 +697,144 @@ const TEMPLATE_ACCESSORY: SchemaField[] = [
   },
 ];
 
+const TEMPLATE_COLLECTIBLE: SchemaField[] = [
+  {
+    key: "itemType",
+    label: "Urun tipi",
+    type: "select",
+    required: true,
+    options: ["Figur", "Poster", "Steelbook", "Kart/Koleksiyon", "Dekor", "Diger"],
+  },
+  {
+    key: "franchise",
+    label: "Seri / Evren",
+    type: "text",
+    required: false,
+    placeholder: "Orn: Zelda / Pokemon / Marvel",
+  },
+  {
+    key: "brand",
+    label: "Marka",
+    type: "text",
+    required: false,
+  },
+  {
+    key: "material",
+    label: "Malzeme",
+    type: "select",
+    required: false,
+    options: ["Plastik", "Metal", "Kagit", "Kumas", "Diger"],
+  },
+  {
+    key: "box",
+    label: "Kutu var mi?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "original",
+    label: "Orijinal mi?",
+    type: "boolean",
+    required: false,
+  },
+];
+
+const TEMPLATE_VR: SchemaField[] = [
+  {
+    key: "itemType",
+    label: "Urun tipi",
+    type: "select",
+    required: true,
+    options: ["VR Baslik", "Controller", "Sensor/Base Station", "Aksesuar", "Diger"],
+  },
+  {
+    key: "platform",
+    label: "Platform",
+    type: "select",
+    required: false,
+    options: ["PS5", "PS4", "PC", "Standalone", "Diger"],
+  },
+  {
+    key: "storage",
+    label: "Depolama",
+    type: "select",
+    required: false,
+    options: ["64GB", "128GB", "256GB", "512GB", "Yok / Belirsiz"],
+  },
+  {
+    key: "lensCondition",
+    label: "Lens durumu",
+    type: "select",
+    required: false,
+    options: ["Temiz", "Hafif cizik", "Belirgin cizik", "Bilinmiyor"],
+  },
+  {
+    key: "box",
+    label: "Kutu var mi?",
+    type: "boolean",
+    required: false,
+  },
+];
+
+const TEMPLATE_GENERIC: SchemaField[] = [
+  {
+    key: "itemType",
+    label: "Urun tipi",
+    type: "select",
+    required: true,
+    options: ["Genel Urun", "Aksesuar", "Koleksiyon", "Diger"],
+  },
+  {
+    key: "brand",
+    label: "Marka",
+    type: "text",
+    required: false,
+  },
+  {
+    key: "compatibility",
+    label: "Uyumluluk",
+    type: "text",
+    required: false,
+    placeholder: "Orn: PS5 / Switch / PC / Masaustu",
+  },
+  {
+    key: "material",
+    label: "Malzeme",
+    type: "text",
+    required: false,
+  },
+  {
+    key: "box",
+    label: "Kutu var mi?",
+    type: "boolean",
+    required: false,
+  },
+];
+
 /* =========================
    HELPERS
 ========================= */
 
 function sanitizeKey(raw: string) {
-  const n = normalizeTextTR(raw).lower;
-  return n
-    .replace(/[^a-z0-9_]/g, "_")
+  const n = safeString(raw, "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u0130I\u0131]/g, "i")
+    .replace(/[\u015e\u015f]/g, "s")
+    .replace(/[\u011e\u011f]/g, "g")
+    .replace(/[\u00dc\u00fc]/g, "u")
+    .replace(/[\u00d6\u00f6]/g, "o")
+    .replace(/[\u00c7\u00e7]/g, "c");
+
+  const key = n
+    .replace(/[^A-Za-z0-9_]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 40);
+
+  if (!key) return "";
+  return key[0].toLowerCase() + key.slice(1);
 }
 
 function cloneFields(fields: SchemaField[]) {
@@ -451,53 +893,51 @@ function normalizeFieldsForSave(fields: SchemaField[]) {
 /**
  * Kategori ismine gore template secimi
  */
+function foldTR(input: string) {
+  return safeString(input, "")
+    .toLocaleLowerCase("tr-TR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i")
+    .trim();
+}
+
 function pickTemplateFields(categoryLower: string): SchemaField[] {
-  const c = safeString(categoryLower, "").toLowerCase();
+  const c = foldTR(categoryLower);
 
-  // yardımcı matcher
-  const has = (...parts: string[]) => parts.some((p) => c.includes(p));
+  const has = (...parts: string[]) =>
+    parts.some((p) => c.includes(foldTR(p)));
 
-  // 1) TCG alt kategorileri: sleeve/binder/playmat -> accessory, diğerleri -> tcg
-  if (has("tcg", "koleksiyon kart")) return TEMPLATE_TCG;
+  if (has("kutu oyun")) return TEMPLATE_BOARDGAME;
+  if (has("kart oyun")) return TEMPLATE_CARDGAME;
 
-  // 2) Konsol Oyunlari
+  if (has("koleksiyon kart", "tcg")) return TEMPLATE_TCG;
+  if (has("retro oyun", "retro konsol")) return TEMPLATE_RETRO_MIXED;
   if (has("konsol oyun")) return TEMPLATE_CONSOLE_GAME;
 
-  // 3) Konsollar
-  if (has("konsol")) return TEMPLATE_CONSOLE;
+  if (has("hobi ekipman", "ekipman", "oyun aksesuar", "aksesuar", "teknoloji")) {
+    return TEMPLATE_ACCESSORY;
+  }
 
-  // 4) Oyun Aksesuarlari / Hobi Ekipmanlari
-  if (has("aksesuar", "hobi ekipman")) return TEMPLATE_ACCESSORY;
+  if (has("el konsol", "konsollar", "konsol")) return TEMPLATE_CONSOLE;
 
-  // 5) Figurler
-  if (has("figur")) return TEMPLATE_FIGURE;
+  if (has("vr", "sanal gerceklik")) return TEMPLATE_VR;
 
-  // 6) Miniature & Wargame
-  if (has("miniature", "wargame")) return TEMPLATE_FIGURE;
+  if (has("figur", "fig")) return TEMPLATE_FIGURE;
+  if (has("miniature", "wargame")) return TEMPLATE_MINIATURE_WARGAME;
 
-  // 7) Masaustu RPG
-  if (has("masaustu rpg", "rpg")) return TEMPLATE_BOARDGAME;
+  if (has("masaustu rpg", "rpg")) return TEMPLATE_RPG;
+  if (has("rehber", "kitap", "manga", "cizgi roman", "light novel", "artbook")) {
+    return TEMPLATE_BOOK_GUIDE;
+  }
 
-  // 8) VR / Sanal Gerceklik
-  if (has("vr", "sanal gerceklik")) return TEMPLATE_CONSOLE;
+  if (has("puzzle", "zeka")) return TEMPLATE_PUZZLE;
 
-  // 9) Retro Oyun / Retro Konsol
-  if (has("retro")) return TEMPLATE_CONSOLE_GAME;
+  if (has("koleksiyon urun", "koleksiyon", "lego", "dekor", "poster")) {
+    return TEMPLATE_COLLECTIBLE;
+  }
 
-  // 10) Puzzle / Zeka Oyunlari
-  if (has("puzzle", "zeka")) return TEMPLATE_BOARDGAME;
-
-  // 11) Strateji rehberleri / kitaplar
-  if (has("rehber", "kitap")) return TEMPLATE_ACCESSORY;
-
-  // 12) Kart oyunlari / Kutu oyunlari
-  if (has("kart oyun", "kutu oyun")) return TEMPLATE_BOARDGAME;
-
-  // 13) Koleksiyon urunleri
-  if (has("koleksiyon urun")) return TEMPLATE_FIGURE;
-
-  // fallback
-  return TEMPLATE_ACCESSORY;
+  return TEMPLATE_GENERIC;
 }
 
 /* =========================
@@ -558,7 +998,7 @@ export default function AdminSchemasPage() {
       };
 
       for (const c of categories) {
-        const categoryLower = safeString(c.nameLower, "");
+        const categoryLower = safeString(c.nameLower || c.name, "");
         const template = pickTemplateFields(categoryLower);
         const normalizedFields = normalizeFieldsForSave(cloneFields(template));
 

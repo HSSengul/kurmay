@@ -607,443 +607,546 @@ function normalizeLowerTR(v: string) {
   return (v || "").toLocaleLowerCase("tr-TR").trim();
 }
 
-function buildSchemaFieldsByCategoryNameLower(nameLower: string): SchemaField[] {
-  const n = normalizeLowerTR(nameLower || "");
+function foldTRForSchema(input: string) {
+  return normalizeLowerTR(input || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\u0131/g, "i")
+    .trim();
+}
 
-  // Her şeyde ortak condition alanları
-  const COMMON_CONDITION: SchemaField[] = [
+function buildSchemaFieldsByCategoryNameLower(nameLower: string): SchemaField[] {
+  const n = foldTRForSchema(nameLower || "");
+  const has = (...parts: string[]) =>
+    parts.some((p) => n.includes(foldTRForSchema(p)));
+
+  const boardgame: SchemaField[] = [
+    { key: "gameName", label: "Oyun adi", type: "text", sectionId: "details" },
+    { key: "minPlayers", label: "Minimum oyuncu", type: "number", required: true, sectionId: "details", min: 1, max: 50 },
+    { key: "maxPlayers", label: "Maksimum oyuncu", type: "number", required: true, sectionId: "details", min: 1, max: 50 },
+    { key: "minPlaytime", label: "Minimum sure (dk)", type: "number", sectionId: "details", min: 1, max: 1000 },
+    { key: "maxPlaytime", label: "Maksimum sure (dk)", type: "number", sectionId: "details", min: 1, max: 1000 },
     {
-      key: "condition",
-      label: "Ürün durumu",
+      key: "language",
+      label: "Dil",
       type: "select",
-      required: true,
-      sectionId: "condition",
+      sectionId: "details",
       options: [
-        { value: "new", label: "Sıfır / Kapalı kutu" },
-        { value: "likeNew", label: "Çok az kullanılmış" },
-        { value: "used", label: "Kullanılmış" },
-        { value: "heavyUsed", label: "Yıpranmış" },
+        { value: "TR", label: "Turkce" },
+        { value: "EN", label: "Ingilizce" },
+        { value: "OTHER", label: "Diger" },
+      ],
+    },
+    { key: "completeContent", label: "Icerik tam mi?", type: "boolean", required: true, sectionId: "condition" },
+    { key: "sleeved", label: "Sleeve kullanildi mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const cardgame: SchemaField[] = [
+    { key: "gameName", label: "Oyun adi", type: "text", required: true, sectionId: "details" },
+    {
+      key: "playerRange",
+      label: "Oyuncu araligi",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "1-2", label: "1-2" },
+        { value: "2-4", label: "2-4" },
+        { value: "2-6", label: "2-6" },
+        { value: "4+", label: "4+" },
+        { value: "variable", label: "Degisken" },
       ],
     },
     {
-      key: "hasBox",
-      label: "Kutu var mı?",
-      type: "boolean",
-      required: false,
-      sectionId: "condition",
+      key: "language",
+      label: "Dil",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "TR", label: "Turkce" },
+        { value: "EN", label: "Ingilizce" },
+        { value: "OTHER", label: "Diger" },
+      ],
+    },
+    { key: "completeContent", label: "Icerik tam mi?", type: "boolean", required: true, sectionId: "condition" },
+  ];
+
+  const tcg: SchemaField[] = [
+    {
+      key: "itemType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "single", label: "Tekli Kart" },
+        { value: "deck", label: "Deck / Structure Deck" },
+        { value: "booster", label: "Booster / Pack" },
+        { value: "box", label: "Booster Box" },
+        { value: "collection", label: "Koleksiyon / Lot" },
+        { value: "accessory", label: "Aksesuar" },
+      ],
     },
     {
-      key: "hasInvoice",
-      label: "Fatura / belge var mı?",
-      type: "boolean",
-      required: false,
+      key: "tcgName",
+      label: "TCG",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "pokemon", label: "Pokemon" },
+        { value: "yugioh", label: "Yu-Gi-Oh!" },
+        { value: "mtg", label: "Magic: The Gathering" },
+        { value: "onepiece", label: "One Piece" },
+        { value: "lorcana", label: "Lorcana" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "setName", label: "Set / Seri", type: "text", sectionId: "details" },
+    {
+      key: "cardCondition",
+      label: "Kart kondisyonu",
+      type: "select",
       sectionId: "condition",
+      options: [
+        { value: "mint", label: "Mint" },
+        { value: "nearMint", label: "Near Mint" },
+        { value: "excellent", label: "Excellent" },
+        { value: "good", label: "Good" },
+        { value: "played", label: "Played" },
+        { value: "poor", label: "Poor" },
+      ],
+    },
+    { key: "graded", label: "Graded mi?", type: "boolean", sectionId: "condition" },
+    {
+      key: "accessoryType",
+      label: "Aksesuar tipi",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "sleeve", label: "Sleeve" },
+        { value: "binder", label: "Binder" },
+        { value: "deckbox", label: "Deck Box" },
+        { value: "playmat", label: "Playmat" },
+        { value: "token", label: "Token/Zar" },
+        { value: "other", label: "Diger" },
+      ],
     },
   ];
 
-  // =========================
-  // KUTU OYUNU
-  // =========================
-  if (n.includes("kutu") || n.includes("board")) {
-    return [
-      {
-        key: "playersMin",
-        label: "Min oyuncu",
-        type: "number",
-        required: true,
-        sectionId: "details",
-        min: 1,
-        max: 20,
-      },
-      {
-        key: "playersMax",
-        label: "Max oyuncu",
-        type: "number",
-        required: true,
-        sectionId: "details",
-        min: 1,
-        max: 20,
-      },
-      {
-        key: "playTimeMin",
-        label: "Min süre (dk)",
-        type: "number",
-        required: false,
-        sectionId: "details",
-        min: 1,
-        max: 600,
-      },
-      {
-        key: "playTimeMax",
-        label: "Max süre (dk)",
-        type: "number",
-        required: false,
-        sectionId: "details",
-        min: 1,
-        max: 600,
-      },
-      {
-        key: "ageMin",
-        label: "Minimum yaş",
-        type: "number",
-        required: false,
-        sectionId: "details",
-        min: 3,
-        max: 99,
-      },
-      {
-        key: "language",
-        label: "Dil",
-        type: "select",
-        required: true,
-        sectionId: "details",
-        options: [
-          { value: "TR", label: "Türkçe" },
-          { value: "EN", label: "İngilizce" },
-          { value: "DE", label: "Almanca" },
-          { value: "OTHER", label: "Diğer" },
-        ],
-      },
-      {
-        key: "missingPieces",
-        label: "Eksik parça var mı?",
-        type: "boolean",
-        required: true,
-        sectionId: "condition",
-      },
-      {
-        key: "expansionsIncluded",
-        label: "Ek paket / expansion dahil mi?",
-        type: "boolean",
-        required: false,
-        sectionId: "details",
-      },
-      ...COMMON_CONDITION,
-    ];
+  const consoleHardware: SchemaField[] = [
+    { key: "consoleModel", label: "Model / Surum", type: "text", required: true, sectionId: "details" },
+    {
+      key: "storage",
+      label: "Depolama",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "32GB", label: "32GB" },
+        { value: "64GB", label: "64GB" },
+        { value: "128GB", label: "128GB" },
+        { value: "256GB", label: "256GB" },
+        { value: "512GB", label: "512GB" },
+        { value: "1TB", label: "1TB" },
+        { value: "2TB", label: "2TB" },
+        { value: "4TB", label: "4TB" },
+        { value: "unknown", label: "Yok / Belirsiz" },
+      ],
+    },
+    { key: "modded", label: "Modlu mu?", type: "boolean", sectionId: "condition" },
+    { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
+    { key: "controllerCount", label: "Kumanda sayisi", type: "number", sectionId: "details", min: 0, max: 10 },
+    { key: "accessories", label: "Aksesuarlar", type: "text", sectionId: "details" },
+    { key: "purchaseYear", label: "Satin alma yili", type: "number", sectionId: "details", min: 1980, max: 2100 },
+    {
+      key: "warrantyStatus",
+      label: "Garanti durumu",
+      type: "select",
+      sectionId: "condition",
+      options: [
+        { value: "active", label: "Devam ediyor" },
+        { value: "expired", label: "Bitmis" },
+        { value: "unknown", label: "Bilinmiyor" },
+      ],
+    },
+    {
+      key: "usageLevel",
+      label: "Kullanim yogunlugu",
+      type: "select",
+      sectionId: "condition",
+      options: [
+        { value: "low", label: "Az" },
+        { value: "mid", label: "Orta" },
+        { value: "high", label: "Yogun" },
+      ],
+    },
+    {
+      key: "batteryHealth",
+      label: "Pil sagligi",
+      type: "select",
+      sectionId: "condition",
+      options: [
+        { value: "veryGood", label: "Cok iyi" },
+        { value: "good", label: "Iyi" },
+        { value: "mid", label: "Orta" },
+        { value: "low", label: "Zayif" },
+        { value: "unknown", label: "Bilinmiyor" },
+      ],
+    },
+    {
+      key: "screenCondition",
+      label: "Ekran durumu",
+      type: "select",
+      sectionId: "condition",
+      options: [
+        { value: "clean", label: "Ciziksiz" },
+        { value: "light", label: "Hafif cizik" },
+        { value: "heavy", label: "Belirgin cizik" },
+        { value: "broken", label: "Kirik" },
+        { value: "unknown", label: "Bilinmiyor" },
+      ],
+    },
+    {
+      key: "stickDrift",
+      label: "Stick drift var mi?",
+      type: "select",
+      sectionId: "condition",
+      options: [
+        { value: "none", label: "Yok" },
+        { value: "yes", label: "Var" },
+        { value: "unknown", label: "Bilinmiyor" },
+      ],
+    },
+  ];
+
+  const consoleGame: SchemaField[] = [
+    {
+      key: "platform",
+      label: "Platform",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "ps5", label: "PS5" },
+        { value: "ps4", label: "PS4" },
+        { value: "xboxSeries", label: "Xbox Series" },
+        { value: "xboxOne", label: "Xbox One" },
+        { value: "switch", label: "Switch" },
+        { value: "pc", label: "PC" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    {
+      key: "format",
+      label: "Format",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "disc", label: "Disk" },
+        { value: "cartridge", label: "Kartus" },
+        { value: "digital", label: "Dijital Kod" },
+        { value: "dlc", label: "DLC / Season Pass" },
+        { value: "collector", label: "Koleksiyon / Steelbook" },
+      ],
+    },
+    {
+      key: "region",
+      label: "Bolge",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "PAL", label: "PAL" },
+        { value: "NTSC-U", label: "NTSC-U" },
+        { value: "NTSC-J", label: "NTSC-J" },
+        { value: "unknown", label: "Bilinmiyor" },
+      ],
+    },
+    {
+      key: "discCondition",
+      label: "Disk/Kartus kondisyonu",
+      type: "select",
+      sectionId: "condition",
+      options: [
+        { value: "clean", label: "Ciziksiz" },
+        { value: "light", label: "Hafif cizik" },
+        { value: "heavy", label: "Belirgin cizik" },
+        { value: "unknown", label: "Bilinmiyor" },
+      ],
+    },
+    { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const retroMixed: SchemaField[] = [
+    {
+      key: "itemType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "console", label: "Retro Konsol" },
+        { value: "game", label: "Retro Oyun" },
+        { value: "part", label: "Aksesuar / Parca" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    {
+      key: "platform",
+      label: "Platform",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "atari", label: "Atari" },
+        { value: "nes", label: "NES" },
+        { value: "snes", label: "SNES" },
+        { value: "megadrive", label: "Sega Mega Drive" },
+        { value: "ps1", label: "PS1" },
+        { value: "ps2", label: "PS2" },
+        { value: "n64", label: "Nintendo 64" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    {
+      key: "format",
+      label: "Format",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "cartridge", label: "Kartus" },
+        { value: "disc", label: "Disk" },
+        { value: "cassette", label: "Kaset" },
+        { value: "digital", label: "Dijital Kod" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "works", label: "Calisiyor mu?", type: "boolean", sectionId: "condition" },
+    { key: "modded", label: "Modlu mu?", type: "boolean", sectionId: "condition" },
+    { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const figure: SchemaField[] = [
+    {
+      key: "figureType",
+      label: "Figur tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "action", label: "Action Figure" },
+        { value: "statue", label: "Statue/Bust" },
+        { value: "funko", label: "Funko" },
+        { value: "modelKit", label: "Model Kit" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "brand", label: "Marka", type: "text", sectionId: "details" },
+    { key: "series", label: "Seri / Evren", type: "text", sectionId: "details" },
+    { key: "scale", label: "Olcek", type: "text", sectionId: "details" },
+    { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const miniatureWargame: SchemaField[] = [
+    { key: "system", label: "Sistem / Oyun", type: "text", sectionId: "details" },
+    { key: "faction", label: "Faction", type: "text", sectionId: "details" },
+    { key: "scale", label: "Olcek", type: "text", sectionId: "details" },
+    { key: "painted", label: "Boyali mi?", type: "boolean", sectionId: "condition" },
+    { key: "assembled", label: "Montajli mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const rpg: SchemaField[] = [
+    { key: "system", label: "Sistem", type: "text", required: true, sectionId: "details" },
+    {
+      key: "productType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "core", label: "Core Rulebook" },
+        { value: "adventure", label: "Adventure Module" },
+        { value: "supplement", label: "Supplement" },
+        { value: "starter", label: "Starter Set" },
+        { value: "dice", label: "Dice/Accessory" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "edition", label: "Edition / Versiyon", type: "text", sectionId: "details" },
+    { key: "hardcover", label: "Ciltli mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const bookGuide: SchemaField[] = [
+    {
+      key: "bookType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "guide", label: "Strateji Rehberi" },
+        { value: "artbook", label: "Artbook" },
+        { value: "lore", label: "Lore Kitabi" },
+        { value: "comic", label: "Roman/Comic" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "title", label: "Kitap adi", type: "text", sectionId: "details" },
+    {
+      key: "language",
+      label: "Dil",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "TR", label: "Turkce" },
+        { value: "EN", label: "Ingilizce" },
+        { value: "OTHER", label: "Diger" },
+      ],
+    },
+    { key: "coverType", label: "Kapak tipi", type: "text", sectionId: "details" },
+  ];
+
+  const puzzle: SchemaField[] = [
+    {
+      key: "itemType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "puzzle", label: "Puzzle" },
+        { value: "3d", label: "3D Puzzle" },
+        { value: "mind", label: "Zeka Oyunu" },
+        { value: "rubik", label: "Rubik/Twist" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "pieceCount", label: "Parca sayisi", type: "number", sectionId: "details", min: 10, max: 50000 },
+    { key: "completeContent", label: "Eksiksiz mi?", type: "boolean", required: true, sectionId: "condition" },
+  ];
+
+  const accessory: SchemaField[] = [
+    {
+      key: "accessoryType",
+      label: "Aksesuar tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "controller", label: "Controller/Gamepad" },
+        { value: "cable", label: "Kablolar/Adaptor" },
+        { value: "dock", label: "Dock/Sarj" },
+        { value: "audio", label: "Headset/Mikrofon" },
+        { value: "storage", label: "Depolama" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "compatibility", label: "Uyumluluk", type: "text", sectionId: "details" },
+    { key: "original", label: "Orijinal mi?", type: "boolean", sectionId: "condition" },
+    { key: "warranty", label: "Garantili mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const collectible: SchemaField[] = [
+    {
+      key: "itemType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "figure", label: "Figur" },
+        { value: "poster", label: "Poster" },
+        { value: "steelbook", label: "Steelbook" },
+        { value: "card", label: "Kart/Koleksiyon" },
+        { value: "decor", label: "Dekor" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "franchise", label: "Seri / Evren", type: "text", sectionId: "details" },
+    { key: "brand", label: "Marka", type: "text", sectionId: "details" },
+    { key: "material", label: "Malzeme", type: "text", sectionId: "details" },
+    { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const vr: SchemaField[] = [
+    {
+      key: "itemType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "headset", label: "VR Baslik" },
+        { value: "controller", label: "Controller" },
+        { value: "sensor", label: "Sensor/Base Station" },
+        { value: "accessory", label: "Aksesuar" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    {
+      key: "platform",
+      label: "Platform",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "ps5", label: "PS5" },
+        { value: "ps4", label: "PS4" },
+        { value: "pc", label: "PC" },
+        { value: "standalone", label: "Standalone" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "lensCondition", label: "Lens durumu", type: "text", sectionId: "condition" },
+    { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const fallback: SchemaField[] = [
+    {
+      key: "itemType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "general", label: "Genel Urun" },
+        { value: "accessory", label: "Aksesuar" },
+        { value: "collectible", label: "Koleksiyon" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "brand", label: "Marka", type: "text", sectionId: "details" },
+    { key: "compatibility", label: "Uyumluluk", type: "text", sectionId: "details" },
+    { key: "material", label: "Malzeme", type: "text", sectionId: "details" },
+    { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  if (has("kutu oyun")) return boardgame;
+  if (has("kart oyun")) return cardgame;
+
+  if (has("koleksiyon kart", "tcg")) return tcg;
+  if (has("retro oyun", "retro konsol")) return retroMixed;
+  if (has("konsol oyun")) return consoleGame;
+
+  if (has("hobi ekipman", "ekipman", "oyun aksesuar", "aksesuar", "teknoloji")) {
+    return accessory;
   }
 
-  // =========================
-  // TCG / KOLEKSİYON KART
-  // =========================
-  if (n.includes("tcg") || n.includes("koleksiyon kart") || n.includes("kart koleksiyon")) {
-    return [
-      {
-        key: "tcgName",
-        label: "TCG",
-        type: "select",
-        required: true,
-        sectionId: "details",
-        options: [
-          { value: "pokemon", label: "Pokémon" },
-          { value: "yugioh", label: "Yu-Gi-Oh!" },
-          { value: "mtg", label: "Magic: The Gathering" },
-          { value: "lorcana", label: "Lorcana" },
-          { value: "other", label: "Diğer" },
-        ],
-      },
-      {
-        key: "itemType",
-        label: "Ürün tipi",
-        type: "select",
-        required: true,
-        sectionId: "details",
-        options: [
-          { value: "single", label: "Tek kart" },
-          { value: "deck", label: "Deste" },
-          { value: "booster", label: "Booster" },
-          { value: "box", label: "Booster Box" },
-          { value: "collection", label: "Koleksiyon / Lot" },
-        ],
-      },
-      {
-        key: "setName",
-        label: "Set / Seri adı",
-        type: "text",
-        required: false,
-        sectionId: "details",
-        placeholder: "Örn: Scarlet & Violet",
-      },
-      {
-        key: "rarity",
-        label: "Nadirlik",
-        type: "select",
-        required: false,
-        sectionId: "details",
-        options: [
-          { value: "common", label: "Common" },
-          { value: "uncommon", label: "Uncommon" },
-          { value: "rare", label: "Rare" },
-          { value: "ultra", label: "Ultra Rare" },
-          { value: "secret", label: "Secret Rare" },
-        ],
-      },
-      {
-        key: "graded",
-        label: "Grading var mı?",
-        type: "boolean",
-        required: false,
-        sectionId: "condition",
-      },
-      {
-        key: "gradeCompany",
-        label: "Grading firması",
-        type: "select",
-        required: false,
-        sectionId: "condition",
-        options: [
-          { value: "psa", label: "PSA" },
-          { value: "bgs", label: "BGS" },
-          { value: "cgc", label: "CGC" },
-          { value: "other", label: "Diğer" },
-        ],
-      },
-      {
-        key: "gradeScore",
-        label: "Grade puanı",
-        type: "number",
-        required: false,
-        sectionId: "condition",
-        min: 1,
-        max: 10,
-      },
-      ...COMMON_CONDITION,
-    ];
+  if (has("el konsol", "konsollar", "konsol")) return consoleHardware;
+
+  if (has("vr", "sanal gerceklik")) return vr;
+
+  if (has("figur", "fig")) return figure;
+  if (has("miniature", "wargame")) return miniatureWargame;
+
+  if (has("masaustu rpg", "rpg")) return rpg;
+  if (has("rehber", "kitap", "manga", "cizgi roman", "light novel", "artbook")) {
+    return bookGuide;
   }
 
-  // =========================
-  // KONSOL / RETRO
-  // =========================
-  if (n.includes("konsol") || n.includes("retro")) {
-    return [
-      {
-        key: "platform",
-        label: "Platform",
-        type: "select",
-        required: true,
-        sectionId: "details",
-        options: [
-          { value: "ps5", label: "PlayStation 5" },
-          { value: "ps4", label: "PlayStation 4" },
-          { value: "ps3", label: "PlayStation 3" },
-          { value: "ps2", label: "PlayStation 2" },
-          { value: "ps1", label: "PlayStation 1" },
-          { value: "xboxsx", label: "Xbox Series X/S" },
-          { value: "xboxone", label: "Xbox One" },
-          { value: "switch", label: "Nintendo Switch" },
-          { value: "nes", label: "NES" },
-          { value: "snes", label: "SNES" },
-          { value: "sega", label: "SEGA" },
-          { value: "other", label: "Diğer" },
-        ],
-      },
-      {
-        key: "revision",
-        label: "Sürüm / Revizyon",
-        type: "text",
-        required: false,
-        sectionId: "details",
-        placeholder: "Örn: CFI-1216A / SCPH-1002",
-      },
-      {
-        key: "region",
-        label: "Bölge",
-        type: "select",
-        required: false,
-        sectionId: "details",
-        options: [
-          { value: "PAL", label: "PAL" },
-          { value: "NTSC-U", label: "NTSC-U" },
-          { value: "NTSC-J", label: "NTSC-J" },
-        ],
-      },
-      {
-        key: "storageGb",
-        label: "Depolama (GB)",
-        type: "number",
-        required: false,
-        sectionId: "details",
-        min: 8,
-        max: 8000,
-      },
-      {
-        key: "controllersIncluded",
-        label: "Kol sayısı",
-        type: "number",
-        required: false,
-        sectionId: "details",
-        min: 0,
-        max: 10,
-      },
-      {
-        key: "works",
-        label: "Çalışıyor mu?",
-        type: "boolean",
-        required: true,
-        sectionId: "condition",
-      },
-      {
-        key: "modded",
-        label: "Modlu mu?",
-        type: "boolean",
-        required: false,
-        sectionId: "condition",
-      },
-      ...COMMON_CONDITION,
-    ];
+  if (has("puzzle", "zeka")) return puzzle;
+
+  if (has("koleksiyon urun", "koleksiyon", "lego", "dekor", "poster")) {
+    return collectible;
   }
 
-  // =========================
-  // OYUN (konsol oyunu vs)
-  // =========================
-  if (n.includes("oyun")) {
-    return [
-      {
-        key: "platform",
-        label: "Platform",
-        type: "select",
-        required: false,
-        sectionId: "details",
-        options: [
-          { value: "ps5", label: "PS5" },
-          { value: "ps4", label: "PS4" },
-          { value: "ps3", label: "PS3" },
-          { value: "xbox", label: "Xbox" },
-          { value: "switch", label: "Switch" },
-          { value: "pc", label: "PC" },
-          { value: "other", label: "Diğer" },
-        ],
-      },
-      {
-        key: "format",
-        label: "Format",
-        type: "select",
-        required: true,
-        sectionId: "details",
-        options: [
-          { value: "disc", label: "Disk" },
-          { value: "cartridge", label: "Kartuş" },
-          { value: "digital", label: "Dijital kod" },
-        ],
-      },
-      {
-        key: "sealed",
-        label: "Kapalı kutu mu?",
-        type: "boolean",
-        required: false,
-        sectionId: "condition",
-      },
-      ...COMMON_CONDITION,
-    ];
-  }
-
-  // =========================
-  // RPG / KİTAP
-  // =========================
-  if (n.includes("rpg") || n.includes("kural") || n.includes("kitap")) {
-    return [
-      {
-        key: "system",
-        label: "Sistem",
-        type: "text",
-        required: true,
-        sectionId: "details",
-        placeholder: "Örn: D&D 5e",
-      },
-      {
-        key: "edition",
-        label: "Edition / Versiyon",
-        type: "text",
-        required: false,
-        sectionId: "details",
-      },
-      {
-        key: "language",
-        label: "Dil",
-        type: "select",
-        required: false,
-        sectionId: "details",
-        options: [
-          { value: "TR", label: "Türkçe" },
-          { value: "EN", label: "İngilizce" },
-          { value: "OTHER", label: "Diğer" },
-        ],
-      },
-      ...COMMON_CONDITION,
-    ];
-  }
-
-  // =========================
-  // PUZZLE / ZEKA
-  // =========================
-  if (n.includes("puzzle") || n.includes("zeka")) {
-    return [
-      {
-        key: "pieces",
-        label: "Parça sayısı",
-        type: "number",
-        required: true,
-        sectionId: "details",
-        min: 10,
-        max: 50000,
-      },
-      {
-        key: "complete",
-        label: "Eksiksiz mi?",
-        type: "boolean",
-        required: true,
-        sectionId: "condition",
-      },
-      ...COMMON_CONDITION,
-    ];
-  }
-
-  // =========================
-  // FİGÜR / EKİPMAN
-  // =========================
-  if (n.includes("fig") || n.includes("mini") || n.includes("ekipman") || n.includes("aksesuar")) {
-    return [
-      {
-        key: "itemType",
-        label: "Ürün tipi",
-        type: "select",
-        required: true,
-        sectionId: "details",
-        options: [
-          { value: "miniature", label: "Miniature / Figür" },
-          { value: "dice", label: "Zar seti" },
-          { value: "sleeves", label: "Kart kılıfı" },
-          { value: "playmat", label: "Playmat" },
-          { value: "tokens", label: "Token / marker" },
-          { value: "other", label: "Diğer" },
-        ],
-      },
-      {
-        key: "material",
-        label: "Malzeme",
-        type: "select",
-        required: false,
-        sectionId: "details",
-        options: [
-          { value: "plastic", label: "Plastik" },
-          { value: "resin", label: "Reçine" },
-          { value: "metal", label: "Metal" },
-          { value: "wood", label: "Ahşap" },
-          { value: "other", label: "Diğer" },
-        ],
-      },
-      {
-        key: "painted",
-        label: "Boyalı mı?",
-        type: "boolean",
-        required: false,
-        sectionId: "condition",
-      },
-      ...COMMON_CONDITION,
-    ];
-  }
-
-  // DEFAULT
-  return [...COMMON_CONDITION];
+  return fallback;
 }
 
 function buildListingSchemaDoc(categoryName: string, nameLower: string): ListingSchemaDoc {

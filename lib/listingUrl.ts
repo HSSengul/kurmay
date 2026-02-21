@@ -1,14 +1,11 @@
-export function slugifyTR(input: string) {
-  return (input || "")
-    .toLocaleLowerCase("tr-TR")
-    .trim()
-    .replaceAll("ı", "i")
-    .replaceAll("ş", "s")
-    .replaceAll("ğ", "g")
-    .replaceAll("ü", "u")
-    .replaceAll("ö", "o")
-    .replaceAll("ç", "c")
-    .replaceAll("İ", "i")
+﻿export function slugifyTR(input: string) {
+  const lowered = (input || "").toLocaleLowerCase("tr-TR").trim();
+  if (!lowered) return "";
+
+  return lowered
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
