@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import SubCategoryClient from "./SubCategoryClient";
-import { listCollection, normTRAscii, runQueryByField } from "@/lib/firestoreRest";
+import {
+  listCollection,
+  normTRAscii,
+  runActiveQueryByField,
+} from "@/lib/firestoreRest";
 import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
 
 export const revalidate = 300;
@@ -97,7 +101,7 @@ const getCategoriesCached = unstable_cache(
 
 const getListingsForSubMeta = unstable_cache(
   async (subId: string) =>
-    runQueryByField<ListingDoc>({
+    runActiveQueryByField<ListingDoc>({
       collectionId: "listings",
       fieldPath: "subCategoryId",
       value: subId,
@@ -308,7 +312,7 @@ export default async function SubCategoryPage({
       (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
     );
 
-  const listings = await runQueryByField<ListingDoc>({
+  const listings = await runActiveQueryByField<ListingDoc>({
     collectionId: "listings",
     fieldPath: "subCategoryId",
     value: matchSub.id,

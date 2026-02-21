@@ -47,6 +47,7 @@ type Listing = {
   id: string;
   title?: string;
   price?: number;
+  status?: string;
 
   categoryId?: string;
   categoryName?: string;
@@ -67,6 +68,8 @@ type Listing = {
 
   wearExists?: boolean;
   accessories?: string;
+  locationCity?: string | null;
+  locationDistrict?: string | null;
 
   description?: string;
 
@@ -91,6 +94,13 @@ const normalizeSpaces = (v: string) => (v || "").replace(/\s+/g, " ").trim();
 const safeText = (v?: string, fallback = "—") => {
   const t = normalizeSpaces(v || "");
   return t ? t : fallback;
+};
+
+const formatRegion = (city?: string | null, district?: string | null) => {
+  const cleanCity = normalizeSpaces(city || "");
+  const cleanDistrict = normalizeSpaces(district || "");
+  if (cleanCity && cleanDistrict) return `${cleanDistrict} / ${cleanCity}`;
+  return cleanCity || cleanDistrict || "";
 };
 
 const normTR = (v?: string) =>
@@ -324,31 +334,55 @@ export default function SubCategoryClient({
     setPageSize(24);
   };
 
-  const appliedFiltersCount = useMemo(() => {
-    let c = 0;
-    if (minPrice.trim()) c++;
-    if (maxPrice.trim()) c++;
-    if (yearMin.trim()) c++;
-    if (yearMax.trim()) c++;
-    if (gender.trim()) c++;
-    if (wearFilter) c++;
-    if (searchText.trim()) c++;
-    if (sortMode !== "newest") c++;
-    if (viewMode !== "grid") c++;
-    if (pageSize !== 24) c++;
-    return c;
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string }> = [];
+    const search = searchText.trim();
+    const minP = minPrice.trim();
+    const maxP = maxPrice.trim();
+    const yMin = yearMin.trim();
+    const yMax = yearMax.trim();
+    const g = gender.trim();
+
+    if (search) chips.push({ key: "search", label: `Arama: ${search}` });
+    if (minP || maxP) {
+      chips.push({ key: "price", label: `Fiyat: ${minP || "0"} - ${maxP || "∞"}` });
+    }
+    if (yMin || yMax) {
+      chips.push({ key: "year", label: `Yil: ${yMin || "0"} - ${yMax || "∞"}` });
+    }
+    if (g) chips.push({ key: "gender", label: `Cinsiyet: ${g}` });
+    if (wearFilter) {
+      chips.push({
+        key: "wear",
+        label: wearFilter === "wear" ? "Asinma: Var" : "Asinma: Yok",
+      });
+    }
+    return chips;
   }, [
+    searchText,
     minPrice,
     maxPrice,
     yearMin,
     yearMax,
     gender,
     wearFilter,
-    searchText,
-    sortMode,
-    viewMode,
-    pageSize,
   ]);
+
+  const appliedFiltersCount = activeFilterChips.length;
+
+  const clearFilterByKey = (key: string) => {
+    if (key === "search") setSearchText("");
+    if (key === "price") {
+      setMinPrice("");
+      setMaxPrice("");
+    }
+    if (key === "year") {
+      setYearMin("");
+      setYearMax("");
+    }
+    if (key === "gender") setGender("");
+    if (key === "wear") setWearFilter("");
+  };
 
   useEffect(() => {
     if (appliedFiltersCount > 0) setFiltersOpen(true);
@@ -632,6 +666,73 @@ export default function SubCategoryClient({
     return msg.includes("requires an index");
   };
 
+  const fetchSubCategoryBatch = async (
+    subCategoryId: string,
+    startAfterDoc: QueryDocumentSnapshot<DocumentData> | null
+  ) => {
+    try {
+      const constraints: any[] = [
+        where("subCategoryId", "==", subCategoryId),
+        where("status", "==", "active"),
+        orderBy("createdAt", "desc"),
+        limit(pageSize),
+      ];
+      if (startAfterDoc) constraints.splice(3, 0, startAfter(startAfterDoc));
+
+      const snap = await getDocs(query(collection(db, "listings"), ...constraints));
+      const docs = snap.docs;
+      const items = docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Listing[];
+
+      return {
+        items,
+        lastDoc: docs.length > 0 ? docs[docs.length - 1] : startAfterDoc,
+        hasMore: docs.length === pageSize,
+      };
+    } catch (e: any) {
+      if (!isIndexError(e)) throw e;
+
+      let cursorDoc = startAfterDoc;
+      let hasMore = true;
+      const collected: Listing[] = [];
+      let lastDoc: QueryDocumentSnapshot<DocumentData> | null = startAfterDoc;
+
+      while (hasMore && collected.length < pageSize) {
+        const constraints: any[] = [
+          where("subCategoryId", "==", subCategoryId),
+          orderBy("createdAt", "desc"),
+          limit(pageSize),
+        ];
+        if (cursorDoc) constraints.splice(2, 0, startAfter(cursorDoc));
+
+        const snap = await getDocs(query(collection(db, "listings"), ...constraints));
+        const docs = snap.docs;
+        if (docs.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        cursorDoc = docs[docs.length - 1];
+        lastDoc = cursorDoc;
+        hasMore = docs.length === pageSize;
+
+        const activeItems = docs
+          .map((d) => ({ id: d.id, ...(d.data() as any) }))
+          .filter((item) => String((item as Listing).status || "") === "active") as Listing[];
+
+        for (const item of activeItems) {
+          collected.push(item);
+          if (collected.length >= pageSize) break;
+        }
+      }
+
+      return {
+        items: collected,
+        lastDoc,
+        hasMore,
+      };
+    }
+  };
+
   const fetchPage = async (reset: boolean) => {
     if (!subCategory?.id) return;
     if (reset) {
@@ -645,49 +746,22 @@ export default function SubCategoryClient({
     }
 
     try {
-      const baseConstraints: any[] = [
-        where("subCategoryId", "==", subCategory.id),
-        orderBy("createdAt", "desc"),
-        limit(pageSize),
-      ];
+      const batch = await fetchSubCategoryBatch(
+        subCategory.id,
+        reset ? null : lastDoc
+      );
 
-      const cursor = reset ? null : lastDoc;
-      if (cursor) baseConstraints.push(startAfter(cursor));
-
-      let snap;
-      try {
-        snap = await getDocs(query(collection(db, "listings"), ...baseConstraints));
-      } catch (e: any) {
-        if (!isIndexError(e)) throw e;
-        // fallback: index yoksa orderBy olmadan dene
-        const fallback: any[] = [
-          where("subCategoryId", "==", subCategory.id),
-          limit(pageSize),
-        ];
-        if (cursor) fallback.push(startAfter(cursor));
-        snap = await getDocs(query(collection(db, "listings"), ...fallback));
-      }
-
-      const items = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as any),
-      })) as Listing[];
-
-      const newLast =
-        snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
-
-      setLastDoc(newLast);
-      setHasMore(snap.docs.length === pageSize);
+      setLastDoc(batch.lastDoc);
+      setHasMore(batch.hasMore);
 
       if (reset) {
-        // ✅ reset’te direkt yaz
-        setListings(items);
+        setListings(batch.items);
       } else {
-        // ✅ append’te dedupe (duplicate key fix)
+        // append'te dedupe (duplicate key fix)
         setListings((prev) => {
           const seen = new Set(prev.map((x) => x.id));
           const merged = [...prev];
-          for (const it of items) {
+          for (const it of batch.items) {
             if (!seen.has(it.id)) {
               merged.push(it);
               seen.add(it.id);
@@ -698,14 +772,14 @@ export default function SubCategoryClient({
       }
     } catch (e: any) {
       devError("SubCategory fetch error", e);
-      setError(getFriendlyErrorMessage(e, "Liste yüklenemedi."));
+      setError(getFriendlyErrorMessage(e, "Liste yuklenemedi."));
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
   };
 
-  // ✅ query değişince reset + ilk sayfa çek
+  // query degisince reset + ilk sayfa cek
   useEffect(() => {
     if (!subCategory?.id) return;
     if (!urlReadyRef.current) return;
@@ -1001,6 +1075,22 @@ export default function SubCategoryClient({
             </div>
           </div>
 
+          {activeFilterChips.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {activeFilterChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => clearFilterByKey(chip.key)}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800 hover:bg-emerald-100"
+                >
+                  <span>{chip.label}</span>
+                  <span className="font-semibold">×</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="mt-3 hidden md:flex md:flex-wrap md:items-center gap-2">
             <input
               value={searchText}
@@ -1102,35 +1192,37 @@ export default function SubCategoryClient({
           </div>
 
           {filtersOpen && (
-            <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar flex-nowrap pb-1 md:hidden">
+            <div className="mt-3 grid grid-cols-1 gap-2 md:hidden">
               <input
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[220px]"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 placeholder="Ara..."
               />
 
-              <input
-                value={minPrice}
-                onChange={(e) => setMinPrice(e.target.value.replace(/[^\d]/g, ""))}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
-                placeholder="Min (?)"
-                inputMode="numeric"
-              />
-              <input
-                value={maxPrice}
-                onChange={(e) => setMaxPrice(e.target.value.replace(/[^\d]/g, ""))}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
-                placeholder="Max (?)"
-                inputMode="numeric"
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={minPrice}
+                  onChange={(e) => setMinPrice(e.target.value.replace(/[^\d]/g, ""))}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  placeholder="Min (?)"
+                  inputMode="numeric"
+                />
+                <input
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(e.target.value.replace(/[^\d]/g, ""))}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  placeholder="Max (?)"
+                  inputMode="numeric"
+                />
+              </div>
 
               {filterVisibility.showYear && (
-                <>
+                <div className="grid grid-cols-2 gap-2">
                   <select
                     value={yearMin}
                     onChange={(e) => setYearMin(e.target.value)}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">Y?l min</option>
                     {yearOptions.map((y) => (
@@ -1142,7 +1234,7 @@ export default function SubCategoryClient({
                   <select
                     value={yearMax}
                     onChange={(e) => setYearMax(e.target.value)}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">Y?l max</option>
                     {yearOptions.map((y) => (
@@ -1151,55 +1243,57 @@ export default function SubCategoryClient({
                       </option>
                     ))}
                   </select>
-                </>
+                </div>
               )}
 
-              {filterVisibility.showGender && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {filterVisibility.showGender && (
+                  <select
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Cinsiyet</option>
+                    {genderOptions.map((x) => (
+                      <option key={x} value={x}>
+                        {x}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {filterVisibility.showWear && (
+                  <select
+                    value={wearFilter}
+                    onChange={(e) => setWearFilter(e.target.value as any)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">A??nma</option>
+                    <option value="wear">A??nma var</option>
+                    <option value="noWear">A??nma yok</option>
+                  </select>
+                )}
+
                 <select
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[120px]"
+                  value={sortMode}
+                  onChange={(e) =>
+                    setSortMode(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
+                  }
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">Cinsiyet</option>
-                  {genderOptions.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
+                  <option value="newest">En yeni</option>
+                  <option value="priceAsc">Fiyat (artan)</option>
+                  <option value="priceDesc">Fiyat (azalan)</option>
                 </select>
-              )}
 
-              {filterVisibility.showWear && (
-                <select
-                  value={wearFilter}
-                  onChange={(e) => setWearFilter(e.target.value as any)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50"
                 >
-                  <option value="">A??nma</option>
-                  <option value="wear">A??nma var</option>
-                  <option value="noWear">A??nma yok</option>
-                </select>
-              )}
-
-              <select
-                value={sortMode}
-                onChange={(e) =>
-                  setSortMode(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
-                }
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
-              >
-                <option value="newest">En yeni</option>
-                <option value="priceAsc">Fiyat (artan)</option>
-                <option value="priceDesc">Fiyat (azalan)</option>
-              </select>
-
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 shrink-0"
-              >
-                S?f?rla
-              </button>
+                  S?f?rla
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1215,6 +1309,7 @@ export default function SubCategoryClient({
               const img = firstImage(l.imageUrls);
               const ago = timeAgoTR(l.createdAt);
               const y = getYearNumber(l.productionYear);
+              const region = formatRegion(l.locationCity, l.locationDistrict);
 
               return (
                 <Link
@@ -1259,6 +1354,12 @@ export default function SubCategoryClient({
                         <div className="shrink-0">{ago}</div>
                       </div>
 
+                      {region ? (
+                        <div className="text-xs text-slate-500 truncate">
+                          Konum: {region}
+                        </div>
+                      ) : null}
+
                       <div className="text-[11px] text-slate-600 flex flex-wrap gap-2">
                         {y ? (
                           <span className="px-2 py-1 rounded-full bg-slate-100">
@@ -1293,6 +1394,7 @@ export default function SubCategoryClient({
                 const img = firstImage(l.imageUrls);
                 const ago = timeAgoTR(l.createdAt);
                 const y = getYearNumber(l.productionYear);
+                const region = formatRegion(l.locationCity, l.locationDistrict);
 
                 return (
                   <Link
@@ -1333,6 +1435,12 @@ export default function SubCategoryClient({
                           </div>
                           <div className="shrink-0">{ago}</div>
                         </div>
+
+                        {region ? (
+                          <div className="text-xs text-slate-500 truncate">
+                            Konum: {region}
+                          </div>
+                        ) : null}
 
                         <div className="text-[11px] text-slate-600 flex flex-wrap gap-2">
                           {y ? <span className="px-2 py-1 rounded-full bg-slate-100">{y}</span> : null}

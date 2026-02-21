@@ -153,7 +153,83 @@ const decodeDoc = (doc: FirestoreDoc) => {
   return out;
 };
 
-const toStringValue = (v: string) => ({ stringValue: v });
+const toFirestoreValue = (v: string | number | boolean | null) => {
+  if (v === null) return { nullValue: null };
+  if (typeof v === "boolean") return { booleanValue: v };
+  if (typeof v === "number") {
+    return Number.isInteger(v)
+      ? { integerValue: String(v) }
+      : { doubleValue: v };
+  }
+  return { stringValue: String(v) };
+};
+
+type EqualFilter = {
+  fieldPath: string;
+  value: string | number | boolean | null;
+};
+
+type SortDirection = "ASCENDING" | "DESCENDING";
+
+export type RunQueryByFieldParams = {
+  collectionId: string;
+  fieldPath: string;
+  value: string | number | boolean | null;
+  orderByField?: string;
+  direction?: SortDirection;
+  limit?: number;
+  equalFilters?: EqualFilter[];
+};
+
+export type RunCollectionQueryParams = {
+  collectionId: string;
+  orderByField?: string;
+  direction?: SortDirection;
+  limit?: number;
+  selectFields?: string[];
+  equalFilters?: EqualFilter[];
+};
+
+export const isFirestoreIndexError = (err: unknown) => {
+  const message = String((err as any)?.message || "");
+  return (
+    message.includes("requires an index") ||
+    message.includes("create_composite") ||
+    message.includes("FAILED_PRECONDITION")
+  );
+};
+
+const isActiveDoc = (
+  doc: Record<string, any>,
+  statusField: string,
+  statusValue: string
+) => String(doc?.[statusField] || "") === statusValue;
+
+const buildWhere = (filters: EqualFilter[]) => {
+  if (!Array.isArray(filters) || filters.length === 0) return undefined;
+  if (filters.length === 1) {
+    return {
+      fieldFilter: {
+        field: { fieldPath: filters[0].fieldPath },
+        op: "EQUAL",
+        value: toFirestoreValue(filters[0].value),
+      },
+    };
+  }
+
+  return {
+    compositeFilter: {
+      op: "AND",
+      filters: filters.map((f) => ({
+        fieldFilter: {
+          field: { fieldPath: f.fieldPath },
+          op: "EQUAL",
+          value: toFirestoreValue(f.value),
+        },
+      })),
+    },
+  };
+};
 
 export async function fetchDocument<T = Record<string, any>>(
   collectionId: string,
@@ -206,27 +282,20 @@ export async function runQueryByField<T = Record<string, any>>({
   orderByField = "createdAt",
   direction = "DESCENDING",
   limit = 24,
-}: {
-  collectionId: string;
-  fieldPath: string;
-  value: string;
-  orderByField?: string;
-  direction?: "ASCENDING" | "DESCENDING";
-  limit?: number;
-}): Promise<Array<T & { id: string }>> {
+  equalFilters = [],
+}: RunQueryByFieldParams): Promise<Array<T & { id: string }>> {
   const base = getBaseUrl();
   if (!base) return [];
+
+  const allFilters: EqualFilter[] = [
+    { fieldPath, value },
+    ...(Array.isArray(equalFilters) ? equalFilters : []),
+  ];
 
   const body = {
     structuredQuery: {
       from: [{ collectionId }],
-      where: {
-        fieldFilter: {
-          field: { fieldPath },
-          op: "EQUAL",
-          value: toStringValue(value),
-        },
-      },
+      where: buildWhere(allFilters),
       orderBy: [{ field: { fieldPath: orderByField }, direction }],
       limit,
     },
@@ -252,13 +321,8 @@ export async function runCollectionQuery<T = Record<string, any>>({
   direction = "DESCENDING",
   limit = 24,
   selectFields,
-}: {
-  collectionId: string;
-  orderByField?: string;
-  direction?: "ASCENDING" | "DESCENDING";
-  limit?: number;
-  selectFields?: string[];
-}): Promise<Array<T & { id: string }>> {
+  equalFilters = [],
+}: RunCollectionQueryParams): Promise<Array<T & { id: string }>> {
   const base = getBaseUrl();
   if (!base) return [];
 
@@ -274,6 +338,11 @@ export async function runCollectionQuery<T = Record<string, any>>({
     };
   }
 
+  const where = buildWhere(equalFilters);
+  if (where) {
+    structuredQuery.where = where;
+  }
+
   const url = withKey(`${base}/documents:runQuery`);
   const json = (await fetchJson(url, {
     method: "POST",
@@ -286,6 +355,88 @@ export async function runCollectionQuery<T = Record<string, any>>({
     .filter(Boolean) as FirestoreDoc[];
 
   return docs.map((d) => decodeDoc(d)) as Array<T & { id: string }>;
+}
+
+export async function runActiveQueryByField<T = Record<string, any>>(
+  params: Omit<RunQueryByFieldParams, "equalFilters"> & {
+    statusField?: string;
+    statusValue?: string;
+    fallbackMultiplier?: number;
+  }
+): Promise<Array<T & { id: string }>> {
+  const {
+    statusField = "status",
+    statusValue = "active",
+    fallbackMultiplier = 4,
+    limit = 24,
+    ...rest
+  } = params;
+
+  try {
+    return await runQueryByField<T>({
+      ...rest,
+      limit,
+      equalFilters: [{ fieldPath: statusField, value: statusValue }],
+    });
+  } catch (err) {
+    if (!isFirestoreIndexError(err)) throw err;
+
+    const fallbackLimit = Math.max(limit, limit * fallbackMultiplier);
+    const fallback = await runQueryByField<T & Record<string, any>>({
+      ...rest,
+      limit: fallbackLimit,
+    });
+
+    return fallback
+      .filter((doc) =>
+        isActiveDoc(doc as Record<string, any>, statusField, statusValue)
+      )
+      .slice(0, limit);
+  }
+}
+
+export async function runActiveCollectionQuery<T = Record<string, any>>(
+  params: Omit<RunCollectionQueryParams, "equalFilters"> & {
+    statusField?: string;
+    statusValue?: string;
+    fallbackMultiplier?: number;
+  }
+): Promise<Array<T & { id: string }>> {
+  const {
+    statusField = "status",
+    statusValue = "active",
+    fallbackMultiplier = 4,
+    limit = 24,
+    selectFields,
+    ...rest
+  } = params;
+
+  try {
+    return await runCollectionQuery<T>({
+      ...rest,
+      limit,
+      selectFields,
+      equalFilters: [{ fieldPath: statusField, value: statusValue }],
+    });
+  } catch (err) {
+    if (!isFirestoreIndexError(err)) throw err;
+
+    const fallbackLimit = Math.max(limit, limit * fallbackMultiplier);
+    const fields = Array.isArray(selectFields) ? [...selectFields] : undefined;
+    if (fields && !fields.includes(statusField)) fields.push(statusField);
+
+    const fallback = await runCollectionQuery<T & Record<string, any>>({
+      ...rest,
+      limit: fallbackLimit,
+      selectFields: fields,
+    });
+
+    return fallback
+      .filter((doc) =>
+        isActiveDoc(doc as Record<string, any>, statusField, statusValue)
+      )
+      .slice(0, limit);
+  }
 }
 
 export function normTRAscii(input: string) {

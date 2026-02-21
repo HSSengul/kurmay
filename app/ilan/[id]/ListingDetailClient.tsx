@@ -184,6 +184,9 @@ const safeText = (v: any) => {
   return String(v);
 };
 
+const isIndexError = (e: any) =>
+  String(e?.message || "").includes("requires an index");
+
 const normalizeSpaces = (v: string) => (v || "").replace(/\s+/g, " ").trim();
 
 const cleanLocationToken = (v: string) =>
@@ -480,15 +483,37 @@ export default function ListingDetailClient({
           extraTasks.push(
             (async () => {
               try {
-                const sellerQuery = query(
-                  collection(db, "listings"),
-                  where("ownerId", "==", listingData.ownerId),
-                  orderBy("createdAt", "desc"),
-                  limit(9)
-                );
-                const sellerSnap = await getDocs(sellerQuery);
+                let sellerSnap;
+                let fallback = false;
+                try {
+                  sellerSnap = await getDocs(
+                    query(
+                      collection(db, "listings"),
+                      where("ownerId", "==", listingData.ownerId),
+                      where("status", "==", "active"),
+                      orderBy("createdAt", "desc"),
+                      limit(12)
+                    )
+                  );
+                } catch (e: any) {
+                  if (!isIndexError(e)) throw e;
+                  fallback = true;
+                  sellerSnap = await getDocs(
+                    query(
+                      collection(db, "listings"),
+                      where("ownerId", "==", listingData.ownerId),
+                      orderBy("createdAt", "desc"),
+                      limit(12)
+                    )
+                  );
+                }
                 if (cancelled) return;
-                const items = sellerSnap.docs
+                const docs = fallback
+                  ? sellerSnap.docs.filter(
+                      (d) => String((d.data() as any)?.status || "") === "active"
+                    )
+                  : sellerSnap.docs;
+                const items = docs
                   .filter((d) => d.id !== currentListingId)
                   .map(toPreview)
                   .slice(0, 8);
@@ -504,15 +529,37 @@ export default function ListingDetailClient({
           extraTasks.push(
             (async () => {
               try {
-                const similarQuery = query(
-                  collection(db, "listings"),
-                  where("subCategoryId", "==", listingData.subCategoryId),
-                  orderBy("createdAt", "desc"),
-                  limit(9)
-                );
-                const similarSnap = await getDocs(similarQuery);
+                let similarSnap;
+                let fallback = false;
+                try {
+                  similarSnap = await getDocs(
+                    query(
+                      collection(db, "listings"),
+                      where("subCategoryId", "==", listingData.subCategoryId),
+                      where("status", "==", "active"),
+                      orderBy("createdAt", "desc"),
+                      limit(12)
+                    )
+                  );
+                } catch (e: any) {
+                  if (!isIndexError(e)) throw e;
+                  fallback = true;
+                  similarSnap = await getDocs(
+                    query(
+                      collection(db, "listings"),
+                      where("subCategoryId", "==", listingData.subCategoryId),
+                      orderBy("createdAt", "desc"),
+                      limit(12)
+                    )
+                  );
+                }
                 if (cancelled) return;
-                const items = similarSnap.docs
+                const docs = fallback
+                  ? similarSnap.docs.filter(
+                      (d) => String((d.data() as any)?.status || "") === "active"
+                    )
+                  : similarSnap.docs;
+                const items = docs
                   .filter((d) => d.id !== currentListingId)
                   .map(toPreview)
                   .slice(0, 8);

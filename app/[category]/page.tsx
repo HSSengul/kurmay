@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import CategoryClient from "./CategoryClient";
-import { listCollection, normTRAscii, runQueryByField } from "@/lib/firestoreRest";
+import {
+  listCollection,
+  normTRAscii,
+  runActiveQueryByField,
+} from "@/lib/firestoreRest";
 import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
 
 export const revalidate = 300;
@@ -127,7 +131,7 @@ export async function generateMetadata({
 
   const canonicalSlug = slugifyTR(match.slug || match.nameLower || match.name);
   const title = `${match.name} | İlanlar`;
-  const listingsForMeta = await runQueryByField<ListingDoc>({
+  const listingsForMeta = await runActiveQueryByField<ListingDoc>({
     collectionId: "listings",
     fieldPath: "categoryId",
     value: match.id,
@@ -210,7 +214,7 @@ export default async function CategoryPage({
       (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
     );
 
-  const listings = await runQueryByField<ListingDoc>({
+  const listings = await runActiveQueryByField<ListingDoc>({
     collectionId: "listings",
     fieldPath: "categoryId",
     value: match.id,

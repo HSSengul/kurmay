@@ -154,9 +154,6 @@ function safeSlug(obj: { slug?: string; nameLower?: string; name?: string }) {
 export default function Header({ initialCategories = [] }: HeaderProps) {
   const router = useRouter();
   const headerRef = useRef<HTMLDivElement>(null);
-  const mobileSearchRef = useRef<HTMLDivElement>(null);
-  const mobileSearchButtonRef = useRef<HTMLButtonElement>(null);
-  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
 
   const [user, setUser] = useState<User | null>(null);
 
@@ -165,7 +162,6 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
 
   // Mobile drawer
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   // Search
   const [searchText, setSearchText] = useState("");
@@ -262,6 +258,15 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
     };
   }, [mobileOpen]);
 
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [mobileOpen]);
+
   /* ================= HEADER HEIGHT VAR ================= */
 
   useEffect(() => {
@@ -292,34 +297,6 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
-
-  /* ================= MOBILE SEARCH ================= */
-
-  useEffect(() => {
-    if (!mobileSearchOpen) return;
-    const id = window.setTimeout(() => {
-      mobileSearchInputRef.current?.focus();
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, [mobileSearchOpen]);
-
-  useEffect(() => {
-    if (!mobileSearchOpen) return;
-
-    const onPointerDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (
-        mobileSearchRef.current?.contains(t) ||
-        mobileSearchButtonRef.current?.contains(t)
-      ) {
-        return;
-      }
-      setMobileSearchOpen(false);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [mobileSearchOpen]);
 
   /* ================= LOAD CATEGORIES ================= */
 
@@ -460,7 +437,6 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
   const closeAllMenus = () => {
     closeDesktopMenus();
     setMobileOpen(false);
-    setMobileSearchOpen(false);
   };
 
   const handleLogout = async () => {
@@ -507,7 +483,12 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
           aria-hidden="true"
         />
 
-        <div className="absolute inset-0 w-screen h-[100dvh] bg-[#fffaf3] flex flex-col">
+        <div
+          className="absolute inset-0 w-screen h-[100dvh] bg-[#fffaf3] flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Mobil menü"
+        >
           <div className="px-4 py-3 border-b border-[#f0e2d1] flex items-center justify-between">
             <div className="flex items-center gap-2 text-lg font-semibold text-[#3f2a1a]">
               {brandLogoUrl ? (
@@ -1225,7 +1206,6 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
             <button
               onClick={() => {
                 setCatOpenId(null);
-                setMobileSearchOpen(false);
                 setMobileOpen(true);
               }}
               className="md:hidden w-10 h-10 rounded-full hover:bg-[#f7ede2] flex items-center justify-center"
@@ -1248,42 +1228,6 @@ export default function Header({ initialCategories = [] }: HeaderProps) {
           </div>
         </div>
 
-        {mobileSearchOpen && (
-          <div ref={mobileSearchRef} className="md:hidden px-4 pb-3">
-            <div className="relative">
-              <input
-                ref={mobileSearchInputRef}
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submitSearch()}
-                placeholder="Ürün, oyun, figür, kart..."
-                className={cx(
-                  "w-full rounded-full border border-[#ead8c5] bg-white/90 px-4 py-3 pr-12 text-sm text-[#3f2a1a] placeholder:text-[#9b7b5a]",
-                  "focus:outline-none focus:ring-2 focus:ring-[#e7c49b] focus:border-[#d9b28a]"
-                )}
-              />
-              <button
-                onClick={submitSearch}
-                aria-label="Ara"
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full hover:bg-[#f7ede2] flex items-center justify-center"
-              >
-                <svg
-                  className="w-5 h-5 text-[#5a4330]"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-        )}
       </header>
 
       {/* ✅ Portal drawer */}

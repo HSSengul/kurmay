@@ -1,5 +1,5 @@
 ﻿import HomeClient from "./HomeClient";
-import { listCollection, runCollectionQuery } from "@/lib/firestoreRest";
+import { listCollection, runActiveCollectionQuery } from "@/lib/firestoreRest";
 
 export const revalidate = 60;
 
@@ -8,7 +8,7 @@ const LISTINGS_PAGE_SIZE = 60;
 export default async function HomePage() {
   const [categories, listings] = await Promise.all([
     listCollection("categories", 500, 5),
-    runCollectionQuery({
+    runActiveCollectionQuery({
       collectionId: "listings",
       orderByField: "createdAt",
       direction: "DESCENDING",
@@ -24,8 +24,11 @@ export default async function HomePage() {
         "ownerName",
         "ownerDisplayName",
         "sellerName",
+        "locationCity",
+        "locationDistrict",
         "imageUrls",
         "createdAt",
+        "status",
         "attributes",
       ],
     }),

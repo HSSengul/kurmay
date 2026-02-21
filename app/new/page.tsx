@@ -1342,6 +1342,46 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     return urls;
   };
 
+  const publishValidationError = (() => {
+    if (!isCategorySelectionComplete) {
+      return "Önce kategori ve alt kategori seç.";
+    }
+    if (!normalizeSpaces(title)) {
+      return "İlan başlığı zorunlu.";
+    }
+    if (!price.trim()) {
+      return "Fiyat zorunlu.";
+    }
+    const priceNumber = Number(price.trim());
+    if (!Number.isFinite(priceNumber) || priceNumber < 0) {
+      return "Fiyat geçersiz.";
+    }
+    if (!condition) {
+      return "Durum seçimi zorunlu.";
+    }
+    if (!normalizeSpaces(description)) {
+      return "Açıklama zorunlu.";
+    }
+    if (newFiles.length === 0) {
+      return "En az 1 fotoğraf eklenmeli.";
+    }
+    if (newFiles.length > 5) {
+      return "En fazla 5 fotoğraf ekleyebilirsin.";
+    }
+    const fileError = validateFiles(newFiles);
+    if (fileError) return fileError;
+    return validateDynamicFields();
+  
+  })();
+
+  const canPublish =
+    !gateChecking &&
+    gateAllowed &&
+    !loading &&
+    !uploading &&
+    !preparingImages &&
+    !publishValidationError;
+
   /* ================= SUBMIT ================= */
 
   const handleSubmit = async (e: FormEvent) => {
@@ -2763,12 +2803,7 @@ function normalizeOptions(list: OptionLike[] | undefined) {
           <div className="flex flex-col sm:flex-row gap-3">
             <button
               type="submit"
-              disabled={
-                !isCategorySelectionComplete ||
-                loading ||
-                uploading ||
-                preparingImages
-              }
+              disabled={!canPublish}
               className="flex-1 bg-[#1f2a24] hover:bg-[#2b3b32] text-white font-semibold py-3 rounded-full disabled:opacity-50"
             >
               {uploading
@@ -2787,6 +2822,12 @@ function normalizeOptions(list: OptionLike[] | undefined) {
               Vazgeç
             </button>
           </div>
+
+          {!canPublish && isCategorySelectionComplete && publishValidationError ? (
+            <div className="text-xs text-[#8a6a4f]">
+              Yayınlama için eksik: {publishValidationError}
+            </div>
+          ) : null}
 
           <div className={helperTextClass}>
             Not: Bu sayfada şema{" "}

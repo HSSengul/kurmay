@@ -29,6 +29,7 @@ type Listing = {
   id: string;
   title: string;
   price: number;
+  status?: string;
   createdAt?: any;
 
   categoryName?: string;
@@ -92,6 +93,8 @@ export default function SellerClient({
   const [loadingMore, setLoadingMore] = useState(false);
 
   const LISTINGS_PAGE_SIZE = 24;
+  const isIndexError = (e: any) =>
+    String(e?.message || "").includes("requires an index");
 
   /* =======================
      LOAD SELLER + LISTINGS
@@ -123,21 +126,40 @@ export default function SellerClient({
         /* =======================
            LOAD SELLER LISTINGS
         ======================= */
-        const q = query(
-          collection(db, "listings"),
-          where("ownerId", "==", uid),
-          orderBy("createdAt", "desc"),
-          limit(LISTINGS_PAGE_SIZE)
-        );
-
-        const snap = await getDocs(q);
+        let snap;
+        let fallback = false;
+        try {
+          snap = await getDocs(
+            query(
+              collection(db, "listings"),
+              where("ownerId", "==", uid),
+              where("status", "==", "active"),
+              orderBy("createdAt", "desc"),
+              limit(LISTINGS_PAGE_SIZE)
+            )
+          );
+        } catch (e: any) {
+          if (!isIndexError(e)) throw e;
+          fallback = true;
+          snap = await getDocs(
+            query(
+              collection(db, "listings"),
+              where("ownerId", "==", uid),
+              orderBy("createdAt", "desc"),
+              limit(LISTINGS_PAGE_SIZE)
+            )
+          );
+        }
 
         if (cancelled) return;
 
-        const data = snap.docs.map((d) => ({
+        let data = snap.docs.map((d) => ({
           id: d.id,
           ...(d.data() as any),
         })) as Listing[];
+        if (fallback) {
+          data = data.filter((item) => String(item.status || "") === "active");
+        }
 
         setListings(data);
         setCursor(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
@@ -168,19 +190,39 @@ export default function SellerClient({
     setLoadingMore(true);
 
     try {
-      const q = query(
-        collection(db, "listings"),
-        where("ownerId", "==", uid),
-        orderBy("createdAt", "desc"),
-        startAfter(cursor),
-        limit(LISTINGS_PAGE_SIZE)
-      );
-
-      const snap = await getDocs(q);
-      const data = snap.docs.map((d) => ({
+      let snap;
+      let fallback = false;
+      try {
+        snap = await getDocs(
+          query(
+            collection(db, "listings"),
+            where("ownerId", "==", uid),
+            where("status", "==", "active"),
+            orderBy("createdAt", "desc"),
+            startAfter(cursor),
+            limit(LISTINGS_PAGE_SIZE)
+          )
+        );
+      } catch (e: any) {
+        if (!isIndexError(e)) throw e;
+        fallback = true;
+        snap = await getDocs(
+          query(
+            collection(db, "listings"),
+            where("ownerId", "==", uid),
+            orderBy("createdAt", "desc"),
+            startAfter(cursor),
+            limit(LISTINGS_PAGE_SIZE)
+          )
+        );
+      }
+      let data = snap.docs.map((d) => ({
         id: d.id,
         ...(d.data() as any),
       })) as Listing[];
+      if (fallback) {
+        data = data.filter((item) => String(item.status || "") === "active");
+      }
 
       setListings((prev) => {
         const seen = new Set(prev.map((x) => x.id));

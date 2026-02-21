@@ -34,6 +34,10 @@ type CategoryDoc = {
 
 type CategoryRow = CategoryDoc & { id: string };
 
+type ConfirmDialogState =
+  | { kind: "delete"; id: string; name: string }
+  | { kind: "seed" };
+
 /* =========================
    HELPERS
 ========================= */
@@ -295,6 +299,11 @@ export default function AdminCategoriesPage() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<CategoryRow[]>([]);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(
+    null
+  );
 
   const [selectedMainId, setSelectedMainId] = useState<string>("");
 
@@ -335,6 +344,23 @@ export default function AdminCategoriesPage() {
     loadAll();
   }, []);
 
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(""), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  useEffect(() => {
+    if (!confirmDialog) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        setConfirmDialog(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [confirmDialog, busy]);
+
   const mains = useMemo(() => {
     return rows
       .filter((x) => x.parentId == null)
@@ -349,6 +375,7 @@ export default function AdminCategoriesPage() {
 
   async function createMain() {
     setError("");
+    setNotice("");
     const name = newMainName.trim();
     if (!name) return setError("Ana kategori adı boş olamaz.");
 
@@ -377,6 +404,7 @@ export default function AdminCategoriesPage() {
 
   async function createSub() {
     setError("");
+    setNotice("");
     const name = newSubName.trim();
     if (!selectedMainId) return setError("Önce ana kategori seç.");
     if (!name) return setError("Alt kategori adı boş olamaz.");
@@ -404,6 +432,7 @@ export default function AdminCategoriesPage() {
 
   async function toggleEnabled(id: string, next: boolean) {
     setError("");
+    setNotice("");
     try {
       await updateDoc(doc(db, "categories", id), {
         enabled: next,
@@ -417,6 +446,7 @@ export default function AdminCategoriesPage() {
 
   async function updateName(id: string, nextName: string) {
     setError("");
+    setNotice("");
     const name = nextName.trim();
     if (!name) return setError("İsim boş olamaz.");
     try {
@@ -433,6 +463,7 @@ export default function AdminCategoriesPage() {
 
   async function updateOrder(id: string, nextOrder: number) {
     setError("");
+    setNotice("");
     try {
       await updateDoc(doc(db, "categories", id), {
         order: safeInt(nextOrder, 0),
@@ -488,6 +519,7 @@ export default function AdminCategoriesPage() {
 
   async function updateIcon(id: string, nextIcon: string) {
     setError("");
+    setNotice("");
     try {
       await updateDoc(doc(db, "categories", id), {
         icon: (nextIcon || "").trim() || undefined,
@@ -501,6 +533,7 @@ export default function AdminCategoriesPage() {
 
   async function updateImageUrl(id: string, nextUrl: string) {
     setError("");
+    setNotice("");
     try {
       await updateDoc(doc(db, "categories", id), {
         imageUrl: (nextUrl || "").trim() || undefined,
@@ -515,6 +548,7 @@ export default function AdminCategoriesPage() {
   async function uploadMainImage(id: string, file: File) {
     if (!file) return;
     setError("");
+    setNotice("");
 
     const allowed = ["image/jpeg", "image/png", "image/webp"];
     const maxBytes = 2 * 1024 * 1024;
@@ -549,10 +583,11 @@ export default function AdminCategoriesPage() {
 
   async function removeCategory(id: string) {
     setError("");
-    if (!confirm("Silmek istediğine emin misin?")) return;
+    setNotice("");
     try {
       await deleteDoc(doc(db, "categories", id));
       await loadAll();
+      setNotice("Kategori silindi.");
     } catch (e: any) {
       setError(e?.message || "Silinemedi.");
     }
@@ -560,7 +595,7 @@ export default function AdminCategoriesPage() {
 
   async function seedDefaults() {
     setError("");
-    if (!confirm("Varsayılan kategoriler yüklensin mi? (Var olanları ezmez)")) return;
+    setNotice("");
 
     try {
       const batch = writeBatch(db);
@@ -597,11 +632,39 @@ export default function AdminCategoriesPage() {
 
       await batch.commit();
       await loadAll();
-      alert("✅ Varsayılan kategoriler yüklendi.");
+      setNotice("Varsayılan kategoriler yüklendi.");
     } catch (e: any) {
       setError(e?.message || "Seed başarısız.");
     }
   }
+
+  const askDeleteCategory = (id: string) => {
+    const target = rows.find((x) => x.id === id);
+    setConfirmDialog({
+      kind: "delete",
+      id,
+      name: target?.name || id,
+    });
+  };
+
+  const askSeedDefaults = () => {
+    setConfirmDialog({ kind: "seed" });
+  };
+
+  const runConfirmAction = async () => {
+    if (!confirmDialog || busy) return;
+    setBusy(true);
+    try {
+      if (confirmDialog.kind === "delete") {
+        await removeCategory(confirmDialog.id);
+      } else {
+        await seedDefaults();
+      }
+      setConfirmDialog(null);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -615,14 +678,16 @@ export default function AdminCategoriesPage() {
 
         <div className="flex gap-2">
           <button
-            onClick={seedDefaults}
-            className="px-3 py-2 rounded-lg bg-black text-white hover:opacity-90"
+            onClick={askSeedDefaults}
+            disabled={busy}
+            className="px-3 py-2 rounded-lg bg-black text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Varsayılanları Yükle
           </button>
           <button
             onClick={loadAll}
-            className="px-3 py-2 rounded-lg border hover:bg-gray-50"
+            disabled={busy}
+            className="px-3 py-2 rounded-lg border hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Yenile
           </button>
@@ -632,6 +697,12 @@ export default function AdminCategoriesPage() {
       {error ? (
         <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700">
           {error}
+        </div>
+      ) : null}
+
+      {notice ? (
+        <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700">
+          {notice}
         </div>
       ) : null}
 
@@ -651,11 +722,15 @@ export default function AdminCategoriesPage() {
                   selectedMainId === m.id ? "border-black bg-gray-50" : "hover:bg-gray-50"
                 }`}
                 onClick={() => setSelectedMainId(m.id)}
-                draggable
-                onDragStart={() => setDragMainId(m.id)}
+                draggable={!busy}
+                onDragStart={() => {
+                  if (busy) return;
+                  setDragMainId(m.id);
+                }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   e.preventDefault();
+                  if (busy) return;
                   if (dragMainId) handleReorder(mains, dragMainId, m.id);
                   setDragMainId(null);
                 }}
@@ -691,11 +766,13 @@ export default function AdminCategoriesPage() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (busy) return;
                           toggleEnabled(m.id, !m.enabled);
                         }}
+                        disabled={busy}
                         className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
                           m.enabled ? "bg-green-600" : "bg-gray-300"
-                        }`}
+                        } ${busy ? "opacity-50 cursor-not-allowed" : ""}`}
                         aria-pressed={!!m.enabled}
                       >
                         <span
@@ -708,9 +785,11 @@ export default function AdminCategoriesPage() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        removeCategory(m.id);
+                        if (busy) return;
+                        askDeleteCategory(m.id);
                       }}
-                      className="text-xs px-2 py-1 rounded-md border hover:bg-gray-50"
+                      disabled={busy}
+                      className="text-xs px-2 py-1 rounded-md border hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Sil
                     </button>
@@ -791,7 +870,8 @@ export default function AdminCategoriesPage() {
             </div>
             <button
               onClick={createMain}
-              className="mt-2 px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+              disabled={busy}
+              className="mt-2 px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Ekle
             </button>
@@ -821,11 +901,15 @@ export default function AdminCategoriesPage() {
               <div className="space-y-2 mb-4">
                 {subs.map((s) => (
                   <div key={s.id} className="p-3 rounded-lg border hover:bg-gray-50"
-                    draggable
-                    onDragStart={() => setDragSubId(s.id)}
+                    draggable={!busy}
+                    onDragStart={() => {
+                      if (busy) return;
+                      setDragSubId(s.id);
+                    }}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
                       e.preventDefault();
+                      if (busy) return;
                       if (dragSubId) handleReorder(subs, dragSubId, s.id);
                       setDragSubId(null);
                     }}>
@@ -846,11 +930,13 @@ export default function AdminCategoriesPage() {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              if (busy) return;
                               toggleEnabled(s.id, !s.enabled);
                             }}
+                            disabled={busy}
                             className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
                               s.enabled ? "bg-green-600" : "bg-gray-300"
-                            }`}
+                            } ${busy ? "opacity-50 cursor-not-allowed" : ""}`}
                             aria-pressed={!!s.enabled}
                           >
                             <span
@@ -861,8 +947,12 @@ export default function AdminCategoriesPage() {
                           </button>
                         </label>
                         <button
-                          onClick={() => removeCategory(s.id)}
-                          className="text-xs px-2 py-1 rounded-md border hover:bg-gray-50"
+                          onClick={() => {
+                            if (busy) return;
+                            askDeleteCategory(s.id);
+                          }}
+                          disabled={busy}
+                          className="text-xs px-2 py-1 rounded-md border hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Sil
                         </button>
@@ -916,7 +1006,8 @@ export default function AdminCategoriesPage() {
                 </div>
                 <button
                   onClick={createSub}
-                  className="mt-2 px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                  disabled={busy}
+                  className="mt-2 px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Ekle
                 </button>
@@ -925,6 +1016,50 @@ export default function AdminCategoriesPage() {
           )}
         </div>
       </div>
+
+      {confirmDialog ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Kapat"
+            className="absolute inset-0 bg-black/35"
+            onClick={() => {
+              if (busy) return;
+              setConfirmDialog(null);
+            }}
+          />
+          <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="text-lg font-semibold text-slate-900">
+              {confirmDialog.kind === "delete"
+                ? "Kategoriyi sil"
+                : "Varsayilanlari yukle"}
+            </div>
+            <div className="mt-2 text-sm text-slate-600">
+              {confirmDialog.kind === "delete"
+                ? `"${confirmDialog.name}" kalici olarak silinecek. Bu islem geri alinamaz.`
+                : "Varsayilan kategori ve alt kategori dokumanlari merge edilerek guncellenecek. Var olan kayitlar korunur."}
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(null)}
+                disabled={busy}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Vazgec
+              </button>
+              <button
+                type="button"
+                onClick={runConfirmAction}
+                disabled={busy}
+                className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {busy ? "Isleniyor..." : "Onayla"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-6 text-xs text-gray-500">
         İpucu: “Varsayılanları Yükle” butonu dokümanları <b>id sabit</b> yazar.

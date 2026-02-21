@@ -46,6 +46,7 @@ type Listing = {
   id: string;
   title?: string;
   price?: number;
+  status?: string;
 
   categoryId?: string;
   categoryName?: string;
@@ -63,6 +64,8 @@ type Listing = {
   braceletMaterial?: string;
 
   wearExists?: boolean;
+  locationCity?: string | null;
+  locationDistrict?: string | null;
 
   imageUrls?: string[];
   createdAt?: any;
@@ -84,6 +87,13 @@ const normalizeSpaces = (v: string) => (v || "").replace(/\s+/g, " ").trim();
 const safeText = (v?: string, fallback = "—") => {
   const t = normalizeSpaces(v || "");
   return t ? t : fallback;
+};
+
+const formatRegion = (city?: string | null, district?: string | null) => {
+  const cleanCity = normalizeSpaces(city || "");
+  const cleanDistrict = normalizeSpaces(district || "");
+  if (cleanCity && cleanDistrict) return `${cleanDistrict} / ${cleanCity}`;
+  return cleanCity || cleanDistrict || "";
 };
 
 const normTR = (v?: string) =>
@@ -409,31 +419,63 @@ export default function CategoryClient({
     setPageSize(24);
   };
 
-  const appliedFiltersCount = useMemo(() => {
-    let c = 0;
-    if (subCategoryId.trim()) c++;
-    if (minPrice.trim()) c++;
-    if (maxPrice.trim()) c++;
-    if (yearMin.trim()) c++;
-    if (yearMax.trim()) c++;
-    if (gender.trim()) c++;
-    if (wearFilter) c++;
-    if (searchText.trim()) c++;
-    if (sortMode !== "newest") c++;
-    if (viewMode !== "grid") c++;
-    return c;
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string }> = [];
+    const search = searchText.trim();
+    const sub = subCategoryId.trim();
+    const selectedSub = subCategories.find((x) => x.id === sub);
+    const minP = minPrice.trim();
+    const maxP = maxPrice.trim();
+    const yMin = yearMin.trim();
+    const yMax = yearMax.trim();
+    const g = gender.trim();
+
+    if (search) chips.push({ key: "search", label: `Arama: ${search}` });
+    if (sub && selectedSub) {
+      chips.push({ key: "subCategory", label: `Alt kategori: ${selectedSub.name}` });
+    }
+    if (minP || maxP) {
+      chips.push({ key: "price", label: `Fiyat: ${minP || "0"} - ${maxP || "∞"}` });
+    }
+    if (yMin || yMax) {
+      chips.push({ key: "year", label: `Yil: ${yMin || "0"} - ${yMax || "∞"}` });
+    }
+    if (g) chips.push({ key: "gender", label: `Cinsiyet: ${g}` });
+    if (wearFilter) {
+      chips.push({
+        key: "wear",
+        label: wearFilter === "wear" ? "Asinma: Var" : "Asinma: Yok",
+      });
+    }
+    return chips;
   }, [
+    searchText,
     subCategoryId,
+    subCategories,
     minPrice,
     maxPrice,
     yearMin,
     yearMax,
     gender,
     wearFilter,
-    searchText,
-    sortMode,
-    viewMode,
   ]);
+
+  const appliedFiltersCount = activeFilterChips.length;
+
+  const clearFilterByKey = (key: string) => {
+    if (key === "search") setSearchText("");
+    if (key === "subCategory") setSubCategoryId("");
+    if (key === "price") {
+      setMinPrice("");
+      setMaxPrice("");
+    }
+    if (key === "year") {
+      setYearMin("");
+      setYearMax("");
+    }
+    if (key === "gender") setGender("");
+    if (key === "wear") setWearFilter("");
+  };
 
   useEffect(() => {
     if (appliedFiltersCount > 0) setFiltersOpen(true);
@@ -442,24 +484,82 @@ export default function CategoryClient({
   /* ================= LOAD BRAND + MODELS + LISTINGS (PAGINATION) ================= */
 
   const LISTINGS_BATCH = 60;
+  const isIndexError = (e: any) =>
+    String(e?.message || "").includes("requires an index");
+
+  const fetchCategoryBatch = async (
+    categoryId: string,
+    startAfterDoc: QueryDocumentSnapshot<DocumentData> | null
+  ) => {
+    try {
+      const constraints: any[] = [
+        where("categoryId", "==", categoryId),
+        where("status", "==", "active"),
+        orderBy("createdAt", "desc"),
+        limit(LISTINGS_BATCH),
+      ];
+      if (startAfterDoc) constraints.splice(3, 0, startAfter(startAfterDoc));
+
+      const snap = await getDocs(query(collection(db, "listings"), ...constraints));
+      const docs = snap.docs;
+      const items = docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Listing[];
+
+      return {
+        items,
+        lastDoc: docs.length > 0 ? docs[docs.length - 1] : startAfterDoc,
+        hasMore: docs.length === LISTINGS_BATCH,
+      };
+    } catch (e: any) {
+      if (!isIndexError(e)) throw e;
+
+      // Fallback: status filtresi index isterse client-side filtre uygula.
+      let cursorDoc = startAfterDoc;
+      let hasMore = true;
+      const collected: Listing[] = [];
+      let lastDoc: QueryDocumentSnapshot<DocumentData> | null = startAfterDoc;
+
+      while (hasMore && collected.length < LISTINGS_BATCH) {
+        const constraints: any[] = [
+          where("categoryId", "==", categoryId),
+          orderBy("createdAt", "desc"),
+          limit(LISTINGS_BATCH),
+        ];
+        if (cursorDoc) constraints.splice(2, 0, startAfter(cursorDoc));
+
+        const snap = await getDocs(query(collection(db, "listings"), ...constraints));
+        const docs = snap.docs;
+        if (docs.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        cursorDoc = docs[docs.length - 1];
+        lastDoc = cursorDoc;
+        hasMore = docs.length === LISTINGS_BATCH;
+
+        const activeItems = docs
+          .map((d) => ({ id: d.id, ...(d.data() as any) }))
+          .filter((item) => String((item as Listing).status || "") === "active") as Listing[];
+
+        for (const item of activeItems) {
+          collected.push(item);
+          if (collected.length >= LISTINGS_BATCH) break;
+        }
+      }
+
+      return {
+        items: collected,
+        lastDoc,
+        hasMore,
+      };
+    }
+  };
 
   const fetchFirstPage = async (categoryId: string) => {
-    const q = query(
-      collection(db, "listings"),
-      where("categoryId", "==", categoryId),
-      orderBy("createdAt", "desc"),
-      limit(LISTINGS_BATCH)
-    );
-
-    const snap = await getDocs(q);
-    const docs = snap.docs;
-
-    const page = docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Listing[];
-
-    setCursor(docs.length > 0 ? docs[docs.length - 1] : null);
-    setHasMore(docs.length === LISTINGS_BATCH);
-
-    setListingsRaw(page);
+    const batch = await fetchCategoryBatch(categoryId, null);
+    setCursor(batch.lastDoc);
+    setHasMore(batch.hasMore);
+    setListingsRaw(batch.items);
   };
 
   const fetchMore = async (categoryId: string) => {
@@ -474,27 +574,15 @@ export default function CategoryClient({
     setLoadingMore(true);
 
     try {
-      const q = query(
-        collection(db, "listings"),
-        where("categoryId", "==", categoryId),
-        orderBy("createdAt", "desc"),
-        startAfter(cursor),
-        limit(LISTINGS_BATCH)
-      );
-
-      const snap = await getDocs(q);
-      const docs = snap.docs;
-
-      const page = docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Listing[];
-
-      setCursor(docs.length > 0 ? docs[docs.length - 1] : cursor);
-      setHasMore(docs.length === LISTINGS_BATCH);
+      const batch = await fetchCategoryBatch(categoryId, cursor);
+      setCursor(batch.lastDoc || cursor);
+      setHasMore(batch.hasMore);
 
       // merge unique
       setListingsRaw((prev) => {
         const map = new Map<string, Listing>();
         for (const x of prev) map.set(x.id, x);
-        for (const x of page) map.set(x.id, x);
+        for (const x of batch.items) map.set(x.id, x);
         return Array.from(map.values());
       });
     } catch (e) {
@@ -583,7 +671,11 @@ export default function CategoryClient({
         // 4) OPTIONAL COUNT (sessiz fail)
         try {
           const countSnap = await getCountFromServer(
-            query(collection(db, "listings"), where("categoryId", "==", b.id))
+            query(
+              collection(db, "listings"),
+              where("categoryId", "==", b.id),
+              where("status", "==", "active")
+            )
           );
           if (!cancelled) setTotalCount(countSnap.data().count);
         } catch (e) {
@@ -749,11 +841,18 @@ export default function CategoryClient({
     if (!hasMore) return;
     if (loadingMore) return;
 
-    // pageSize > listingsRaw.length ise Firestore’dan yeni sayfa çek
-    if (pageSize > listingsRaw.length) {
+    // Filtrelenmiş sonuçlar sayfayı doldurmuyorsa da yeni sayfa çek.
+    if (pageSize > listingsRaw.length || sortedListings.length < pageSize) {
       fetchMore(category.id);
     }
-  }, [pageSize, listingsRaw.length, category?.id, hasMore, loadingMore]);
+  }, [
+    pageSize,
+    listingsRaw.length,
+    sortedListings.length,
+    category?.id,
+    hasMore,
+    loadingMore,
+  ]);
 
   /* ================= PRESETS (Hızlı Filtreler) ================= */
 
@@ -819,10 +918,6 @@ export default function CategoryClient({
     gender,
     wearFilter,
   ]);
-
-  /* ================= ACTIVE FILTER BADGES ================= */
-
-  const selectedSubCategory = subCategoryId ? subCategories.find((m) => m.id === subCategoryId) : null;
 
   /* ================= UI STATES ================= */
 
@@ -1047,6 +1142,22 @@ export default function CategoryClient({
             </div>
           </div>
 
+          {activeFilterChips.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {activeFilterChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => clearFilterByKey(chip.key)}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800 hover:bg-emerald-100"
+                >
+                  <span>{chip.label}</span>
+                  <span className="font-semibold">×</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="mt-3 hidden md:flex md:flex-wrap md:items-center gap-2">
             <input
               value={searchText}
@@ -1160,33 +1271,35 @@ export default function CategoryClient({
           </div>
 
           {filtersOpen && (
-            <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar flex-nowrap pb-1 md:hidden">
+            <div className="mt-3 grid grid-cols-1 gap-2 md:hidden">
               <input
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[220px]"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 placeholder="Ara..."
               />
-              <input
-                value={minPrice}
-                onChange={(e) => setMinPrice(cleanDigits(e.target.value))}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
-                placeholder="Min (?)"
-                inputMode="numeric"
-              />
-              <input
-                value={maxPrice}
-                onChange={(e) => setMaxPrice(cleanDigits(e.target.value))}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
-                placeholder="Max (?)"
-                inputMode="numeric"
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={minPrice}
+                  onChange={(e) => setMinPrice(cleanDigits(e.target.value))}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  placeholder="Min (?)"
+                  inputMode="numeric"
+                />
+                <input
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(cleanDigits(e.target.value))}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  placeholder="Max (?)"
+                  inputMode="numeric"
+                />
+              </div>
               {filterVisibility.showYear && (
-                <>
+                <div className="grid grid-cols-2 gap-2">
                   <select
                     value={yearMin}
                     onChange={(e) => setYearMin(cleanDigits(e.target.value))}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">Y?l min</option>
                     {yearOptions.map((y) => (
@@ -1198,7 +1311,7 @@ export default function CategoryClient({
                   <select
                     value={yearMax}
                     onChange={(e) => setYearMax(cleanDigits(e.target.value))}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">Y?l max</option>
                     {yearOptions.map((y) => (
@@ -1207,51 +1320,53 @@ export default function CategoryClient({
                       </option>
                     ))}
                   </select>
-                </>
+                </div>
               )}
-              {filterVisibility.showGender && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {filterVisibility.showGender && (
+                  <select
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Cinsiyet</option>
+                    {genderOptions.map((x) => (
+                      <option key={x} value={x}>
+                        {x}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {filterVisibility.showWear && (
+                  <select
+                    value={wearFilter}
+                    onChange={(e) => setWearFilter(e.target.value as any)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">A??nma</option>
+                    <option value="wear">A??nma var</option>
+                    <option value="noWear">A??nma yok</option>
+                  </select>
+                )}
                 <select
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[120px]"
+                  value={sortMode}
+                  onChange={(e) =>
+                    setSortMode(e.target.value as "newest" | "priceAsc" | "priceDesc")
+                  }
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">Cinsiyet</option>
-                  {genderOptions.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
+                  <option value="newest">En yeni</option>
+                  <option value="priceAsc">Fiyat (artan)</option>
+                  <option value="priceDesc">Fiyat (azalan)</option>
                 </select>
-              )}
-              {filterVisibility.showWear && (
-                <select
-                  value={wearFilter}
-                  onChange={(e) => setWearFilter(e.target.value as any)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50"
                 >
-                  <option value="">A??nma</option>
-                  <option value="wear">A??nma var</option>
-                  <option value="noWear">A??nma yok</option>
-                </select>
-              )}
-              <select
-                value={sortMode}
-                onChange={(e) =>
-                  setSortMode(e.target.value as "newest" | "priceAsc" | "priceDesc")
-                }
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
-              >
-                <option value="newest">En yeni</option>
-                <option value="priceAsc">Fiyat (artan)</option>
-                <option value="priceDesc">Fiyat (azalan)</option>
-              </select>
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 shrink-0"
-              >
-                S?f?rla
-              </button>
+                  S?f?rla
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1295,6 +1410,7 @@ export default function CategoryClient({
               const img = firstImage(l.imageUrls);
               const ago = timeAgoTR(l.createdAt);
               const y = getYearNumber(l.productionYear);
+              const region = formatRegion(l.locationCity, l.locationDistrict);
 
               return (
                 <Link
@@ -1340,6 +1456,12 @@ export default function CategoryClient({
                         <div className="shrink-0">{ago}</div>
                       </div>
 
+                      {region ? (
+                        <div className="text-xs text-slate-500 truncate">
+                          Konum: {region}
+                        </div>
+                      ) : null}
+
                       <div className="text-[11px] text-slate-600 flex flex-wrap gap-2">
                         {y ? (
                           <span className="px-2 py-1 rounded-full bg-slate-100">
@@ -1374,6 +1496,7 @@ export default function CategoryClient({
                 const img = firstImage(l.imageUrls);
                 const ago = timeAgoTR(l.createdAt);
                 const y = getYearNumber(l.productionYear);
+                const region = formatRegion(l.locationCity, l.locationDistrict);
 
                 return (
                   <Link
@@ -1415,6 +1538,12 @@ export default function CategoryClient({
                           </div>
                           <div className="shrink-0">{ago}</div>
                         </div>
+
+                        {region ? (
+                          <div className="text-xs text-slate-500 truncate">
+                            Konum: {region}
+                          </div>
+                        ) : null}
 
                         <div className="text-[11px] text-slate-600 flex flex-wrap gap-2">
                           {y ? <span className="px-2 py-1 rounded-full bg-slate-100">{y}</span> : null}

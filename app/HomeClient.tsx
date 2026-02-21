@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Sora } from "next/font/google";
@@ -23,6 +23,8 @@ type Listing = {
 
   subCategoryId?: string;
   subCategoryName?: string;
+  locationCity?: string | null;
+  locationDistrict?: string | null;
 
   ownerId?: string;
   imageUrls?: string[];
@@ -83,6 +85,13 @@ const formatPriceTRY = (v?: number) => {
 const safeText = (v?: string, fallback = "—") => {
   const t = (v || "").trim();
   return t ? t : fallback;
+};
+
+const formatRegion = (city?: string | null, district?: string | null) => {
+  const cleanCity = normalizeText(city || "");
+  const cleanDistrict = normalizeText(district || "");
+  if (cleanCity && cleanDistrict) return `${cleanDistrict} / ${cleanCity}`;
+  return cleanCity || cleanDistrict || "";
 };
 
 const firstImage = (urls?: string[]) => {
@@ -379,12 +388,13 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
       setFatalError("");
 
       try {
-        const { db, collection, getDocs, query, orderBy, limit } =
+        const { db, collection, getDocs, query, where, orderBy, limit } =
           await loadFirestore();
         const { getCategoriesCached } = await loadCatalogCache();
 
         const listingsQ = query(
           collection(db, "listings"),
+          where("status", "==", "active"),
           orderBy("createdAt", "desc"),
           limit(LISTINGS_PAGE_SIZE)
         );
@@ -451,20 +461,30 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
      LOAD MORE LISTINGS (pagination + dedupe)
   ======================= */
 
-  const loadMoreListings = async () => {
+  const loadMoreListings = useCallback(async () => {
     if (loadingMoreListings) return;
     if (!hasMoreListings) return;
 
     setLoadingMoreListings(true);
 
     try {
-      const { db, collection, getDocs, query, orderBy, limit, startAfter } =
+      const {
+        db,
+        collection,
+        getDocs,
+        query,
+        where,
+        orderBy,
+        limit,
+        startAfter,
+      } =
         await loadFirestore();
 
       let anchor = lastListingDoc;
       if (!anchor) {
         const firstQ = query(
           collection(db, "listings"),
+          where("status", "==", "active"),
           orderBy("createdAt", "desc"),
           limit(LISTINGS_PAGE_SIZE)
         );
@@ -480,6 +500,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
       if (!anchor) return;
       const qMore = query(
         collection(db, "listings"),
+        where("status", "==", "active"),
         orderBy("createdAt", "desc"),
         startAfter(anchor),
         limit(LISTINGS_PAGE_SIZE)
@@ -515,7 +536,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
     } finally {
       setLoadingMoreListings(false);
     }
-  };
+  }, [hasMoreListings, lastListingDoc, loadingMoreListings]);
 
   /* =======================
      DERIVED: Categories
@@ -656,6 +677,21 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
 
   const totalFound = filteredListings.length;
 
+  useEffect(() => {
+    if (loading) return;
+    if (loadingMoreListings) return;
+    if (!hasMoreListings) return;
+    if (filteredListings.length >= displayLimit) return;
+    loadMoreListings();
+  }, [
+    displayLimit,
+    filteredListings.length,
+    hasMoreListings,
+    loadMoreListings,
+    loading,
+    loadingMoreListings,
+  ]);
+
   /* =======================
      SHOW MORE (UI + fetch more if needed)
   ======================= */
@@ -663,9 +699,8 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
   const handleShowMore = async () => {
     const nextLimit = clampInt(displayLimit + UI_STEP, 24, UI_MAX);
 
-    // If user wants more but not enough listings:
-    // fetch next page from Firestore
-    if (nextLimit > recentListings.length && hasMoreListings) {
+    // Filtrelenmiş sonuçlar sayfayı doldurmuyorsa yeni sayfa çek.
+    if (nextLimit > filteredListings.length && hasMoreListings) {
       await loadMoreListings();
     }
 
@@ -1094,6 +1129,10 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                       "";
                     const officialName =
                       officialNameRaw || safeText(l.subCategoryName, "—");
+                    const region = formatRegion(
+                      l.locationCity,
+                      l.locationDistrict
+                    );
 
                     return (
                       <Link
@@ -1145,6 +1184,11 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                                 </div>
                                 <div className="shrink-0 text-right">{ago}</div>
                               </div>
+                              {region ? (
+                                <div className="truncate text-slate-500">
+                                  Konum: {region}
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -1173,6 +1217,10 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                       "";
                     const officialName =
                       officialNameRaw || safeText(l.subCategoryName, "—");
+                    const region = formatRegion(
+                      l.locationCity,
+                      l.locationDistrict
+                    );
 
                     return (
                       <Link
@@ -1216,6 +1264,11 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                               </div>
                               <div className="shrink-0">{ago}</div>
                             </div>
+                            {region ? (
+                              <div className="mt-1 text-[11px] sm:text-xs text-slate-500 truncate">
+                                Konum: {region}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       </Link>
@@ -1237,7 +1290,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                 </div>
 
                 <div className="flex gap-3">
-                  {gridListings.length < totalFound && (
+                  {(gridListings.length < totalFound || hasMoreListings) && (
                     <button
                       type="button"
                       onClick={handleShowMore}

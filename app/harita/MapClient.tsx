@@ -12,6 +12,7 @@ import {
   doc,
   limit,
   query,
+  startAfter,
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -51,6 +52,9 @@ type ListingGroup = {
 };
 
 const DEFAULT_CENTER: [number, number] = [41.015, 28.979];
+const LISTINGS_BATCH = 500;
+const PROFILES_BATCH = 500;
+const MAX_FETCH_PAGES = 40;
 
 const fmtTL = (v: number) => {
   try {
@@ -172,25 +176,51 @@ export default function MapClient() {
           }));
         }
 
-        const [listingSnap, profileSnap] = await Promise.all([
-          getDocs(
-            query(
-              collection(db, "listings"),
+        const fetchAllListingDocs = async () => {
+          const docs: any[] = [];
+          let cursor: any = null;
+          for (let page = 0; page < MAX_FETCH_PAGES; page += 1) {
+            const constraints: any[] = [
               where("status", "==", "active"),
-              limit(1000)
-            )
-          ),
-          getDocs(
-            query(
-              collection(db, "publicProfiles"),
+              limit(LISTINGS_BATCH),
+            ];
+            if (cursor) constraints.push(startAfter(cursor));
+            const snap = await getDocs(
+              query(collection(db, "listings"), ...constraints)
+            );
+            docs.push(...snap.docs);
+            if (snap.docs.length < LISTINGS_BATCH) break;
+            cursor = snap.docs[snap.docs.length - 1];
+          }
+          return docs;
+        };
+
+        const fetchAllProfileDocs = async () => {
+          const docs: any[] = [];
+          let cursor: any = null;
+          for (let page = 0; page < MAX_FETCH_PAGES; page += 1) {
+            const constraints: any[] = [
               where("showAddress", "==", true),
-              limit(500)
-            )
-          ),
+              limit(PROFILES_BATCH),
+            ];
+            if (cursor) constraints.push(startAfter(cursor));
+            const snap = await getDocs(
+              query(collection(db, "publicProfiles"), ...constraints)
+            );
+            docs.push(...snap.docs);
+            if (snap.docs.length < PROFILES_BATCH) break;
+            cursor = snap.docs[snap.docs.length - 1];
+          }
+          return docs;
+        };
+
+        const [listingDocs, profileDocs] = await Promise.all([
+          fetchAllListingDocs(),
+          fetchAllProfileDocs(),
         ]);
         if (cancelled) return;
 
-        const listings: ListingSummary[] = listingSnap.docs.map((d) => {
+        const listings: ListingSummary[] = listingDocs.map((d) => {
           const data = d.data() as any;
           const loc = data?.location;
           const location =
@@ -222,7 +252,7 @@ export default function MapClient() {
           counts.set(ownerId, (counts.get(ownerId) || 0) + 1);
         });
 
-        const mapped = profileSnap.docs
+        const mapped = profileDocs
           .map((d) => {
             const data = d.data() as any;
             const loc = data?.location;
