@@ -739,6 +739,106 @@ const TEMPLATE_COLLECTIBLE: SchemaField[] = [
   },
 ];
 
+const TEMPLATE_LEGO_HOBBY: SchemaField[] = [
+  {
+    key: "itemType",
+    label: "Urun tipi",
+    type: "select",
+    required: true,
+    options: [
+      "LEGO Set",
+      "MiniFig / Parca",
+      "Maket / Model Kit",
+      "Puzzle",
+      "Boyama / Hobi Ekipmani",
+      "Diger",
+    ],
+  },
+  {
+    key: "themeSeries",
+    label: "Tema / Seri",
+    type: "text",
+    required: false,
+    placeholder: "Orn: Star Wars / City / Technic",
+  },
+  {
+    key: "pieceCount",
+    label: "Parca sayisi",
+    type: "number",
+    required: false,
+    min: 1,
+    max: 50000,
+  },
+  {
+    key: "completeContent",
+    label: "Icerik tam mi?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "box",
+    label: "Kutu var mi?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "original",
+    label: "Orijinal mi?",
+    type: "boolean",
+    required: false,
+  },
+];
+
+const TEMPLATE_TECH: SchemaField[] = [
+  {
+    key: "itemType",
+    label: "Urun tipi",
+    type: "select",
+    required: true,
+    options: [
+      "Retro Emulator Cihazi",
+      "Mini PC",
+      "Streaming Ekipmani",
+      "Mod Ekipmani",
+      "Depolama / Kart",
+      "Diger",
+    ],
+  },
+  {
+    key: "platform",
+    label: "Platform / Uyumluluk",
+    type: "text",
+    required: false,
+    placeholder: "Orn: Windows / Linux / PS5 / Switch",
+  },
+  {
+    key: "storage",
+    label: "Depolama",
+    type: "select",
+    required: false,
+    options: ["64GB", "128GB", "256GB", "512GB", "1TB", "2TB", "Yok / Belirsiz"],
+  },
+  {
+    key: "box",
+    label: "Kutu var mi?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "warranty",
+    label: "Garantili mi?",
+    type: "boolean",
+    required: false,
+  },
+  {
+    key: "accessories",
+    label: "Aksesuar / Ek parcalar",
+    type: "text",
+    required: false,
+    placeholder: "Orn: Adaptör, kablo, stand, soğutucu",
+  },
+];
+
 const TEMPLATE_VR: SchemaField[] = [
   {
     key: "itemType",
@@ -902,38 +1002,63 @@ function foldTR(input: string) {
     .trim();
 }
 
-function pickTemplateFields(categoryLower: string): SchemaField[] {
+function pickTemplateFields(categoryId: string, categoryLower: string): SchemaField[] {
+  const id = foldTR(categoryId).replace(/_/g, "-");
   const c = foldTR(categoryLower);
 
-  const has = (...parts: string[]) =>
+  const hasInName = (...parts: string[]) =>
     parts.some((p) => c.includes(foldTR(p)));
+  const hasInId = (...parts: string[]) =>
+    parts.some((p) => id.includes(foldTR(p).replace(/\s+/g, "-")));
 
-  if (has("kutu oyun")) return TEMPLATE_BOARDGAME;
-  if (has("kart oyun")) return TEMPLATE_CARDGAME;
+  // Öncelik: ID tabanlı eşleştirme (en güvenilir yol)
+  if (hasInId("kutu-oyunlari")) return TEMPLATE_BOARDGAME;
+  if (hasInId("konsol-oyunlari")) return TEMPLATE_CONSOLE_GAME;
+  if (hasInId("konsollar", "el-konsollari")) return TEMPLATE_CONSOLE;
+  if (hasInId("tcg", "koleksiyon-kart")) return TEMPLATE_TCG;
+  if (hasInId("figur")) return TEMPLATE_FIGURE;
+  if (hasInId("miniature", "wargame")) return TEMPLATE_MINIATURE_WARGAME;
+  if (hasInId("masaustu-rpg", "rpg")) return TEMPLATE_RPG;
+  if (hasInId("manga-cizgi-roman", "rehber", "kitap")) return TEMPLATE_BOOK_GUIDE;
+  if (hasInId("lego-hobi")) return TEMPLATE_LEGO_HOBBY;
+  if (hasInId("dekor-poster", "koleksiyon-urun", "koleksiyon")) return TEMPLATE_COLLECTIBLE;
+  if (hasInId("teknoloji")) return TEMPLATE_TECH;
+  if (hasInId("ekipman", "aksesuar")) return TEMPLATE_ACCESSORY;
+  if (hasInId("puzzle", "zeka")) return TEMPLATE_PUZZLE;
+  if (hasInId("vr", "sanal-gerceklik")) return TEMPLATE_VR;
+  if (hasInId("diger")) return TEMPLATE_GENERIC;
 
-  if (has("koleksiyon kart", "tcg")) return TEMPLATE_TCG;
-  if (has("retro oyun", "retro konsol")) return TEMPLATE_RETRO_MIXED;
-  if (has("konsol oyun")) return TEMPLATE_CONSOLE_GAME;
+  // Geriye uyumluluk: isim tabanlı eşleştirme
+  if (hasInName("kutu oyun")) return TEMPLATE_BOARDGAME;
+  if (hasInName("kart oyun")) return TEMPLATE_CARDGAME;
 
-  if (has("hobi ekipman", "ekipman", "oyun aksesuar", "aksesuar", "teknoloji")) {
+  if (hasInName("koleksiyon kart", "tcg")) return TEMPLATE_TCG;
+  if (hasInName("retro oyun", "retro konsol")) return TEMPLATE_RETRO_MIXED;
+  if (hasInName("konsol oyun")) return TEMPLATE_CONSOLE_GAME;
+
+  if (hasInName("hobi ekipman", "ekipman", "oyun aksesuar", "aksesuar")) {
     return TEMPLATE_ACCESSORY;
   }
+  if (hasInName("teknoloji", "retro emul", "mini pc", "stream")) {
+    return TEMPLATE_TECH;
+  }
 
-  if (has("el konsol", "konsollar", "konsol")) return TEMPLATE_CONSOLE;
+  if (hasInName("el konsol", "konsollar", "konsol")) return TEMPLATE_CONSOLE;
 
-  if (has("vr", "sanal gerceklik")) return TEMPLATE_VR;
+  if (hasInName("vr", "sanal gerceklik")) return TEMPLATE_VR;
 
-  if (has("figur", "fig")) return TEMPLATE_FIGURE;
-  if (has("miniature", "wargame")) return TEMPLATE_MINIATURE_WARGAME;
+  if (hasInName("figur", "fig")) return TEMPLATE_FIGURE;
+  if (hasInName("miniature", "wargame")) return TEMPLATE_MINIATURE_WARGAME;
 
-  if (has("masaustu rpg", "rpg")) return TEMPLATE_RPG;
-  if (has("rehber", "kitap", "manga", "cizgi roman", "light novel", "artbook")) {
+  if (hasInName("masaustu rpg", "rpg")) return TEMPLATE_RPG;
+  if (hasInName("rehber", "kitap", "manga", "cizgi roman", "light novel", "artbook")) {
     return TEMPLATE_BOOK_GUIDE;
   }
 
-  if (has("puzzle", "zeka")) return TEMPLATE_PUZZLE;
+  if (hasInName("puzzle", "zeka")) return TEMPLATE_PUZZLE;
+  if (hasInName("lego", "minifig", "gunpla")) return TEMPLATE_LEGO_HOBBY;
 
-  if (has("koleksiyon urun", "koleksiyon", "lego", "dekor", "poster")) {
+  if (hasInName("koleksiyon urun", "koleksiyon", "dekor", "poster")) {
     return TEMPLATE_COLLECTIBLE;
   }
 
@@ -999,7 +1124,7 @@ export default function AdminSchemasPage() {
 
       for (const c of categories) {
         const categoryLower = safeString(c.nameLower || c.name, "");
-        const template = pickTemplateFields(categoryLower);
+        const template = pickTemplateFields(c.id, categoryLower);
         const normalizedFields = normalizeFieldsForSave(cloneFields(template));
 
         if (!normalizedFields || normalizedFields.length === 0) {

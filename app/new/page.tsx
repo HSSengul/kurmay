@@ -79,6 +79,16 @@ type ListingSchemaDoc = {
   fields: SchemaField[];
 };
 
+const DEFAULT_BOARDGAME_LANGUAGE_OPTIONS = [
+  { value: "Turkce", label: "Türkçe" },
+  { value: "Ingilizce", label: "İngilizce" },
+  { value: "Almanca", label: "Almanca" },
+  { value: "Fransizca", label: "Fransızca" },
+  { value: "Italyanca", label: "İtalyanca" },
+  { value: "Ispanyolca", label: "İspanyolca" },
+  { value: "Diger", label: "Diğer" },
+];
+
 export default function NewListingPage() {
     // ================= STATE =================
     const router = useRouter();
@@ -235,6 +245,14 @@ function normalizeOptions(list: OptionLike[] | undefined) {
   return raw
     .map((opt) => normalizeOption(opt))
     .filter((opt) => opt.value !== "" || opt.label !== "");
+}
+
+function normalizeComparableValue(v: any) {
+  return String(v ?? "")
+    .trim()
+    .toLocaleLowerCase("tr-TR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
     async function geocodeAddress(address: string) {
       const q = normalizeSpaces(address || "");
@@ -685,20 +703,70 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     };
   })();
 
-  const schemaFieldsToRender = useMemo(() => {
-    if (!schemaExists || schemaFields.length === 0) return [];
-
+  const isConsoleGameDigitalFormat = useMemo(() => {
+    if (!isConsoleGameCategory) return false;
     const formatNorm = String(attributes.format || "")
       .toLocaleLowerCase("tr-TR")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .trim();
 
-    const hidePhysicalOnlyConsoleGameFields =
-      isConsoleGameCategory &&
-      (formatNorm.includes("dijital") ||
-        formatNorm.includes("digital") ||
-        formatNorm.includes("dlc"));
+    return (
+      formatNorm.includes("dijital") ||
+      formatNorm.includes("digital") ||
+      formatNorm.includes("dlc")
+    );
+  }, [isConsoleGameCategory, attributes.format]);
+
+  const isConsoleVisibilityKey = (
+    key: string
+  ): key is keyof ConsoleFieldVisibility => {
+    return (
+      key === "consoleModel" ||
+      key === "storage" ||
+      key === "modded" ||
+      key === "box" ||
+      key === "controllerCount" ||
+      key === "accessories" ||
+      key === "purchaseYear" ||
+      key === "warrantyStatus" ||
+      key === "usageLevel" ||
+      key === "batteryHealth" ||
+      key === "screenCondition" ||
+      key === "stickDrift"
+    );
+  };
+
+  const shouldIgnoreSchemaFieldForCurrentSelection = (key: string) => {
+    if (
+      isConsoleLike &&
+      (key === "consoleBrand" ||
+        key === "region" ||
+        key === "firmwareVersion" ||
+        key === "onlineStatus")
+    ) {
+      return true;
+    }
+
+    if (
+      isConsoleLike &&
+      consoleFieldVisibility &&
+      isConsoleVisibilityKey(key) &&
+      !consoleFieldVisibility[key]
+    ) {
+      return true;
+    }
+
+    if (isConsoleGameDigitalFormat && (key === "discCondition" || key === "box")) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const schemaFieldsToRender = useMemo(() => {
+    if (!schemaExists || schemaFields.length === 0) return [];
+    const hidePhysicalOnlyConsoleGameFields = isConsoleGameDigitalFormat;
 
     const skip = new Set<string>();
 
@@ -730,12 +798,18 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     schemaFields,
     isBoardGameCategory,
     isConsoleLike,
-    isConsoleGameCategory,
-    attributes.format,
+    isConsoleGameDigitalFormat,
     boardgameAttrKeys,
     boardgameLegacyKeys,
     consoleAttrKeys,
   ]);
+
+  const boardgameLanguageOptions = useMemo(() => {
+    const languageField = schemaFields.find((f) => f.key === "language");
+    const fromSchema = normalizeOptions(languageField?.options);
+    if (fromSchema.length > 0) return fromSchema;
+    return DEFAULT_BOARDGAME_LANGUAGE_OPTIONS;
+  }, [schemaFields]);
 
   const isCategorySelectionComplete = Boolean(categoryId && subCategoryId);
 
@@ -982,20 +1056,7 @@ function normalizeOptions(list: OptionLike[] | undefined) {
   }, [isConsoleLike, isHandheldCategory, isHandheldModel, subCategoryId]);
 
   useEffect(() => {
-    if (!isConsoleGameCategory) return;
-
-    const formatNorm = String(attributes.format || "")
-      .toLocaleLowerCase("tr-TR")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim();
-
-    const isDigital =
-      formatNorm.includes("dijital") ||
-      formatNorm.includes("digital") ||
-      formatNorm.includes("dlc");
-
-    if (!isDigital) return;
+    if (!isConsoleGameCategory || !isConsoleGameDigitalFormat) return;
 
     setAttributes((prev) => {
       if (prev.discCondition == null && prev.box == null) {
@@ -1006,7 +1067,40 @@ function normalizeOptions(list: OptionLike[] | undefined) {
       delete (next as any).box;
       return next;
     });
-  }, [isConsoleGameCategory, attributes.format]);
+  }, [isConsoleGameCategory, isConsoleGameDigitalFormat]);
+
+  useEffect(() => {
+    if (!isConsoleLike || !consoleFieldVisibility) return;
+
+    setAttributes((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      const visibilityKeys: (keyof ConsoleFieldVisibility)[] = [
+        "consoleModel",
+        "storage",
+        "modded",
+        "box",
+        "controllerCount",
+        "accessories",
+        "purchaseYear",
+        "warrantyStatus",
+        "usageLevel",
+        "batteryHealth",
+        "screenCondition",
+        "stickDrift",
+      ];
+
+      for (const key of visibilityKeys) {
+        if (!consoleFieldVisibility[key] && key in next) {
+          delete (next as any)[key];
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [isConsoleLike, consoleFieldVisibility]);
 
   /* ================= ATTR HELPERS ================= */
 
@@ -1031,16 +1125,8 @@ function normalizeOptions(list: OptionLike[] | undefined) {
 
     if (!schemaExists) return "";
 
-    const skipKeys = new Set<string>();
-    if (isConsoleLike) {
-      skipKeys.add("consoleBrand");
-      skipKeys.add("region");
-      skipKeys.add("firmwareVersion");
-      skipKeys.add("onlineStatus");
-    }
-
     for (const f of schemaFields) {
-      if (skipKeys.has(f.key)) continue;
+      if (shouldIgnoreSchemaFieldForCurrentSelection(f.key)) continue;
       const v = getAttrValueForSchemaKey(f.key);
 
       if (f.required && isEmptyValue(v, f.type)) {
@@ -1057,18 +1143,43 @@ function normalizeOptions(list: OptionLike[] | undefined) {
       }
 
       if (f.type === "select") {
-        const opts = normalizeOptions(f.options).map((o) => o.value);
-        if (opts.length > 0 && !opts.includes(String(v))) {
-          return `"${f.label}" geçersiz seçim.`;
-        }
+        const opts = normalizeOptions(f.options);
+        const rawValue = String(v);
+        const normValue = normalizeComparableValue(rawValue);
+
+        const isValid =
+          opts.length === 0 ||
+          opts.some((o) => {
+            const ov = String(o.value);
+            const ol = String(o.label);
+            if (ov === rawValue || ol === rawValue) return true;
+            return (
+              normalizeComparableValue(ov) === normValue ||
+              normalizeComparableValue(ol) === normValue
+            );
+          });
+
+        if (!isValid) return `"${f.label}" geçersiz seçim.`;
       }
 
       if (f.type === "multiselect") {
-        const opts = normalizeOptions(f.options).map((o) => o.value);
+        const opts = normalizeOptions(f.options);
         if (!Array.isArray(v)) return `"${f.label}" liste olmalı.`;
+
         if (opts.length > 0) {
           for (const item of v) {
-            if (!opts.includes(String(item))) return `"${f.label}" içinde geçersiz seçim var.`;
+            const rawItem = String(item);
+            const normItem = normalizeComparableValue(rawItem);
+            const ok = opts.some((o) => {
+              const ov = String(o.value);
+              const ol = String(o.label);
+              if (ov === rawItem || ol === rawItem) return true;
+              return (
+                normalizeComparableValue(ov) === normItem ||
+                normalizeComparableValue(ol) === normItem
+              );
+            });
+            if (!ok) return `"${f.label}" içinde geçersiz seçim var.`;
           }
         }
       }
@@ -1081,11 +1192,34 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     return "";
   };
 
+  const validateCategorySpecificFields = (): string => {
+    if (isBoardGameCategory) {
+      if (
+        isEmptyValue(attributes.minPlayers, "number") ||
+        isEmptyValue(attributes.maxPlayers, "number")
+      ) {
+        return "Kutu oyunu için oyuncu sayısı seçmelisin.";
+      }
+      if (isEmptyValue(attributes.completeContent, "boolean")) {
+        return "Kutu oyunu için içerik bilgisi zorunlu.";
+      }
+    }
+
+    if (isConsoleLike && consoleFieldVisibility?.consoleModel) {
+      if (isEmptyValue(attributes.consoleModel, "text")) {
+        return "Konsol için model/sürüm seçmelisin.";
+      }
+    }
+
+    return "";
+  };
+
   const buildAttributesForSave = (): Record<string, any> => {
     const out: Record<string, any> = {};
 
     if (schemaExists) {
       for (const f of schemaFields) {
+        if (shouldIgnoreSchemaFieldForCurrentSelection(f.key)) continue;
         const raw = getAttrValueForSchemaKey(f.key);
 
         if (isEmptyValue(raw, f.type)) continue;
@@ -1102,7 +1236,39 @@ function normalizeOptions(list: OptionLike[] | undefined) {
         }
 
         if (f.type === "multiselect") {
-          if (Array.isArray(raw)) out[f.key] = raw.map((x) => String(x));
+          if (Array.isArray(raw)) {
+            const opts = normalizeOptions(f.options);
+            out[f.key] = raw.map((x) => {
+              const rawItem = String(x);
+              const normItem = normalizeComparableValue(rawItem);
+              const match = opts.find((o) => {
+                const ov = String(o.value);
+                const ol = String(o.label);
+                if (ov === rawItem || ol === rawItem) return true;
+                return (
+                  normalizeComparableValue(ov) === normItem ||
+                  normalizeComparableValue(ol) === normItem
+                );
+              });
+              return match ? String(match.value) : rawItem;
+            });
+          }
+          continue;
+        }
+
+        if (f.type === "select") {
+          const rawValue = String(raw);
+          const normValue = normalizeComparableValue(rawValue);
+          const match = normalizeOptions(f.options).find((o) => {
+            const ov = String(o.value);
+            const ol = String(o.label);
+            if (ov === rawValue || ol === rawValue) return true;
+            return (
+              normalizeComparableValue(ov) === normValue ||
+              normalizeComparableValue(ol) === normValue
+            );
+          });
+          out[f.key] = match ? String(match.value) : rawValue;
           continue;
         }
 
@@ -1376,6 +1542,8 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     }
     const fileError = validateFiles(newFiles);
     if (fileError) return fileError;
+    const categorySpecificErr = validateCategorySpecificFields();
+    if (categorySpecificErr) return categorySpecificErr;
     return validateDynamicFields();
   
   })();
@@ -1421,6 +1589,12 @@ function normalizeOptions(list: OptionLike[] | undefined) {
     }
     if (!subCategoryId) {
       setError("Alt kategori seçmelisin.");
+      return;
+    }
+
+    const categorySpecificErr = validateCategorySpecificFields();
+    if (categorySpecificErr) {
+      setError(categorySpecificErr);
       return;
     }
 
@@ -2131,11 +2305,11 @@ function normalizeOptions(list: OptionLike[] | undefined) {
                     >
                       <option value="">Seç</option>
                       <option value="5-15">5-15</option>
-                      <option value="10-30">15-30</option>
-                      <option value="20-40">30-45</option>
+                      <option value="15-30">15-30</option>
+                      <option value="30-45">30-45</option>
                       <option value="45-60">45-60</option>
                       <option value="60-90">60-90</option>
-                      <option value="90-120">90+</option>
+                      <option value="90-120">90-120</option>
                     </select>
                   </div>
                   <div>
@@ -2252,13 +2426,11 @@ function normalizeOptions(list: OptionLike[] | undefined) {
                       disabled={loading || uploading}
                     >
                       <option value="">Seç</option>
-                      <option value="Türkçe">Türkçe</option>
-                      <option value="İngilizce">İngilizce</option>
-                      <option value="Almanca">Almanca</option>
-                      <option value="Fransızca">Fransızca</option>
-                      <option value="İtalyanca">İtalyanca</option>
-                      <option value="İspanyolca">İspanyolca</option>
-                      <option value="Diğer">Diğer</option>
+                      {boardgameLanguageOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 

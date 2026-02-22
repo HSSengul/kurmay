@@ -461,10 +461,13 @@ function foldTRForSchema(input: string) {
     .trim();
 }
 
-function buildSchemaFieldsByCategoryNameLower(nameLower: string): SchemaField[] {
+function buildSchemaFieldsByCategory(categoryId: string, nameLower: string): SchemaField[] {
+  const id = foldTRForSchema(categoryId || "").replace(/_/g, "-");
   const n = foldTRForSchema(nameLower || "");
   const has = (...parts: string[]) =>
     parts.some((p) => n.includes(foldTRForSchema(p)));
+  const hasId = (...parts: string[]) =>
+    parts.some((p) => id.includes(foldTRForSchema(p).replace(/\s+/g, "-")));
 
   const boardgame: SchemaField[] = [
     { key: "gameName", label: "Oyun adi", type: "text", sectionId: "details" },
@@ -911,6 +914,78 @@ function buildSchemaFieldsByCategoryNameLower(nameLower: string): SchemaField[] 
     { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
   ];
 
+  const legoHobby: SchemaField[] = [
+    {
+      key: "itemType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "legoSet", label: "LEGO Set" },
+        { value: "minifig", label: "MiniFig / Parca" },
+        { value: "modelKit", label: "Maket / Model Kit" },
+        { value: "puzzle", label: "Puzzle" },
+        { value: "hobby", label: "Boyama / Hobi Ekipmani" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    { key: "themeSeries", label: "Tema / Seri", type: "text", sectionId: "details" },
+    {
+      key: "pieceCount",
+      label: "Parca sayisi",
+      type: "number",
+      sectionId: "details",
+      min: 1,
+      max: 50000,
+    },
+    { key: "completeContent", label: "Icerik tam mi?", type: "boolean", sectionId: "condition" },
+    { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
+    { key: "original", label: "Orijinal mi?", type: "boolean", sectionId: "condition" },
+  ];
+
+  const tech: SchemaField[] = [
+    {
+      key: "itemType",
+      label: "Urun tipi",
+      type: "select",
+      required: true,
+      sectionId: "details",
+      options: [
+        { value: "retroEmulator", label: "Retro Emulator Cihazi" },
+        { value: "miniPc", label: "Mini PC" },
+        { value: "streamGear", label: "Streaming Ekipmani" },
+        { value: "modGear", label: "Mod Ekipmani" },
+        { value: "storageCard", label: "Depolama / Kart" },
+        { value: "other", label: "Diger" },
+      ],
+    },
+    {
+      key: "platform",
+      label: "Platform / Uyumluluk",
+      type: "text",
+      sectionId: "details",
+    },
+    {
+      key: "storage",
+      label: "Depolama",
+      type: "select",
+      sectionId: "details",
+      options: [
+        { value: "64GB", label: "64GB" },
+        { value: "128GB", label: "128GB" },
+        { value: "256GB", label: "256GB" },
+        { value: "512GB", label: "512GB" },
+        { value: "1TB", label: "1TB" },
+        { value: "2TB", label: "2TB" },
+        { value: "unknown", label: "Yok / Belirsiz" },
+      ],
+    },
+    { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
+    { key: "warranty", label: "Garantili mi?", type: "boolean", sectionId: "condition" },
+    { key: "accessories", label: "Aksesuar / Ek parcalar", type: "text", sectionId: "details" },
+  ];
+
   const vr: SchemaField[] = [
     {
       key: "itemType",
@@ -963,6 +1038,24 @@ function buildSchemaFieldsByCategoryNameLower(nameLower: string): SchemaField[] 
     { key: "box", label: "Kutu var mi?", type: "boolean", sectionId: "condition" },
   ];
 
+  // Öncelik: id bazlı eşleştirme
+  if (hasId("kutu-oyunlari")) return boardgame;
+  if (hasId("konsol-oyunlari")) return consoleGame;
+  if (hasId("konsollar", "el-konsollari")) return consoleHardware;
+  if (hasId("tcg", "koleksiyon-kart")) return tcg;
+  if (hasId("figur")) return figure;
+  if (hasId("miniature", "wargame")) return miniatureWargame;
+  if (hasId("masaustu-rpg", "rpg")) return rpg;
+  if (hasId("manga-cizgi-roman", "rehber", "kitap")) return bookGuide;
+  if (hasId("lego-hobi")) return legoHobby;
+  if (hasId("dekor-poster", "koleksiyon-urun", "koleksiyon")) return collectible;
+  if (hasId("teknoloji")) return tech;
+  if (hasId("ekipman", "aksesuar")) return accessory;
+  if (hasId("puzzle", "zeka")) return puzzle;
+  if (hasId("vr", "sanal-gerceklik")) return vr;
+  if (hasId("diger")) return fallback;
+
+  // Geriye uyumluluk: isim bazlı eşleştirme
   if (has("kutu oyun")) return boardgame;
   if (has("kart oyun")) return cardgame;
 
@@ -970,9 +1063,10 @@ function buildSchemaFieldsByCategoryNameLower(nameLower: string): SchemaField[] 
   if (has("retro oyun", "retro konsol")) return retroMixed;
   if (has("konsol oyun")) return consoleGame;
 
-  if (has("hobi ekipman", "ekipman", "oyun aksesuar", "aksesuar", "teknoloji")) {
+  if (has("hobi ekipman", "ekipman", "oyun aksesuar", "aksesuar")) {
     return accessory;
   }
+  if (has("teknoloji", "retro emul", "mini pc", "stream")) return tech;
 
   if (has("el konsol", "konsollar", "konsol")) return consoleHardware;
 
@@ -987,15 +1081,17 @@ function buildSchemaFieldsByCategoryNameLower(nameLower: string): SchemaField[] 
   }
 
   if (has("puzzle", "zeka")) return puzzle;
-
-  if (has("koleksiyon urun", "koleksiyon", "lego", "dekor", "poster")) {
-    return collectible;
-  }
+  if (has("lego", "minifig", "gunpla")) return legoHobby;
+  if (has("koleksiyon urun", "koleksiyon", "dekor", "poster")) return collectible;
 
   return fallback;
 }
 
-function buildListingSchemaDoc(categoryName: string, nameLower: string): ListingSchemaDoc {
+function buildListingSchemaDoc(
+  categoryId: string,
+  categoryName: string,
+  nameLower: string
+): ListingSchemaDoc {
   return {
     schemaVersion: 1,
     categoryName: safeString(categoryName, "Kategori"),
@@ -1004,7 +1100,7 @@ function buildListingSchemaDoc(categoryName: string, nameLower: string): Listing
       { id: "details", title: "Detaylar", order: 1 },
       { id: "condition", title: "Durum", order: 2 },
     ],
-    fields: buildSchemaFieldsByCategoryNameLower(nameLower),
+    fields: buildSchemaFieldsByCategory(categoryId, nameLower),
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
@@ -1058,7 +1154,7 @@ async function seedMissingListingSchemas(): Promise<{
     const nameLower = safeString(data?.nameLower, normalizeLowerTR(name));
 
     const schemaRef = db.collection("listingSchemas").doc(categoryId);
-    batch.set(schemaRef, buildListingSchemaDoc(name, nameLower), { merge: false });
+    batch.set(schemaRef, buildListingSchemaDoc(categoryId, name, nameLower), { merge: false });
 
     opCount++;
     created++;
@@ -1097,7 +1193,7 @@ export const autoCreateListingSchemaOnCategoryCreated = onDocumentCreated(
         return;
       }
 
-      await ref.set(buildListingSchemaDoc(name, nameLower), { merge: false });
+      await ref.set(buildListingSchemaDoc(categoryId, name, nameLower), { merge: false });
       logger.info(`✅ listingSchemas created for categoryId=${categoryId}`);
     } catch (e) {
       logger.error("autoCreateListingSchemaOnCategoryCreated error", e);
