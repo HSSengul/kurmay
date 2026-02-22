@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocFromServer,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 
 import { onAuthStateChanged } from "firebase/auth";
@@ -88,6 +90,8 @@ const DEFAULT_BOARDGAME_LANGUAGE_OPTIONS = [
   { value: "Ispanyolca", label: "İspanyolca" },
   { value: "Diger", label: "Diğer" },
 ];
+
+const TEMP_LISTING_IMAGE_URL = "/window.svg";
 
 export default function NewListingPage() {
     // ================= STATE =================
@@ -898,19 +902,37 @@ function normalizeComparableValue(v: any) {
 
     async function loadCategories() {
       try {
-        const cached = await getCategoriesCached();
-        const all = (cached || [])
-          .map((d: any) => ({
-            id: d.id,
-            name: safeString(d.name, ""),
-            nameLower: safeString(d.nameLower, ""),
-            slug: safeString(d.slug, ""),
-            enabled: d.enabled,
-            order: d.order ?? 0,
-            parentId: d.parentId ?? null,
-          }))
-          .filter((c) => c.enabled !== false);
-        const list = all.filter((c) => c.parentId == null);
+        const normalizeParentId = (value: any) => {
+          if (value == null) return null;
+          const normalized = String(value).trim();
+          if (!normalized) return null;
+          if (normalized === "null" || normalized === "undefined") return null;
+          return normalized;
+        };
+        const mapRows = (rows: any[]) =>
+          (rows || [])
+            .map((d: any) => ({
+              id: d.id,
+              name: safeString(d.name, ""),
+              nameLower: safeString(d.nameLower, ""),
+              slug: safeString(d.slug, ""),
+              enabled: d.enabled,
+              order: d.order ?? 0,
+              // legacy categoryId alanını da parentId fallback olarak destekle
+              parentId: normalizeParentId(d.parentId ?? d.categoryId ?? null),
+            }))
+            .filter((c) => c.enabled !== false);
+
+        let cached = await getCategoriesCached();
+        let all = mapRows(cached || []);
+        let list = all.filter((c) => c.parentId == null);
+
+        if (all.length === 0 || list.length === 0) {
+          cached = await getCategoriesCached({ force: true });
+          all = mapRows(cached || []);
+          list = all.filter((c) => c.parentId == null);
+        }
+
         if (!cancelled) {
           const safeInt = (v: any) =>
             Number.isFinite(Number(v)) ? Number(v) : 0;
@@ -923,7 +945,8 @@ function normalizeComparableValue(v: any) {
           setAllCategories(all);
           setCategories(list);
         }
-      } catch {
+      } catch (err) {
+        devError("New listing category load error", err);
         if (!cancelled) {
           setAllCategories([]);
           setCategories([]);
@@ -1693,6 +1716,7 @@ function normalizeComparableValue(v: any) {
     let appCheckTokenLen = "";
     let appCheckTokenPreview = "";
     let basePayload: Record<string, any> | null = null;
+    let createdListingId = "";
     try {
       setDebugInfo(null);
       setLoading(true);
@@ -1916,11 +1940,8 @@ function normalizeComparableValue(v: any) {
         locationDistrict: cityDistrict.district || null,
       };
 
-      failStep = "uploadImages";
       const listingRef = doc(collection(db, "listings"));
-      const imageUrls = await uploadFilesWithProgress(listingRef.id, newFiles);
-
-      failStep = "setDoc";
+      failStep = "setDocInitial";
       await setDoc(listingRef, {
         ...basePayload,
         description: safeDescription,
@@ -1937,14 +1958,34 @@ function normalizeComparableValue(v: any) {
 
         status: "active",
         adminStatus: "active",
-        imageUrls,
+        // Storage kuralları listing owner check yaptığı için
+        // önce listing belgesi oluşturulmalı.
+        imageUrls: [TEMP_LISTING_IMAGE_URL],
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      createdListingId = listingRef.id;
+
+      failStep = "uploadImages";
+      const imageUrls = await uploadFilesWithProgress(listingRef.id, newFiles);
+
+      failStep = "finalizeListing";
+      await updateDoc(listingRef, {
+        imageUrls,
         updatedAt: serverTimestamp(),
       });
 
       router.push(buildListingPath(listingRef.id, cleanTitle));
     } catch (err: any) {
       devError("Create listing error", err);
+
+      if (createdListingId) {
+        try {
+          await deleteDoc(doc(db, "listings", createdListingId));
+        } catch (rollbackErr) {
+          devWarn("Listing rollback failed:", rollbackErr);
+        }
+      }
 
       const code = err?.code || "";
       const errMessage =
