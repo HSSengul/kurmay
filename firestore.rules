@@ -445,6 +445,17 @@ service cloud.firestore {
         && request.resource.data.price is number
         && request.resource.data.price >= 0
         && validImages(request.resource.data.imageUrls)
+      ) || (
+        // Yeni ilan akışında görsel yükleme sonrası finalize adımı:
+        // sadece imageUrls + updatedAt değişebilir.
+        signedIn()
+        && onboardingCompleted()
+        && !isUserBanned(request.auth.uid)
+        && !isUserBlockedListings(request.auth.uid)
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly(["imageUrls", "updatedAt"])
+        && validImages(request.resource.data.imageUrls)
       );
 
       allow delete: if signedIn()

@@ -12,6 +12,7 @@ import {
   getDocFromServer,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 
 import { onAuthStateChanged } from "firebase/auth";
@@ -1969,13 +1970,7 @@ function normalizeComparableValue(v: any) {
       const imageUrls = await uploadFilesWithProgress(listingRef.id, newFiles);
 
       failStep = "finalizeListing";
-      const latestSnap = await getDocFromServer(listingRef);
-      if (!latestSnap.exists()) {
-        throw new Error("listing-not-found-after-upload");
-      }
-      const latestData = (latestSnap.data() as Record<string, any>) || {};
-      await setDoc(listingRef, {
-        ...latestData,
+      await updateDoc(listingRef, {
         imageUrls,
         updatedAt: serverTimestamp(),
       });
