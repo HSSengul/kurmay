@@ -1,7 +1,7 @@
 ﻿// app/ilan/[id]/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -372,6 +372,7 @@ export default function ListingDetailClient({
   const [mainImage, setMainImage] = useState<string | null>(
     initialListing?.imageUrls?.[0] || null
   );
+  const imageSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const [error, setError] = useState<string>("");
 
@@ -675,6 +676,27 @@ export default function ListingDetailClient({
   }, [seller?.websiteInstagram, showWebsite]);
 
   const hasImages = !!listing?.imageUrls && listing.imageUrls.length > 0;
+  const listingImages = Array.isArray(listing?.imageUrls)
+    ? listing.imageUrls.filter((x): x is string => typeof x === "string" && !!x)
+    : [];
+  const mainImageIndex = useMemo(() => {
+    if (!listingImages.length) return -1;
+    const idx = listingImages.findIndex((x) => x === mainImage);
+    return idx >= 0 ? idx : 0;
+  }, [listingImages, mainImage]);
+  const showImageAt = (idx: number) => {
+    if (!listingImages.length) return;
+    const clamped = Math.max(0, Math.min(idx, listingImages.length - 1));
+    setMainImage(listingImages[clamped]);
+  };
+  const showPrevImage = () => {
+    if (mainImageIndex <= 0) return;
+    showImageAt(mainImageIndex - 1);
+  };
+  const showNextImage = () => {
+    if (mainImageIndex < 0 || mainImageIndex >= listingImages.length - 1) return;
+    showImageAt(mainImageIndex + 1);
+  };
 
   const breadcrumbCategoryHref = useMemo(() => {
     if (!listing?.categoryName) return "";
@@ -952,20 +974,27 @@ export default function ListingDetailClient({
                     {fmtTL(Number(listing.price ?? 0))}
                   </div>
                 </div>
+                {(listing.conditionLabel || listing.conditionKey) && (
+                  <div className="sm:hidden text-sm font-medium text-[#7a5a40]">
+                    {listing.conditionLabel || listing.conditionKey}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 text-xs sm:text-sm text-[#7a5a40] whitespace-nowrap overflow-x-auto">
                   <span className="font-medium text-[#6b4b33]">
                     {listing.categoryName} / {listing.subCategoryName}
                   </span>
                   {(listing.conditionLabel || listing.conditionKey) && (
                     <>
-                      <span className="text-[#c3a58a]">•</span>
-                      <span>{listing.conditionLabel || listing.conditionKey}</span>
+                      <span className="hidden sm:inline text-[#c3a58a]">•</span>
+                      <span className="hidden sm:inline">
+                        {listing.conditionLabel || listing.conditionKey}
+                      </span>
                     </>
                   )}
                   {publishedAt && (
                     <>
                       <span className="text-[#c3a58a]">•</span>
-                      <span>Yayın tarihi: {publishedAt}</span>
+                      <span>{publishedAt}</span>
                     </>
                   )}
                 </div>
@@ -977,7 +1006,29 @@ export default function ListingDetailClient({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="space-y-3">
                   <div className={sectionTitleClass}>Fotoğraflar</div>
-                  <div className="relative rounded-2xl overflow-hidden bg-[#f3e9db] aspect-[16/10]">
+                  <div
+                    className="relative rounded-2xl overflow-hidden bg-[#f3e9db] aspect-[16/10]"
+                    onTouchStart={(e) => {
+                      const t = e.touches[0];
+                      if (!t) return;
+                      imageSwipeStartRef.current = { x: t.clientX, y: t.clientY };
+                    }}
+                    onTouchEnd={(e) => {
+                      const start = imageSwipeStartRef.current;
+                      imageSwipeStartRef.current = null;
+                      if (!start) return;
+                      const t = e.changedTouches[0];
+                      if (!t) return;
+                      const dx = t.clientX - start.x;
+                      const dy = t.clientY - start.y;
+                      if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+                      if (dx < 0) {
+                        showNextImage();
+                      } else {
+                        showPrevImage();
+                      }
+                    }}
+                  >
                     {mainImage ? (
                       <Image
                         src={mainImage}
@@ -997,7 +1048,7 @@ export default function ListingDetailClient({
 
                   {hasImages && (
                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-                      {listing.imageUrls!.map((url, i) => (
+                      {listingImages.map((url, i) => (
                         <button
                           key={`${url}-${i}`}
                           type="button"

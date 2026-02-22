@@ -426,14 +426,29 @@ service cloud.firestore {
         && !isUserBlockedListings(request.auth.uid)
         && resource.data.ownerId == request.auth.uid
         && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.categoryId == resource.data.categoryId
-        && request.resource.data.subCategoryId == resource.data.subCategoryId
+        && (
+          (!("categoryId" in resource.data) && !("categoryId" in request.resource.data))
+          || request.resource.data.categoryId == resource.data.categoryId
+        )
+        && (
+          (!("subCategoryId" in resource.data) && !("subCategoryId" in request.resource.data))
+          || request.resource.data.subCategoryId == resource.data.subCategoryId
+        )
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.status == resource.data.status
         && request.resource.data.location == resource.data.location
-        && request.resource.data.locationCity == resource.data.locationCity
-        && request.resource.data.locationDistrict == resource.data.locationDistrict
-        && request.resource.data.locationAddress == resource.data.locationAddress
+        && (
+          (!("locationCity" in resource.data) && !("locationCity" in request.resource.data))
+          || request.resource.data.locationCity == resource.data.locationCity
+        )
+        && (
+          (!("locationDistrict" in resource.data) && !("locationDistrict" in request.resource.data))
+          || request.resource.data.locationDistrict == resource.data.locationDistrict
+        )
+        && (
+          (!("locationAddress" in resource.data) && !("locationAddress" in request.resource.data))
+          || request.resource.data.locationAddress == resource.data.locationAddress
+        )
         && !request.resource.data.diff(resource.data).changedKeys()
           .hasAny([
             "adminStatus",

@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { deleteField, doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
 import { getCategoriesCached } from "@/lib/catalogCache";
@@ -1147,29 +1147,11 @@ export default function EditListingPage() {
       setSaving(true);
 
       const attributesForSave = buildAttributesForSave();
-      const selectedCategoryName =
-        categories.find((c) => c.id === categoryId)?.name ||
-        listing?.categoryName ||
-        listing?.brandName ||
-        "";
-      const selectedSubCategoryName =
-        subCategories.find((s) => s.id === subCategoryId)?.name ||
-        listing?.subCategoryName ||
-        listing?.modelName ||
-        "";
 
       await updateDoc(doc(db, "listings", listingId), {
         title: cleanTitle,
         description: cleanDescription,
         price: priceNumber,
-        categoryId,
-        categoryName: selectedCategoryName,
-        subCategoryId,
-        subCategoryName: selectedSubCategoryName,
-        brandId: deleteField(),
-        brandName: deleteField(),
-        modelId: deleteField(),
-        modelName: deleteField(),
         conditionKey: condition,
         conditionLabel: conditionLabel(condition as any),
         isTradable,
@@ -1376,6 +1358,10 @@ export default function EditListingPage() {
                   ))}
                 </select>
               </div>
+            </div>
+
+            <div className="text-xs text-[#8b6b4e]">
+              İlan yayınlandıktan sonra kategori ve alt kategori değiştirilemez.
             </div>
           </div>
 
