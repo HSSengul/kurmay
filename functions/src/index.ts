@@ -1803,3 +1803,200 @@ export const onAutoFlagUpdated = onDocumentUpdated(
     }
   }
 );
+
+/* ============================================================
+   Sync listing location fields when private profile address changes
+============================================================ */
+
+function normalizeSpacesSafe(v: any): string {
+  return String(v ?? "").replace(/\s+/g, " ").trim();
+}
+
+function cleanLocationTokenSafe(v: any): string {
+  return normalizeSpacesSafe(v).replace(/^[-|/\\]+|[-|/\\]+$/g, "");
+}
+
+function isPostalCodeTokenSafe(v: string): boolean {
+  return /^\d{5}$/.test((v || "").trim());
+}
+
+function isCountryTokenSafe(v: string): boolean {
+  const n = cleanLocationTokenSafe(v).toLocaleLowerCase("tr-TR");
+  return (
+    n === "turkiye" ||
+    n === "turkiye cumhuriyeti" ||
+    n === "turkey"
+  );
+}
+
+function isRegionTokenSafe(v: string): boolean {
+  const n = cleanLocationTokenSafe(v).toLocaleLowerCase("tr-TR");
+  return n.includes("bolgesi") || n.includes("region");
+}
+
+function isUsefulLocationTokenSafe(v: string): boolean {
+  const token = cleanLocationTokenSafe(v);
+  if (!token) return false;
+  if (/^\d+$/.test(token)) return false;
+  if (
+    isCountryTokenSafe(token) ||
+    isRegionTokenSafe(token) ||
+    isPostalCodeTokenSafe(token)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function extractCityDistrictSafe(address: string): {
+  city: string;
+  district: string;
+} {
+  const cleaned = normalizeSpacesSafe(address || "");
+  if (!cleaned) return { city: "", district: "" };
+
+  const parts = cleaned
+    .split(",")
+    .map((p) => cleanLocationTokenSafe(p))
+    .filter(Boolean);
+
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const part = parts[i];
+    if (!part.includes("/")) continue;
+    const slashParts = part
+      .split("/")
+      .map((p) => cleanLocationTokenSafe(p))
+      .filter(isUsefulLocationTokenSafe);
+    if (slashParts.length >= 2) {
+      const district = slashParts[slashParts.length - 2];
+      const city = slashParts[slashParts.length - 1];
+      return { city, district };
+    }
+  }
+
+  const meaningful = parts.filter(isUsefulLocationTokenSafe);
+  if (meaningful.length >= 2) {
+    const district = meaningful[meaningful.length - 2];
+    const city = meaningful[meaningful.length - 1];
+    return { city, district };
+  }
+
+  return { city: meaningful[0] || "", district: "" };
+}
+
+function toRoundedCoord(v: any, precision = 4): number | null {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const factor = 10 ** precision;
+  return Math.round(n * factor) / factor;
+}
+
+function normalizeProfileLocation(data: any): {
+  lat: number;
+  lng: number;
+  address: string;
+} | null {
+  const loc = data?.location;
+  const lat = toRoundedCoord(loc?.lat, 4);
+  const lng = toRoundedCoord(loc?.lng, 4);
+  if (lat === null || lng === null) return null;
+  return {
+    lat,
+    lng,
+    address: normalizeSpacesSafe(loc?.address || ""),
+  };
+}
+
+function areListingLocationsEqual(
+  a: any,
+  b: { lat: number; lng: number } | null
+): boolean {
+  const aLat = toRoundedCoord(a?.lat, 4);
+  const aLng = toRoundedCoord(a?.lng, 4);
+  const bLat = toRoundedCoord(b?.lat, 4);
+  const bLng = toRoundedCoord(b?.lng, 4);
+  return aLat === bLat && aLng === bLng;
+}
+
+export const syncListingsFromPrivateProfile = onDocumentWritten(
+  "privateProfiles/{uid}",
+  async (event) => {
+    const uid = event.params.uid as string;
+    const after = event.data?.after?.data() as any;
+
+    if (!uid || !after) return;
+
+    const db = admin.firestore();
+    const profileAddress = normalizeSpacesSafe(after?.address || "");
+    const normalizedProfileLoc = normalizeProfileLocation(after);
+
+    const effectiveLocation = normalizedProfileLoc
+      ? {
+          lat: normalizedProfileLoc.lat,
+          lng: normalizedProfileLoc.lng,
+        }
+      : null;
+
+    const effectiveAddress = normalizeSpacesSafe(
+      profileAddress || normalizedProfileLoc?.address || ""
+    );
+    const cityDistrict = extractCityDistrictSafe(effectiveAddress);
+
+    const snapshot = await db
+      .collection("listings")
+      .where("ownerId", "==", uid)
+      .get();
+
+    if (snapshot.empty) return;
+
+    let changedCount = 0;
+    let batch = db.batch();
+    let pending = 0;
+    const commits: Promise<FirebaseFirestore.WriteResult[]>[] = [];
+
+    snapshot.docs.forEach((listingDoc) => {
+      const data = listingDoc.data() as any;
+
+      const shouldSyncLocation = !!effectiveLocation;
+      const sameLocation = shouldSyncLocation
+        ? areListingLocationsEqual(data?.location, effectiveLocation)
+        : true;
+      const sameCity =
+        normalizeSpacesSafe(data?.locationCity || "") ===
+        normalizeSpacesSafe(cityDistrict.city || "");
+      const sameDistrict =
+        normalizeSpacesSafe(data?.locationDistrict || "") ===
+        normalizeSpacesSafe(cityDistrict.district || "");
+
+      if (sameLocation && sameCity && sameDistrict) return;
+
+      const updatePayload: Record<string, any> = {
+        locationCity: cityDistrict.city || null,
+        locationDistrict: cityDistrict.district || null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (shouldSyncLocation && !sameLocation) {
+        updatePayload.location = effectiveLocation;
+      }
+
+      batch.update(listingDoc.ref, updatePayload);
+      pending += 1;
+      changedCount += 1;
+
+      if (pending >= 400) {
+        commits.push(batch.commit());
+        batch = db.batch();
+        pending = 0;
+      }
+    });
+
+    if (pending > 0) commits.push(batch.commit());
+    if (commits.length > 0) await Promise.all(commits);
+
+    logger.info("syncListingsFromPrivateProfile completed", {
+      uid,
+      changedCount,
+      totalListings: snapshot.size,
+    });
+  }
+);
