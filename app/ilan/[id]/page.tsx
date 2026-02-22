@@ -4,6 +4,7 @@ import ListingDetailClient from "./ListingDetailClient";
 import { fetchDocument } from "@/lib/firestoreRest";
 import { buildListingPath, extractListingId } from "@/lib/listingUrl";
 import { serializeJsonLd } from "@/lib/serializeJsonLd";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
@@ -77,7 +78,7 @@ export async function generateMetadata({
   const rawId = resolved.id || "";
   const listingId = extractListingId(rawId);
   const listing = await fetchDocument<ListingDoc>("listings", listingId);
-  if (!listing) {
+  if (!listing || !isPublicListingVisible(listing as any)) {
     return {
       title: "İlan bulunamadı",
       robots: { index: false, follow: false },
@@ -145,7 +146,7 @@ export default async function ListingDetailPage({
   const rawId = resolved.id || "";
   const listingId = extractListingId(rawId);
   const listing = await fetchDocument<ListingDoc>("listings", listingId);
-  if (!listing) notFound();
+  if (!listing || !isPublicListingVisible(listing as any)) notFound();
 
   const canonicalPath = buildListingPath(listingId, listing.title);
   const currentPath = `/ilan/${decodeURIComponent(rawId)}`;

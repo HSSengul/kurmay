@@ -26,6 +26,7 @@ import { db } from "@/lib/firebase";
 import { getCategoriesCached } from "@/lib/catalogCache";
 import { devError, getFriendlyErrorMessage } from "@/lib/logger";
 import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 /* ================= TYPES ================= */
 
@@ -47,23 +48,18 @@ type Listing = {
   title?: string;
   price?: number;
   status?: string;
+  adminStatus?: string;
+  conditionKey?: string;
+  conditionLabel?: string;
+  isTradable?: boolean;
+  shippingAvailable?: boolean;
+  isShippable?: boolean;
 
   categoryId?: string;
   categoryName?: string;
 
   subCategoryId?: string;
   subCategoryName?: string;
-
-  productionYear?: string | null;
-  gender?: string;
-  movementType?: string;
-
-  caseType?: string;
-  diameterMm?: number | null;
-
-  braceletMaterial?: string;
-
-  wearExists?: boolean;
   locationCity?: string | null;
   locationDistrict?: string | null;
 
@@ -152,13 +148,6 @@ const timeAgoTR = (createdAt: any) => {
   }
 };
 
-const toIntOrNull = (v: string) => {
-  const t = (v || "").trim();
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
-};
-
 const toNumOrNull = (v: string) => {
   const t = (v || "").trim();
   if (!t) return null;
@@ -166,21 +155,9 @@ const toNumOrNull = (v: string) => {
   return Number.isFinite(n) ? n : null;
 };
 
-const getYearNumber = (v?: string | null) => {
-  const s = (v || "").trim();
-  if (!s) return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
-};
-
-const getDiaNumber = (v?: number | null) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
 const compactLabel = (s?: string) => {
   const t = normalizeSpaces(s || "");
-  return t.length > 18 ? t.slice(0, 18) + "…" : t;
+  return t.length > 18 ? t.slice(0, 18) + "..." : t;
 };
 
 const clampInt = (n: number, min: number, max: number) =>
@@ -192,6 +169,79 @@ const pickEnum = (v: string | null, allowed: string[]) => {
 };
 
 const cleanDigits = (v: string) => (v || "").replace(/[^\d]/g, "");
+
+const CONDITION_OPTIONS = [
+  { value: "new", label: "Yeni / Açılmamış" },
+  { value: "likeNew", label: "Çok İyi (Sıfır Ayarında)" },
+  { value: "good", label: "İyi" },
+  { value: "used", label: "Kullanılmış" },
+  { value: "forParts", label: "Parça / Arızalı" },
+] as const;
+
+const getConditionKey = (listing: Listing) =>
+  normalizeSpaces(listing.conditionKey || "").trim();
+
+const getConditionLabel = (listing: Listing) => {
+  const explicit = normalizeSpaces(listing.conditionLabel || "");
+  if (explicit) return explicit;
+  const key = getConditionKey(listing);
+  const match = CONDITION_OPTIONS.find((item) => item.value === key);
+  return match?.label || "";
+};
+
+const toBoolLike = (value: unknown): boolean | undefined => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  if (typeof value === "string") {
+    const v = value.trim().toLocaleLowerCase("tr-TR");
+    if (!v) return undefined;
+    if (
+      ["true", "1", "yes", "evet", "var", "uygun", "acik", "açık"].includes(v)
+    ) {
+      return true;
+    }
+    if (
+      ["false", "0", "no", "hayir", "hayır", "yok", "uygun degil", "uygun değil", "kapali", "kapalı"].includes(v)
+    ) {
+      return false;
+    }
+  }
+  return undefined;
+};
+
+const getTradableValue = (listing: Listing) => {
+  const root = toBoolLike((listing as any).isTradable);
+  if (root !== undefined) return root;
+
+  const attrs = (listing as any).attributes || {};
+  const fromAttrs =
+    toBoolLike(attrs.isTradable) ??
+    toBoolLike(attrs.tradable) ??
+    toBoolLike(attrs.isTradableBool);
+  if (fromAttrs !== undefined) return fromAttrs;
+
+  return undefined;
+};
+
+const getShippingValue = (listing: Listing) => {
+  const root =
+    toBoolLike((listing as any).shippingAvailable) ??
+    toBoolLike((listing as any).isShippable);
+  if (root !== undefined) return root;
+
+  const attrs = (listing as any).attributes || {};
+  const fromAttrs =
+    toBoolLike(attrs.shippingAvailable) ??
+    toBoolLike(attrs.isShippable) ??
+    toBoolLike(attrs.kargoUygun) ??
+    toBoolLike(attrs.shipping);
+  if (fromAttrs !== undefined) return fromAttrs;
+
+  return undefined;
+};
 
 const sora = Sora({
   subsets: ["latin", "latin-ext"],
@@ -216,6 +266,9 @@ export default function CategoryClient({
   const categorySlug = params?.category
     ? decodeURIComponent(params.category)
     : "";
+  const visibleInitialListings = initialListings.filter((item) =>
+    isPublicListingVisible(item)
+  );
 
   /* ================= DATA ================= */
 
@@ -225,7 +278,9 @@ export default function CategoryClient({
   );
 
   // ✅ Pagination ile yüklenen ham ilanlar
-  const [listingsRaw, setListingsRaw] = useState<Listing[]>(initialListings);
+  const [listingsRaw, setListingsRaw] = useState<Listing[]>(
+    visibleInitialListings
+  );
   const [cursor, setCursor] =
     useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [hasMore, setHasMore] = useState(initialHasMore);
@@ -264,31 +319,11 @@ export default function CategoryClient({
 
   /* ================= FILTER STATES ================= */
 
-  const [subCategoryId, setSubCategoryId] = useState("");
-
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
-
-  const [yearMin, setYearMin] = useState("");
-  const [yearMax, setYearMax] = useState("");
-
-  const [gender, setGender] = useState("");
-
-  const [wearFilter, setWearFilter] = useState<"" | "wear" | "noWear">("");
-
-  /* ================= OPTIONS ================= */
-
-  const yearOptions = useMemo(() => {
-    const now = new Date().getFullYear();
-    const years: string[] = [];
-    for (let y = now; y >= 1950; y--) years.push(String(y));
-    return years;
-  }, []);
-
-  const genderOptions = useMemo(
-    () => ["Erkek", "Kadın", "Unisex", "Diğer"],
-    []
-  );
+  const [conditionFilter, setConditionFilter] = useState("");
+  const [tradableFilter, setTradableFilter] = useState<"" | "yes" | "no">("");
+  const [shippingFilter, setShippingFilter] = useState<"" | "yes" | "no">("");
 
   /* ================= URL SYNC (INIT) ================= */
 
@@ -307,13 +342,11 @@ export default function CategoryClient({
 
     // ✅ URL’den filtreleri state’e bas
     const q = searchParams.get("q") || "";
-    const subCategory = searchParams.get("subCategoryId") || "";
     const minP = searchParams.get("minPrice") || "";
     const maxP = searchParams.get("maxPrice") || "";
-    const yMin = searchParams.get("yearMin") || "";
-    const yMax = searchParams.get("yearMax") || "";
-    const g = searchParams.get("gender") || "";
-    const wear = (searchParams.get("wear") || "") as "" | "wear" | "noWear";
+    const cond = searchParams.get("condition") || "";
+    const tradable = pickEnum(searchParams.get("tradable"), ["yes", "no"]);
+    const shipping = pickEnum(searchParams.get("shipping"), ["yes", "no"]);
 
     const sort = (searchParams.get("sort") || "newest") as
       | "newest"
@@ -323,17 +356,18 @@ export default function CategoryClient({
     const view = (searchParams.get("view") || "grid") as "grid" | "list";
 
     setSearchText(q);
-    setSubCategoryId(subCategory);
 
     setMinPrice(cleanDigits(minP));
     setMaxPrice(cleanDigits(maxP));
 
-    setYearMin(cleanDigits(yMin));
-    setYearMax(cleanDigits(yMax));
-
-    setGender(pickEnum(g, genderOptions));
-
-    setWearFilter(wear === "wear" || wear === "noWear" ? wear : "");
+    setConditionFilter(
+      pickEnum(
+        cond,
+        CONDITION_OPTIONS.map((item) => item.value as string)
+      )
+    );
+    setTradableFilter((tradable as "" | "yes" | "no") || "");
+    setShippingFilter((shipping as "" | "yes" | "no") || "");
 
     setSortMode(sort);
     setViewMode(view);
@@ -342,11 +376,7 @@ export default function CategoryClient({
     setPageSize(24);
 
     didInitFromUrl.current = true;
-  }, [
-    categorySlug,
-    searchParams,
-    genderOptions,
-  ]);
+  }, [categorySlug, searchParams]);
 
   /* ================= URL SYNC (STATE → URL) ================= */
 
@@ -357,17 +387,12 @@ export default function CategoryClient({
     const sp = new URLSearchParams();
 
     if (searchText.trim()) sp.set("q", searchText.trim());
-    if (subCategoryId) sp.set("subCategoryId", subCategoryId);
-
     if (minPrice.trim()) sp.set("minPrice", minPrice.trim());
     if (maxPrice.trim()) sp.set("maxPrice", maxPrice.trim());
 
-    if (yearMin.trim()) sp.set("yearMin", yearMin.trim());
-    if (yearMax.trim()) sp.set("yearMax", yearMax.trim());
-
-    if (gender.trim()) sp.set("gender", gender.trim());
-
-    if (wearFilter) sp.set("wear", wearFilter);
+    if (conditionFilter) sp.set("condition", conditionFilter);
+    if (tradableFilter) sp.set("tradable", tradableFilter);
+    if (shippingFilter) sp.set("shipping", shippingFilter);
 
     // UX: sadece default dışını yaz
     if (sortMode !== "newest") sp.set("sort", sortMode);
@@ -392,13 +417,11 @@ export default function CategoryClient({
     router,
     pathname,
     searchText,
-    subCategoryId,
     minPrice,
     maxPrice,
-    yearMin,
-    yearMax,
-    gender,
-    wearFilter,
+    conditionFilter,
+    tradableFilter,
+    shippingFilter,
     sortMode,
     viewMode,
   ]);
@@ -406,13 +429,11 @@ export default function CategoryClient({
   /* ================= FILTER UTIL ================= */
 
   const clearFilters = () => {
-    setSubCategoryId("");
     setMinPrice("");
     setMaxPrice("");
-    setYearMin("");
-    setYearMax("");
-    setGender("");
-    setWearFilter("");
+    setConditionFilter("");
+    setTradableFilter("");
+    setShippingFilter("");
     setSearchText("");
     setSortMode("newest");
     setViewMode("grid");
@@ -422,64 +443,94 @@ export default function CategoryClient({
   const activeFilterChips = useMemo(() => {
     const chips: Array<{ key: string; label: string }> = [];
     const search = searchText.trim();
-    const sub = subCategoryId.trim();
-    const selectedSub = subCategories.find((x) => x.id === sub);
     const minP = minPrice.trim();
     const maxP = maxPrice.trim();
-    const yMin = yearMin.trim();
-    const yMax = yearMax.trim();
-    const g = gender.trim();
+    const condition = conditionFilter.trim();
 
     if (search) chips.push({ key: "search", label: `Arama: ${search}` });
-    if (sub && selectedSub) {
-      chips.push({ key: "subCategory", label: `Alt kategori: ${selectedSub.name}` });
-    }
     if (minP || maxP) {
-      chips.push({ key: "price", label: `Fiyat: ${minP || "0"} - ${maxP || "∞"}` });
-    }
-    if (yMin || yMax) {
-      chips.push({ key: "year", label: `Yil: ${yMin || "0"} - ${yMax || "∞"}` });
-    }
-    if (g) chips.push({ key: "gender", label: `Cinsiyet: ${g}` });
-    if (wearFilter) {
       chips.push({
-        key: "wear",
-        label: wearFilter === "wear" ? "Asinma: Var" : "Asinma: Yok",
+        key: "price",
+        label: `Fiyat: ${minP || "0"} - ${maxP || "sonsuz"}`,
       });
     }
+    if (condition) {
+      const label =
+        CONDITION_OPTIONS.find((item) => item.value === condition)?.label || condition;
+      chips.push({ key: "condition", label: `Durum: ${label}` });
+    }
+    if (tradableFilter) {
+      chips.push({
+        key: "tradable",
+        label: tradableFilter === "yes" ? "Takas: Evet" : "Takas: Hayır",
+      });
+    }
+    if (shippingFilter) {
+      chips.push({
+        key: "shipping",
+        label: shippingFilter === "yes" ? "Kargo: Uygun" : "Kargo: Uygun değil",
+      });
+    }
+
     return chips;
   }, [
     searchText,
-    subCategoryId,
-    subCategories,
     minPrice,
     maxPrice,
-    yearMin,
-    yearMax,
-    gender,
-    wearFilter,
+    conditionFilter,
+    tradableFilter,
+    shippingFilter,
   ]);
 
   const appliedFiltersCount = activeFilterChips.length;
 
   const clearFilterByKey = (key: string) => {
     if (key === "search") setSearchText("");
-    if (key === "subCategory") setSubCategoryId("");
     if (key === "price") {
       setMinPrice("");
       setMaxPrice("");
     }
-    if (key === "year") {
-      setYearMin("");
-      setYearMax("");
-    }
-    if (key === "gender") setGender("");
-    if (key === "wear") setWearFilter("");
+    if (key === "condition") setConditionFilter("");
+    if (key === "tradable") setTradableFilter("");
+    if (key === "shipping") setShippingFilter("");
   };
 
   useEffect(() => {
     if (appliedFiltersCount > 0) setFiltersOpen(true);
   }, [appliedFiltersCount]);
+
+  // Legacy URL desteği: /[category]?subCategoryId=... -> /[category]/[subCategory]
+  useEffect(() => {
+    const rawLegacySub = (searchParams.get("subCategoryId") || "").trim();
+    if (!rawLegacySub) return;
+    if (!category || subCategories.length === 0) return;
+
+    const legacyNorm = normTRAscii(rawLegacySub);
+    const legacySlug = slugifyTR(rawLegacySub);
+
+    const matchSub = subCategories.find((m) => {
+      const normKeys = [m.id, m.nameLower, m.name].map((x) => normTRAscii(String(x || "")));
+      const slugKeys = [m.id, m.nameLower, m.name].map((x) => slugifyTR(String(x || "")));
+      return normKeys.includes(legacyNorm) || slugKeys.includes(legacySlug);
+    });
+
+    const cleanParams = new URLSearchParams(searchParams.toString());
+    cleanParams.delete("subCategoryId");
+    const qs = cleanParams.toString();
+
+    const categoryPath = `/${encodeURIComponent(
+      slugifyTR(category.nameLower || category.name || "")
+    )}`;
+
+    if (matchSub) {
+      const subSlug = slugifyTR(matchSub.nameLower || matchSub.name || "");
+      const nextPath = `${categoryPath}/${encodeURIComponent(subSlug)}`;
+      router.replace(qs ? `${nextPath}?${qs}` : nextPath);
+      return;
+    }
+
+    router.replace(qs ? `${categoryPath}?${qs}` : categoryPath);
+  }, [searchParams, category, subCategories, router]);
 
   /* ================= LOAD BRAND + MODELS + LISTINGS (PAGINATION) ================= */
 
@@ -502,7 +553,9 @@ export default function CategoryClient({
 
       const snap = await getDocs(query(collection(db, "listings"), ...constraints));
       const docs = snap.docs;
-      const items = docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Listing[];
+      const items = docs
+        .map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((item) => isPublicListingVisible(item as Listing)) as Listing[];
 
       return {
         items,
@@ -539,7 +592,7 @@ export default function CategoryClient({
 
         const activeItems = docs
           .map((d) => ({ id: d.id, ...(d.data() as any) }))
-          .filter((item) => String((item as Listing).status || "") === "active") as Listing[];
+          .filter((item) => isPublicListingVisible(item as Listing)) as Listing[];
 
         for (const item of activeItems) {
           collected.push(item);
@@ -631,8 +684,8 @@ export default function CategoryClient({
         const canonicalCategorySlug = slugifyTR(
           matchCategory.slug || matchCategory.nameLower || matchCategory.name || ""
         );
-        const currentSlug = slugifyTR(categorySlug);
-        if (canonicalCategorySlug && currentSlug !== canonicalCategorySlug) {
+        const currentSlugRaw = (categorySlug || "").trim();
+        if (canonicalCategorySlug && currentSlugRaw !== canonicalCategorySlug) {
           const qs = searchParams?.toString();
           const canonicalPath = `/${encodeURIComponent(canonicalCategorySlug)}`;
           router.replace(qs ? `${canonicalPath}?${qs}` : canonicalPath);
@@ -725,20 +778,9 @@ export default function CategoryClient({
   const filteredListings = useMemo(() => {
     const minP = toNumOrNull(minPrice);
     const maxP = toNumOrNull(maxPrice);
-
-    const yMin = toIntOrNull(yearMin);
-    const yMax = toIntOrNull(yearMax);
-
-    const g = normTR(gender);
     const q = normTR(searchDebounced);
 
     return listingsRaw.filter((l) => {
-      // subCategory
-      if (subCategoryId) {
-        if ((l.subCategoryId || "") !== subCategoryId) return false;
-      }
-
-      // search
       if (q) {
         const hay = `${l.title || ""} ${l.subCategoryName || ""} ${l.categoryName || ""}`
           .toLocaleLowerCase("tr-TR")
@@ -746,51 +788,36 @@ export default function CategoryClient({
         if (!hay.includes(q)) return false;
       }
 
-      // price
       const p = Number(l.price);
       const pOk = Number.isFinite(p);
-      if (minP !== null) {
-        if (!pOk || p < minP) return false;
-      }
-      if (maxP !== null) {
-        if (!pOk || p > maxP) return false;
+      if (minP !== null && (!pOk || p < minP)) return false;
+      if (maxP !== null && (!pOk || p > maxP)) return false;
+
+      if (conditionFilter) {
+        if (getConditionKey(l) !== conditionFilter) return false;
       }
 
-      // year
-      const y = getYearNumber(l.productionYear);
-      if (yMin !== null) {
-        if (y === null || y < yMin) return false;
-      }
-      if (yMax !== null) {
-        if (y === null || y > yMax) return false;
+      if (tradableFilter) {
+        const tradable = getTradableValue(l);
+        if (tradableFilter === "yes" && tradable !== true) return false;
+        if (tradableFilter === "no" && tradable !== false) return false;
       }
 
-      // gender
-      if (g) {
-        const lg = normTR(l.gender || "");
-        if (!lg) return false;
-        if (lg !== g) return false;
-      }
-
-      // wear
-      if (wearFilter === "wear") {
-        if (l.wearExists !== true) return false;
-      }
-      if (wearFilter === "noWear") {
-        if (l.wearExists !== false) return false;
+      if (shippingFilter) {
+        const shipping = getShippingValue(l);
+        if (shippingFilter === "yes" && shipping !== true) return false;
+        if (shippingFilter === "no" && shipping !== false) return false;
       }
 
       return true;
     });
   }, [
     listingsRaw,
-    subCategoryId,
     minPrice,
     maxPrice,
-    yearMin,
-    yearMax,
-    gender,
-    wearFilter,
+    conditionFilter,
+    tradableFilter,
+    shippingFilter,
     searchDebounced,
   ]);
 
@@ -856,21 +883,13 @@ export default function CategoryClient({
 
   /* ================= PRESETS (Hızlı Filtreler) ================= */
 
-  const applyPreset = (p: string) => {
-    if (p === "year2020") {
-      setYearMin("2020");
-      setYearMax("");
-      setSortMode("newest");
+  const applyPreset = (preset: "tradableYes" | "shippingYes") => {
+    if (preset === "tradableYes") {
+      setTradableFilter((prev) => (prev === "yes" ? "" : "yes"));
       return;
     }
-    if (p === "noWear") {
-      setWearFilter("noWear");
-      return;
-    }
-    if (p === "under50") {
-      setMinPrice("");
-      setMaxPrice("50000");
-      setSortMode("priceAsc");
+    if (preset === "shippingYes") {
+      setShippingFilter((prev) => (prev === "yes" ? "" : "yes"));
       return;
     }
   };
@@ -886,37 +905,34 @@ export default function CategoryClient({
   };
 
   const filterVisibility = useMemo(() => {
-    const hasYear = listingsRaw.some((l) => getYearNumber(l.productionYear) !== null);
-    const hasGender = listingsRaw.some((l) => normalizeSpaces(l.gender || ""));
-    const hasWear = listingsRaw.some(
-      (l) => l.wearExists === true || l.wearExists === false
-    );
+    const hasCondition = listingsRaw.some((l) => !!getConditionKey(l));
+    const hasTradable = true;
+    const hasShipping = true;
+
     return {
-      showYear: hasYear,
-      showGender: hasGender,
-      showWear: hasWear,
+      showCondition: hasCondition,
+      showTradable: hasTradable,
+      showShipping: hasShipping,
     };
   }, [listingsRaw]);
 
   useEffect(() => {
-    if (!filterVisibility.showYear && (yearMin || yearMax)) {
-      setYearMin("");
-      setYearMax("");
+    if (!filterVisibility.showCondition && conditionFilter) {
+      setConditionFilter("");
     }
-    if (!filterVisibility.showGender && gender) {
-      setGender("");
+    if (!filterVisibility.showTradable && tradableFilter) {
+      setTradableFilter("");
     }
-    if (!filterVisibility.showWear && wearFilter) {
-      setWearFilter("");
+    if (!filterVisibility.showShipping && shippingFilter) {
+      setShippingFilter("");
     }
   }, [
-    filterVisibility.showYear,
-    filterVisibility.showGender,
-    filterVisibility.showWear,
-    yearMin,
-    yearMax,
-    gender,
-    wearFilter,
+    filterVisibility.showCondition,
+    filterVisibility.showTradable,
+    filterVisibility.showShipping,
+    conditionFilter,
+    tradableFilter,
+    shippingFilter,
   ]);
 
   /* ================= UI STATES ================= */
@@ -964,6 +980,31 @@ export default function CategoryClient({
 
   const loadedCount = listingsRaw.length;
   const totalShow = totalCount === null ? `${loadedCount}` : `${totalCount}`;
+  const canonicalCategorySlug = slugifyTR(category.nameLower || category.name || "");
+  const canonicalCategoryPath = `/${encodeURIComponent(canonicalCategorySlug)}`;
+
+  const routeQuery = (() => {
+    const sp = new URLSearchParams();
+    if (searchText.trim()) sp.set("q", searchText.trim());
+    if (minPrice.trim()) sp.set("minPrice", minPrice.trim());
+    if (maxPrice.trim()) sp.set("maxPrice", maxPrice.trim());
+    if (conditionFilter) sp.set("condition", conditionFilter);
+    if (tradableFilter) sp.set("tradable", tradableFilter);
+    if (shippingFilter) sp.set("shipping", shippingFilter);
+    if (sortMode !== "newest") sp.set("sort", sortMode);
+    if (viewMode !== "grid") sp.set("view", viewMode);
+    return sp.toString();
+  })();
+
+  const categoryHref = routeQuery
+    ? `${canonicalCategoryPath}?${routeQuery}`
+    : canonicalCategoryPath;
+
+  const getSubCategoryHref = (sub: SubCategory) => {
+    const subSlug = slugifyTR(sub.nameLower || sub.name || "");
+    const base = `${canonicalCategoryPath}/${encodeURIComponent(subSlug)}`;
+    return routeQuery ? `${base}?${routeQuery}` : base;
+  };
 
   /* ================= UI ================= */
 
@@ -1034,14 +1075,9 @@ export default function CategoryClient({
 
             <div ref={subScrollRef} className="no-scrollbar overflow-x-auto">
               <div className="flex gap-4">
-                <button
-                  type="button"
-                  onClick={() => setSubCategoryId("")}
-                  className={`shrink-0 rounded-2xl border px-4 py-4 text-left transition w-[calc((100%-16px)/2)] sm:w-[calc((100%-48px)/4)] ${
-                    subCategoryId === ""
-                      ? "bg-emerald-50 text-emerald-700 font-semibold border-emerald-200"
-                      : "bg-white hover:bg-slate-50 border-slate-200"
-                  }`}
+                <Link
+                  href={categoryHref}
+                  className="shrink-0 rounded-2xl border px-4 py-4 text-left transition w-[calc((100%-16px)/2)] sm:w-[calc((100%-48px)/4)] bg-emerald-50 text-emerald-700 font-semibold border-emerald-200"
                 >
                   <div className="text-xs uppercase tracking-wide text-[color:var(--market-muted)]">
                     Tümü
@@ -1049,18 +1085,13 @@ export default function CategoryClient({
                   <div className="mt-1 text-base font-semibold">
                     {category.name}
                   </div>
-                </button>
+                </Link>
 
                 {subCategories.map((m) => (
-                  <button
+                  <Link
                     key={m.id}
-                    type="button"
-                    onClick={() => setSubCategoryId(m.id)}
-                    className={`shrink-0 rounded-2xl border px-4 py-4 text-left transition w-[calc((100%-16px)/2)] sm:w-[calc((100%-48px)/4)] ${
-                      subCategoryId === m.id
-                        ? "bg-emerald-50 text-emerald-700 font-semibold border-emerald-200"
-                        : "bg-white hover:bg-slate-50 border-slate-200"
-                    }`}
+                    href={getSubCategoryHref(m)}
+                    className="shrink-0 rounded-2xl border px-4 py-4 text-left transition w-[calc((100%-16px)/2)] sm:w-[calc((100%-48px)/4)] bg-white hover:bg-slate-50 border-slate-200"
                   >
                     <div className="text-xs uppercase tracking-wide text-[color:var(--market-muted)]">
                       Alt kategori
@@ -1068,7 +1099,7 @@ export default function CategoryClient({
                     <div className="mt-1 text-sm font-semibold line-clamp-2">
                       {m.name}
                     </div>
-                  </button>
+                  </Link>
                 ))}
               </div>
             </div>
@@ -1078,48 +1109,79 @@ export default function CategoryClient({
         {/* ================= TOOLBAR (INLINE FILTERS) ================= */}
         {/* ================= TOOLBAR (INLINE FILTERS) ================= */}
         <div className="rounded-2xl border border-slate-200/70 bg-white/90 shadow-sm p-4 sm:p-5 backdrop-blur">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs text-slate-600 shrink-0">
-              <span>G?steriliyor</span>
-              <span className="font-semibold text-slate-900">
-                {Math.min(visibleListings.length, sortedListings.length)}
-              </span>
-              <span className="text-slate-400">/</span>
-              <span>{sortedListings.length}</span>
+          <div className="grid grid-cols-[1fr_auto] gap-2 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar lg:justify-self-start">
+              <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs text-slate-600 shrink-0">
+                <span>Gösteriliyor</span>
+                <span className="font-semibold text-slate-900">
+                  {Math.min(visibleListings.length, sortedListings.length)}
+                </span>
+                <span className="text-slate-400">/</span>
+                <span>{sortedListings.length}</span>
+              </div>
+
+              {appliedFiltersCount > 0 && (
+                <div className="hidden sm:inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs text-emerald-700 shrink-0">
+                  Filtre: <span className="font-semibold">{appliedFiltersCount}</span>
+                </div>
+              )}
             </div>
 
-            {appliedFiltersCount > 0 && (
-              <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs text-emerald-700 shrink-0">
-                Filtre: <span className="font-semibold">{appliedFiltersCount}</span>
-              </div>
-            )}
+            <div className="hidden lg:flex items-center justify-center gap-2">
+              {filterVisibility.showTradable && (
+                <button
+                  type="button"
+                  onClick={() => applyPreset("tradableYes")}
+                  className={`inline-flex items-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                    tradableFilter === "yes"
+                      ? "border-emerald-700 bg-emerald-700 text-white"
+                      : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                  }`}
+                >
+                  Takasa açık
+                </button>
+              )}
+              {filterVisibility.showShipping && (
+                <button
+                  type="button"
+                  onClick={() => applyPreset("shippingYes")}
+                  className={`inline-flex items-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                    shippingFilter === "yes"
+                      ? "border-sky-700 bg-sky-700 text-white"
+                      : "border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                  }`}
+                >
+                  Kargoya uygun
+                </button>
+              )}
+            </div>
 
-            <button
-              type="button"
-              onClick={() => setFiltersOpen((v) => !v)}
-              className="md:hidden inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shrink-0"
-            >
-              Filtreler
-              <svg
-                className={`w-3.5 h-3.5 transition ${filtersOpen ? "rotate-180" : ""}`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+            <div className="flex items-center gap-2 lg:justify-self-end">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((v) => !v)}
+                className="md:hidden inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shrink-0"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
-              </svg>
-            </button>
+                Filtreler
+                <svg
+                  className={`w-3.5 h-3.5 transition ${filtersOpen ? "rotate-180" : ""}`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
 
-            <div className="ml-auto flex items-center gap-2">
               {category?.id && hasMore && (
                 <button
                   type="button"
                   disabled={loadingMore}
                   onClick={() => fetchMore(category.id)}
-                  className={`rounded-full border border-slate-200 bg-white px-3 py-2 text-xs shrink-0 ${loadingMore ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"}`}
+                  className={`hidden md:inline-flex rounded-full border border-slate-200 bg-white px-3 py-2 text-xs shrink-0 ${loadingMore ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"}`}
                 >
-                  {loadingMore ? "Y?kleniyor..." : "Daha fazla ilan y?kle"}
+                  {loadingMore ? "Yükleniyor..." : "Daha fazla ilan yükle"}
                 </button>
               )}
 
@@ -1142,6 +1204,37 @@ export default function CategoryClient({
             </div>
           </div>
 
+          {(filterVisibility.showTradable || filterVisibility.showShipping) && (
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-2 lg:hidden">
+              {filterVisibility.showTradable && (
+                <button
+                  type="button"
+                  onClick={() => applyPreset("tradableYes")}
+                  className={`inline-flex items-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                    tradableFilter === "yes"
+                      ? "border-emerald-700 bg-emerald-700 text-white"
+                      : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                  }`}
+                >
+                  Takasa açık
+                </button>
+              )}
+              {filterVisibility.showShipping && (
+                <button
+                  type="button"
+                  onClick={() => applyPreset("shippingYes")}
+                  className={`inline-flex items-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                    shippingFilter === "yes"
+                      ? "border-sky-700 bg-sky-700 text-white"
+                      : "border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                  }`}
+                >
+                  Kargoya uygun
+                </button>
+              )}
+            </div>
+          )}
+
           {activeFilterChips.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {activeFilterChips.map((chip) => (
@@ -1158,7 +1251,7 @@ export default function CategoryClient({
             </div>
           )}
 
-          <div className="mt-3 hidden md:flex md:flex-wrap md:items-center gap-2">
+          <div className="mt-3 hidden md:flex md:flex-nowrap md:items-center md:gap-2 md:overflow-x-auto md:pb-1">
             <input
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
@@ -1168,68 +1261,29 @@ export default function CategoryClient({
             <input
               value={minPrice}
               onChange={(e) => setMinPrice(cleanDigits(e.target.value))}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
-              placeholder="Min (?)"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
+              placeholder="Min TL"
               inputMode="numeric"
             />
             <input
               value={maxPrice}
               onChange={(e) => setMaxPrice(cleanDigits(e.target.value))}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-24"
-              placeholder="Max (?)"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
+              placeholder="Max TL"
               inputMode="numeric"
             />
-            {filterVisibility.showYear && (
-              <>
-                <select
-                  value={yearMin}
-                  onChange={(e) => setYearMin(cleanDigits(e.target.value))}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
-                >
-                  <option value="">Y?l min</option>
-                  {yearOptions.map((y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={yearMax}
-                  onChange={(e) => setYearMax(cleanDigits(e.target.value))}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm w-28"
-                >
-                  <option value="">Y?l max</option>
-                  {yearOptions.map((y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-            {filterVisibility.showGender && (
+            {filterVisibility.showCondition && (
               <select
-                value={gender}
-                onChange={(e) => setGender(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[120px]"
+                value={conditionFilter}
+                onChange={(e) => setConditionFilter(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[180px]"
               >
-                <option value="">Cinsiyet</option>
-                {genderOptions.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
+                <option value="">Durum</option>
+                {CONDITION_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
                   </option>
                 ))}
-              </select>
-            )}
-            {filterVisibility.showWear && (
-              <select
-                value={wearFilter}
-                onChange={(e) => setWearFilter(e.target.value as any)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
-              >
-                <option value="">A??nma</option>
-                <option value="wear">A??nma var</option>
-                <option value="noWear">A??nma yok</option>
               </select>
             )}
             <select
@@ -1246,28 +1300,10 @@ export default function CategoryClient({
             <button
               type="button"
               onClick={clearFilters}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 shrink-0"
+              className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 whitespace-nowrap"
             >
-              S?f?rla
+              Sıfırla
             </button>
-            {filterVisibility.showYear && (
-              <button
-                type="button"
-                onClick={() => applyPreset("year2020")}
-                className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50 shrink-0"
-              >
-                2020+
-              </button>
-            )}
-            {filterVisibility.showWear && (
-              <button
-                type="button"
-                onClick={() => applyPreset("noWear")}
-                className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50 shrink-0"
-              >
-                A??nma yok
-              </button>
-            )}
           </div>
 
           {filtersOpen && (
@@ -1283,71 +1319,34 @@ export default function CategoryClient({
                   value={minPrice}
                   onChange={(e) => setMinPrice(cleanDigits(e.target.value))}
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                  placeholder="Min (?)"
+                  placeholder="Min TL"
                   inputMode="numeric"
                 />
                 <input
                   value={maxPrice}
                   onChange={(e) => setMaxPrice(cleanDigits(e.target.value))}
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                  placeholder="Max (?)"
+                  placeholder="Max TL"
                   inputMode="numeric"
                 />
               </div>
-              {filterVisibility.showYear && (
-                <div className="grid grid-cols-2 gap-2">
-                  <select
-                    value={yearMin}
-                    onChange={(e) => setYearMin(cleanDigits(e.target.value))}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                  >
-                    <option value="">Y?l min</option>
-                    {yearOptions.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={yearMax}
-                    onChange={(e) => setYearMax(cleanDigits(e.target.value))}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                  >
-                    <option value="">Y?l max</option>
-                    {yearOptions.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {filterVisibility.showGender && (
+                {filterVisibility.showCondition && (
                   <select
-                    value={gender}
-                    onChange={(e) => setGender(e.target.value)}
+                    value={conditionFilter}
+                    onChange={(e) => setConditionFilter(e.target.value)}
                     className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                   >
-                    <option value="">Cinsiyet</option>
-                    {genderOptions.map((x) => (
-                      <option key={x} value={x}>
-                        {x}
+                    <option value="">Durum</option>
+                    {CONDITION_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
                       </option>
                     ))}
                   </select>
                 )}
-                {filterVisibility.showWear && (
-                  <select
-                    value={wearFilter}
-                    onChange={(e) => setWearFilter(e.target.value as any)}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                  >
-                    <option value="">A??nma</option>
-                    <option value="wear">A??nma var</option>
-                    <option value="noWear">A??nma yok</option>
-                  </select>
-                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
                 <select
                   value={sortMode}
                   onChange={(e) =>
@@ -1362,13 +1361,14 @@ export default function CategoryClient({
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                  className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
                 >
-                  S?f?rla
+                  Sıfırla
                 </button>
               </div>
             </div>
           )}
+
         </div>
 
         {/* ================= LISTINGS ================= */}
@@ -1409,7 +1409,7 @@ export default function CategoryClient({
             {visibleListings.map((l) => {
               const img = firstImage(l.imageUrls);
               const ago = timeAgoTR(l.createdAt);
-              const y = getYearNumber(l.productionYear);
+              const conditionLabel = getConditionLabel(l);
               const region = formatRegion(l.locationCity, l.locationDistrict);
 
               return (
@@ -1463,23 +1463,27 @@ export default function CategoryClient({
                       ) : null}
 
                       <div className="text-[11px] text-slate-600 flex flex-wrap gap-2">
-                        {y ? (
+                        {conditionLabel ? (
                           <span className="px-2 py-1 rounded-full bg-slate-100">
-                            {y}
+                            {compactLabel(conditionLabel)}
                           </span>
                         ) : null}
-                        {l.gender ? (
-                          <span className="px-2 py-1 rounded-full bg-slate-100">
-                            {compactLabel(l.gender)}
-                          </span>
-                        ) : null}
-                        {l.wearExists === true ? (
-                          <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-700">
-                            Aşınma var
-                          </span>
-                        ) : l.wearExists === false ? (
+                        {l.isTradable === true ? (
                           <span className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
-                            Aşınma yok
+                            Takasa açık
+                          </span>
+                        ) : l.isTradable === false ? (
+                          <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+                            Takas yok
+                          </span>
+                        ) : null}
+                        {getShippingValue(l) === true ? (
+                          <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700">
+                            Kargo uygun
+                          </span>
+                        ) : getShippingValue(l) === false ? (
+                          <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+                            Kargo uygun değil
                           </span>
                         ) : null}
                       </div>
@@ -1495,7 +1499,7 @@ export default function CategoryClient({
               {visibleListings.map((l) => {
                 const img = firstImage(l.imageUrls);
                 const ago = timeAgoTR(l.createdAt);
-                const y = getYearNumber(l.productionYear);
+                const conditionLabel = getConditionLabel(l);
                 const region = formatRegion(l.locationCity, l.locationDistrict);
 
                 return (
@@ -1546,22 +1550,30 @@ export default function CategoryClient({
                         ) : null}
 
                         <div className="text-[11px] text-slate-600 flex flex-wrap gap-2">
-                          {y ? <span className="px-2 py-1 rounded-full bg-slate-100">{y}</span> : null}
-                          {l.gender ? (
-                            <span className="px-2 py-1 rounded-full bg-slate-100">
-                              {compactLabel(l.gender)}
-                            </span>
-                          ) : null}
-                          {l.wearExists === true ? (
-                            <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-700">
-                              Aşınma var
-                            </span>
-                          ) : l.wearExists === false ? (
-                            <span className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
-                              Aşınma yok
-                            </span>
-                          ) : null}
-                        </div>
+                        {conditionLabel ? (
+                          <span className="px-2 py-1 rounded-full bg-slate-100">
+                            {compactLabel(conditionLabel)}
+                          </span>
+                        ) : null}
+                        {l.isTradable === true ? (
+                          <span className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                            Takasa açık
+                          </span>
+                        ) : l.isTradable === false ? (
+                          <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+                            Takas yok
+                          </span>
+                        ) : null}
+                        {getShippingValue(l) === true ? (
+                          <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700">
+                            Kargo uygun
+                          </span>
+                        ) : getShippingValue(l) === false ? (
+                          <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+                            Kargo uygun değil
+                          </span>
+                        ) : null}
+                      </div>
                       </div>
                     </div>
                   </Link>

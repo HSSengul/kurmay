@@ -1,5 +1,6 @@
 ﻿import HomeClient from "./HomeClient";
 import { listCollection, runActiveCollectionQuery } from "@/lib/firestoreRest";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 export const revalidate = 60;
 
@@ -28,13 +29,25 @@ export default async function HomePage() {
         "locationDistrict",
         "imageUrls",
         "createdAt",
+        "isTradable",
+        "shippingAvailable",
+        "isShippable",
         "status",
+        "adminStatus",
         "attributes",
       ],
     }),
   ]);
+  const visibleListings = listings.filter((item) =>
+    isPublicListingVisible(item as any)
+  );
+  const initialHasMore = listings.length === LISTINGS_PAGE_SIZE;
 
   return (
-    <HomeClient initialCategories={categories} initialListings={listings} />
+    <HomeClient
+      initialCategories={categories}
+      initialListings={visibleListings}
+      initialHasMore={initialHasMore}
+    />
   );
 }

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import SellerClient from "./SellerClient";
-import { fetchDocument, runQueryByField } from "@/lib/firestoreRest";
+import { fetchDocument, runActiveQueryByField } from "@/lib/firestoreRest";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
@@ -85,7 +86,7 @@ const buildListingMeta = (listings: ListingDoc[]) => {
 
 const getListingsForMeta = unstable_cache(
   async (uid: string) =>
-    runQueryByField<ListingDoc>({
+    runActiveQueryByField<ListingDoc>({
       collectionId: "listings",
       fieldPath: "ownerId",
       value: uid,
@@ -124,7 +125,9 @@ export async function generateMetadata({
 
   const sellerName = profile.name || "Satıcı";
   const title = `${sellerName} | Satıcı Profili`;
-  const listingsForMeta = await getListingsForMeta(resolved.uid);
+  const listingsForMeta = (await getListingsForMeta(resolved.uid)).filter(
+    (item) => isPublicListingVisible(item as any)
+  );
   const extraMeta = buildListingMeta(listingsForMeta);
   const description = clampMeta(
     `${profile.bio?.trim() || `${sellerName} satıcısının güncel ilanlarını keşfet. Hızlı iletişim ve güvenli alışveriş.`} ${extraMeta}`.trim()
@@ -177,14 +180,14 @@ export default async function SellerPage({
   );
   if (!profile) notFound();
 
-  const listings = await runQueryByField<ListingDoc>({
+  const listings = (await runActiveQueryByField<ListingDoc>({
     collectionId: "listings",
     fieldPath: "ownerId",
     value: resolved.uid,
     orderByField: "createdAt",
     direction: "DESCENDING",
     limit: 12,
-  });
+  })).filter((item) => isPublicListingVisible(item as any));
 
   return (
     <SellerClient

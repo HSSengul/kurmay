@@ -1,6 +1,11 @@
 import type { MetadataRoute } from "next";
 import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
-import { listCollection, normTRAscii } from "@/lib/firestoreRest";
+import {
+  listCollection,
+  normTRAscii,
+  runActiveCollectionQuery,
+} from "@/lib/firestoreRest";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 type CategoryDoc = {
   id: string;
@@ -26,6 +31,7 @@ type ListingDoc = {
   updatedAt?: string;
   createdAt?: string;
   status?: string;
+  adminStatus?: string;
 };
 
 const siteUrl =
@@ -71,7 +77,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       parentId: c.parentId,
       enabled: c.enabled,
     })) as SubCategoryDoc[];
-  const listings = await listCollection<ListingDoc>("listings", 500, 10);
+  const listings = await runActiveCollectionQuery<ListingDoc>({
+    collectionId: "listings",
+    orderByField: "createdAt",
+    direction: "DESCENDING",
+    limit: 500,
+    selectFields: ["title", "updatedAt", "createdAt", "status", "adminStatus"],
+  });
 
   const categoryMap = new Map<string, CategoryDoc>();
   categories.forEach((c) => categoryMap.set(c.id, c));
@@ -104,9 +116,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     );
   }
 
-  const activeListings = listings.filter(
-    (l) => !l.status || l.status === "active"
-  );
+  const activeListings = listings.filter((l) => isPublicListingVisible(l as any));
 
   for (const l of activeListings) {
     if (!l.id) continue;

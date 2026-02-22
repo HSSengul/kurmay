@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const isProduction = process.env.NODE_ENV === "production";
+
 const csp = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -8,7 +10,9 @@ const csp = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://www.googleapis.com",
+  `script-src 'self' 'unsafe-inline' ${
+    isProduction ? "" : "'unsafe-eval'"
+  } https://www.gstatic.com https://www.googleapis.com https://www.google.com https://apis.google.com https://www.recaptcha.net`,
   "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://content-firebaseappcheck.googleapis.com wss://*.firebaseio.com",
   "frame-src 'self' https://www.google.com https://www.gstatic.com https://*.firebaseapp.com",
 ].join("; ");

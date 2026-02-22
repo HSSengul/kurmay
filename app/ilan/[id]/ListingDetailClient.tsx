@@ -21,6 +21,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { devError, devWarn, getFriendlyErrorMessage } from "@/lib/logger";
 import { buildListingPath, extractListingId } from "@/lib/listingUrl";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 /* ================= TYPES ================= */
 
@@ -41,6 +42,7 @@ type Listing = {
   schemaVersion?: number | null;
   attributes?: Record<string, any>;
   status?: "active" | "draft" | "sold";
+  adminStatus?: "active" | "review" | "hidden" | "removed";
 
   // legacy/opsiyonel
   productionYear?: string | null;
@@ -510,9 +512,11 @@ export default function ListingDetailClient({
                 if (cancelled) return;
                 const docs = fallback
                   ? sellerSnap.docs.filter(
-                      (d) => String((d.data() as any)?.status || "") === "active"
+                      (d) => isPublicListingVisible(d.data() as Listing)
                     )
-                  : sellerSnap.docs;
+                  : sellerSnap.docs.filter((d) =>
+                      isPublicListingVisible(d.data() as Listing)
+                    );
                 const items = docs
                   .filter((d) => d.id !== currentListingId)
                   .map(toPreview)
@@ -556,9 +560,11 @@ export default function ListingDetailClient({
                 if (cancelled) return;
                 const docs = fallback
                   ? similarSnap.docs.filter(
-                      (d) => String((d.data() as any)?.status || "") === "active"
+                      (d) => isPublicListingVisible(d.data() as Listing)
                     )
-                  : similarSnap.docs;
+                  : similarSnap.docs.filter((d) =>
+                      isPublicListingVisible(d.data() as Listing)
+                    );
                 const items = docs
                   .filter((d) => d.id !== currentListingId)
                   .map(toPreview)

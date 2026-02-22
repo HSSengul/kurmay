@@ -8,6 +8,7 @@ import {
 } from "@/lib/firestoreRest";
 import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
 import { serializeJsonLd } from "@/lib/serializeJsonLd";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
@@ -40,6 +41,8 @@ type ListingDoc = {
   imageUrls?: string[];
   createdAt?: any;
 };
+
+type SearchParamsShape = Record<string, string | string[] | undefined>;
 
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
@@ -138,14 +141,17 @@ export async function generateMetadata({
     value: match.id,
     limit: 6,
   });
+  const visibleMetaListings = listingsForMeta.filter((item) =>
+    isPublicListingVisible(item as any)
+  );
 
-  const extraMeta = buildListingMeta(listingsForMeta);
+  const extraMeta = buildListingMeta(visibleMetaListings);
   const description = clampMeta(
     `${match.name} kategorisindeki ilanları keşfet. Uygun fiyatlar ve hızlı iletişim. ${extraMeta}`.trim()
   );
   const fallbackOg = `${siteUrl}/${encodeURIComponent(canonicalSlug)}/opengraph-image`;
   const ogImage =
-    listingsForMeta.find((l) => Array.isArray(l.imageUrls) && l.imageUrls[0])
+    visibleMetaListings.find((l) => Array.isArray(l.imageUrls) && l.imageUrls[0])
       ?.imageUrls?.[0] || fallbackOg;
 
   return {
@@ -176,10 +182,13 @@ export async function generateMetadata({
 
 export default async function CategoryPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ category: string }> | { category: string };
+  searchParams?: Promise<SearchParamsShape> | SearchParamsShape;
 }) {
   const resolved = await params;
+  const resolvedSearch = searchParams ? await searchParams : {};
   const categorySlug = resolved.category ? decodeURIComponent(resolved.category) : "";
   const categoriesAll = await listCollection<CategoryDoc>("categories");
   const categories = categoriesAll.filter(
@@ -192,8 +201,8 @@ export default async function CategoryPage({
   if (!match) notFound();
 
   const canonicalSlug = slugifyTR(match.slug || match.nameLower || match.name);
-  const currentSlug = slugifyTR(categorySlug);
-  if (canonicalSlug && currentSlug && canonicalSlug !== currentSlug) {
+  const currentSlugRaw = (categorySlug || "").trim();
+  if (canonicalSlug && currentSlugRaw && canonicalSlug !== currentSlugRaw) {
     permanentRedirect(`/${canonicalSlug}`);
   }
 
@@ -215,6 +224,45 @@ export default async function CategoryPage({
       (a.nameLower || a.name).localeCompare(b.nameLower || b.name, "tr")
     );
 
+  const legacyRawValue = resolvedSearch?.subCategoryId;
+  const legacySubCategory = decodeURIComponent(
+    String(Array.isArray(legacyRawValue) ? legacyRawValue[0] || "" : legacyRawValue || "")
+  ).trim();
+
+  if (legacySubCategory) {
+    const legacyNorm = normTRAscii(legacySubCategory);
+    const legacySlug = slugifyTR(legacySubCategory);
+    const matchedSub = subCategories.find((s) => {
+      const normKeys = [s.id, s.nameLower, s.name].map((x) =>
+        normTRAscii(String(x || ""))
+      );
+      const slugKeys = [s.id, s.nameLower, s.name].map((x) =>
+        slugifyTR(String(x || ""))
+      );
+      return normKeys.includes(legacyNorm) || slugKeys.includes(legacySlug);
+    });
+
+    const nextParams = new URLSearchParams();
+    Object.entries(resolvedSearch || {}).forEach(([key, value]) => {
+      if (key === "subCategoryId" || value == null) return;
+      const values = Array.isArray(value) ? value : [value];
+      values.forEach((v) => {
+        const t = String(v || "").trim();
+        if (t) nextParams.append(key, t);
+      });
+    });
+    const qs = nextParams.toString();
+
+    if (matchedSub) {
+      const targetSubSlug = slugifyTR(matchedSub.nameLower || matchedSub.name || "");
+      const target = `/${encodeURIComponent(canonicalSlug)}/${encodeURIComponent(targetSubSlug)}`;
+      permanentRedirect(qs ? `${target}?${qs}` : target);
+    }
+
+    const target = `/${encodeURIComponent(canonicalSlug)}`;
+    permanentRedirect(qs ? `${target}?${qs}` : target);
+  }
+
   const listings = await runActiveQueryByField<ListingDoc>({
     collectionId: "listings",
     fieldPath: "categoryId",
@@ -223,6 +271,9 @@ export default async function CategoryPage({
     direction: "DESCENDING",
     limit: LISTINGS_BATCH,
   });
+  const visibleListings = listings.filter((item) =>
+    isPublicListingVisible(item as any)
+  );
 
   const breadcrumbJson = {
     "@context": "https://schema.org",
@@ -243,7 +294,7 @@ export default async function CategoryPage({
     ],
   };
 
-  const itemListItems = listings.filter((l) => !!l.id).slice(0, 10);
+  const itemListItems = visibleListings.filter((l) => !!l.id).slice(0, 10);
   const itemListJson = {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -266,8 +317,8 @@ export default async function CategoryPage({
       <CategoryClient
         initialCategory={category}
         initialSubCategories={subCategories}
-        initialListings={listings}
-        initialHasMore={listings.length === LISTINGS_BATCH}
+        initialListings={visibleListings}
+        initialHasMore={visibleListings.length === LISTINGS_BATCH}
       />
     </>
   );

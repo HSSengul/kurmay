@@ -59,12 +59,18 @@ function hasValidLocation(loc) {
   );
 }
 
+function roundCoord(value, precision = 4) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  const factor = 10 ** precision;
+  return Math.round(n * factor) / factor;
+}
+
 function normalizeLocation(loc, fallbackAddress) {
   if (!hasValidLocation(loc)) return null;
   return {
-    lat: Number(loc.lat),
-    lng: Number(loc.lng),
-    address: normalizeSpaces(loc.address || fallbackAddress || ""),
+    lat: roundCoord(Number(loc.lat), 4),
+    lng: roundCoord(Number(loc.lng), 4),
   };
 }
 
@@ -234,10 +240,7 @@ async function main() {
       }
 
       const owner = await getOwnerMeta(ownerId);
-      const existingLocation = normalizeLocation(
-        data.location,
-        data.locationAddress || owner.address
-      );
+      const existingLocation = normalizeLocation(data.location);
 
       let location = existingLocation || owner.location || null;
       const fallbackAddress = normalizeSpaces(
@@ -264,32 +267,31 @@ async function main() {
         }
       }
 
-      const locationAddress = normalizeSpaces(
-        (location && location.address) ||
-          data.locationAddress ||
+      const locationLabel = normalizeSpaces(
+        data.locationAddress ||
           data.location?.address ||
           owner.address ||
+          (location && location.address) ||
           ""
       );
 
-      if (!locationAddress && !location) {
+      if (!locationLabel && !location) {
         skippedNoAddress += 1;
         continue;
       }
 
-      const parsed = extractCityDistrict(locationAddress);
+      const parsed = extractCityDistrict(locationLabel);
       const payload = {};
 
-      if ((force || !hasValidLocation(data.location)) && location) {
+      if ((force || !hasValidLocation(data.location) || data.location?.address) && location) {
         payload.location = {
-          lat: Number(location.lat),
-          lng: Number(location.lng),
-          address: locationAddress,
+          lat: roundCoord(Number(location.lat), 4),
+          lng: roundCoord(Number(location.lng), 4),
         };
       }
 
-      if ((force || !normalizeSpaces(data.locationAddress)) && locationAddress) {
-        payload.locationAddress = locationAddress;
+      if (Object.prototype.hasOwnProperty.call(data, "locationAddress")) {
+        payload.locationAddress = admin.firestore.FieldValue.delete();
       }
 
       if ((force || !normalizeSpaces(data.locationCity)) && parsed.city) {

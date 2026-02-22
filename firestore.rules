@@ -86,6 +86,15 @@ service cloud.firestore {
         && (!("address" in m) || optionalString(m.address, 200));
     }
 
+    function isValidListingLocation(m) {
+      return (m is map)
+        && (m.lat is number)
+        && (m.lng is number)
+        && (m.lat >= -90 && m.lat <= 90)
+        && (m.lng >= -180 && m.lng <= 180)
+        && (!("address" in m) || m.address == "");
+    }
+
     // ✅ NEW: public profile PII guard (only store if explicitly public)
     function isPublicPhoneAllowed(data) {
       return !("phone" in data)
@@ -366,7 +375,9 @@ service cloud.firestore {
 
     match /listings/{id} {
 
-      allow read: if true;
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.ownerId == request.auth.uid)
+        || (resource.data.status == "active");
 
       // ➕ İlan oluşturma: sadece onboarding tamamlayan kullanıcı
       allow create: if signedIn()
@@ -381,6 +392,20 @@ service cloud.firestore {
         && nonEmptyString(request.resource.data.subCategoryId, 128)
         && nonEmptyString(request.resource.data.categoryName, 120)
         && nonEmptyString(request.resource.data.subCategoryName, 120)
+        && request.resource.data.status == "active"
+        && (
+          !("adminStatus" in request.resource.data)
+          || request.resource.data.adminStatus == "active"
+        )
+        && (
+          !("locationAddress" in request.resource.data)
+          || request.resource.data.locationAddress == null
+        )
+        && (
+          !("location" in request.resource.data)
+          || request.resource.data.location == null
+          || isValidListingLocation(request.resource.data.location)
+        )
         && validImages(request.resource.data.imageUrls);
 
       // ✏️ İlan güncelleme: admin veya sahibinin kendisi
@@ -389,6 +414,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).changedKeys()
           .hasOnly([
             "adminStatus",
+            "status",
             "adminNote",
             "adminReviewedAt",
             "adminReviewedBy"
@@ -403,6 +429,11 @@ service cloud.firestore {
         && request.resource.data.categoryId == resource.data.categoryId
         && request.resource.data.subCategoryId == resource.data.subCategoryId
         && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.location == resource.data.location
+        && request.resource.data.locationCity == resource.data.locationCity
+        && request.resource.data.locationDistrict == resource.data.locationDistrict
+        && request.resource.data.locationAddress == resource.data.locationAddress
         && !request.resource.data.diff(resource.data).changedKeys()
           .hasAny([
             "adminStatus",

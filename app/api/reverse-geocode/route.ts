@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { checkRateLimit, getRequestIp } from "@/lib/apiRateLimit";
+import {
+  checkRateLimit,
+  getRequestFingerprint,
+} from "@/lib/apiRateLimit";
 
 export const runtime = "nodejs";
 
@@ -7,9 +10,9 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 60;
 
 export async function GET(request: Request) {
-  const ip = getRequestIp(request);
-  const rate = checkRateLimit(
-    `reverse-geocode:${ip}`,
+  const fingerprint = getRequestFingerprint(request);
+  const rate = await checkRateLimit(
+    `reverse-geocode:${fingerprint}`,
     RATE_LIMIT_MAX,
     RATE_LIMIT_WINDOW_MS
   );
@@ -82,6 +85,11 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       label,
+    }, {
+      headers: {
+        "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+        "X-RateLimit-Remaining": String(rate.remaining),
+      },
     });
   } catch {
     return NextResponse.json(

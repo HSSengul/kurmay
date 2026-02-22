@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { buildListingPath } from "@/lib/listingUrl";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 type ListingLocation = {
   address?: string;
@@ -28,6 +29,8 @@ type ListingSummary = {
   id: string;
   title: string;
   price: number;
+  status?: string;
+  adminStatus?: string;
   imageUrls?: string[];
   categoryName?: string;
   subCategoryName?: string;
@@ -220,7 +223,8 @@ export default function MapClient() {
         ]);
         if (cancelled) return;
 
-        const listings: ListingSummary[] = listingDocs.map((d) => {
+        const listings: ListingSummary[] = listingDocs
+          .map((d) => {
           const data = d.data() as any;
           const loc = data?.location;
           const location =
@@ -241,9 +245,12 @@ export default function MapClient() {
             subCategoryName: data?.subCategoryName,
             ownerId: data?.ownerId,
             createdAt: data?.createdAt,
+            status: data?.status,
+            adminStatus: data?.adminStatus,
             location,
           };
-        });
+          })
+          .filter((item) => isPublicListingVisible(item));
 
         const counts = new Map<string, number>();
         listings.forEach((l) => {

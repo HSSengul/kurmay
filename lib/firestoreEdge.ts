@@ -91,7 +91,7 @@ export async function fetchDocumentEdge<T = Record<string, any>>(
     const json = await fetchJson(url);
     return decodeDoc(json) as T & { id: string };
   } catch (err: any) {
-    if (err?.status === 404) return null;
+    if (err?.status === 404 || err?.status === 403) return null;
     throw err;
   }
 }

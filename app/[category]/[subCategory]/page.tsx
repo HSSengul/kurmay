@@ -9,6 +9,7 @@ import {
 } from "@/lib/firestoreRest";
 import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
 import { serializeJsonLd } from "@/lib/serializeJsonLd";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
@@ -188,8 +189,11 @@ export async function generateMetadata({
   const title = `${matchSub.name} | ${matchCategory.name}`;
 
   const listingsForMeta = await getListingsForSubMeta(matchSub.id);
+  const visibleMetaListings = listingsForMeta.filter((item) =>
+    isPublicListingVisible(item as any)
+  );
 
-  const extraMeta = buildListingMeta(listingsForMeta);
+  const extraMeta = buildListingMeta(visibleMetaListings);
   const description = clampMeta(
     `${matchCategory.name} / ${matchSub.name} ilanları. Uygun fiyatlar, hızlı iletişim, güvenli alışveriş. ${extraMeta}`.trim()
   );
@@ -197,7 +201,7 @@ export async function generateMetadata({
     canonicalCategorySlug
   )}/${encodeURIComponent(canonicalSubSlug)}/opengraph-image`;
   const ogImage =
-    listingsForMeta.find((l) => Array.isArray(l.imageUrls) && l.imageUrls[0])
+    visibleMetaListings.find((l) => Array.isArray(l.imageUrls) && l.imageUrls[0])
       ?.imageUrls?.[0] || fallbackOg;
 
   return {
@@ -277,13 +281,13 @@ export default async function SubCategoryPage({
   const canonicalSubSlug = slugifyTR(
     matchSub.slug || matchSub.nameLower || matchSub.name
   );
-  const currentCategorySlug = slugifyTR(categorySlug);
-  const currentSubSlug = slugifyTR(subCategorySlug);
+  const currentCategorySlugRaw = (categorySlug || "").trim();
+  const currentSubSlugRaw = (subCategorySlug || "").trim();
   if (
     canonicalCategorySlug &&
     canonicalSubSlug &&
-    (canonicalCategorySlug !== currentCategorySlug ||
-      canonicalSubSlug !== currentSubSlug)
+    (canonicalCategorySlug !== currentCategorySlugRaw ||
+      canonicalSubSlug !== currentSubSlugRaw)
   ) {
     permanentRedirect(`/${canonicalCategorySlug}/${canonicalSubSlug}`);
   }
@@ -321,6 +325,9 @@ export default async function SubCategoryPage({
     direction: "DESCENDING",
     limit: LISTINGS_BATCH,
   });
+  const visibleListings = listings.filter((item) =>
+    isPublicListingVisible(item as any)
+  );
 
   const breadcrumbJson = {
     "@context": "https://schema.org",
@@ -349,7 +356,7 @@ export default async function SubCategoryPage({
     ],
   };
 
-  const itemListItems = listings.filter((l) => !!l.id).slice(0, 10);
+  const itemListItems = visibleListings.filter((l) => !!l.id).slice(0, 10);
   const itemListJson = {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -373,8 +380,8 @@ export default async function SubCategoryPage({
         initialCategory={category}
         initialSubCategory={subCategory}
         initialSubCategories={subCategories}
-        initialListings={listings}
-        initialHasMore={listings.length === LISTINGS_BATCH}
+        initialListings={visibleListings}
+        initialHasMore={visibleListings.length === LISTINGS_BATCH}
       />
     </>
   );

@@ -6,7 +6,8 @@ import Image from "next/image";
 import { Sora } from "next/font/google";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
-import { buildListingPath } from "@/lib/listingUrl";
+import { buildListingPath, slugifyTR } from "@/lib/listingUrl";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 import { devError, devWarn, getFriendlyErrorMessage } from "@/lib/logger";
 
 /* =======================
@@ -29,6 +30,11 @@ type Listing = {
   ownerId?: string;
   imageUrls?: string[];
   createdAt?: any;
+  status?: string;
+  adminStatus?: string;
+  isTradable?: boolean;
+  shippingAvailable?: boolean;
+  isShippable?: boolean;
 
   movementType?: string;
   attributes?: Record<string, any>;
@@ -60,6 +66,7 @@ type HomeCategoryInput = {
 type HomeClientProps = {
   initialCategories?: HomeCategoryInput[];
   initialListings?: Listing[];
+  initialHasMore?: boolean;
 };
 
 /* =======================
@@ -99,21 +106,62 @@ const firstImage = (urls?: string[]) => {
   return urls[0] || "";
 };
 
-
-const toSlugTR = (s: string) => {
-  return s
-    .trim()
-    .toLowerCase()
-    .replace(/ı/g, "i")
-    .replace(/İ/g, "i")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ş/g, "s")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
+const toBoolLike = (value: unknown): boolean | undefined => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  if (typeof value === "string") {
+    const v = value.trim().toLocaleLowerCase("tr-TR");
+    if (!v) return undefined;
+    if (
+      ["true", "1", "yes", "evet", "var", "uygun", "acik", "açık"].includes(v)
+    ) {
+      return true;
+    }
+    if (
+      ["false", "0", "no", "hayir", "hayır", "yok", "uygun degil", "uygun değil", "kapali", "kapalı"].includes(v)
+    ) {
+      return false;
+    }
+  }
+  return undefined;
 };
+
+const getTradableValue = (listing: Listing) => {
+  const root = toBoolLike((listing as any).isTradable);
+  if (root !== undefined) return root;
+
+  const attrs = (listing as any).attributes || {};
+  const fromAttrs =
+    toBoolLike(attrs.isTradable) ??
+    toBoolLike(attrs.tradable) ??
+    toBoolLike(attrs.isTradableBool);
+  if (fromAttrs !== undefined) return fromAttrs;
+
+  return undefined;
+};
+
+const getShippingValue = (listing: Listing) => {
+  const root =
+    toBoolLike((listing as any).shippingAvailable) ??
+    toBoolLike((listing as any).isShippable);
+  if (root !== undefined) return root;
+
+  const attrs = (listing as any).attributes || {};
+  const fromAttrs =
+    toBoolLike(attrs.shippingAvailable) ??
+    toBoolLike(attrs.isShippable) ??
+    toBoolLike(attrs.kargoUygun) ??
+    toBoolLike(attrs.shipping);
+  if (fromAttrs !== undefined) return fromAttrs;
+
+  return undefined;
+};
+
+
+const toSlugTR = (s: string) => slugifyTR(s || "");
 
 const timeAgoTR = (createdAt: any) => {
   try {
@@ -215,14 +263,21 @@ const sora = Sora({
    PAGE
 ======================= */
 
-function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientProps) {
+function HomeInner({
+  initialCategories = [],
+  initialListings = [],
+  initialHasMore,
+}: HomeClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const normalizedInitialCategories = normalizeCategories(initialCategories);
+  const visibleInitialListings = initialListings.filter((item) =>
+    isPublicListingVisible(item)
+  );
   const hasInitial =
-    normalizedInitialCategories.length > 0 || initialListings.length > 0;
+    normalizedInitialCategories.length > 0 || visibleInitialListings.length > 0;
   const [loading, setLoading] = useState(!hasInitial);
   const [fatalError, setFatalError] = useState<string>("");
 
@@ -232,11 +287,15 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
 
   // listings pagination
   const [recentListings, setRecentListings] =
-    useState<Listing[]>(initialListings);
+    useState<Listing[]>(visibleInitialListings);
   const [lastListingDoc, setLastListingDoc] =
     useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [hasMoreListings, setHasMoreListings] = useState(
-    initialListings.length ? initialListings.length === LISTINGS_PAGE_SIZE : true
+    typeof initialHasMore === "boolean"
+      ? initialHasMore
+      : visibleInitialListings.length
+      ? visibleInitialListings.length === LISTINGS_PAGE_SIZE
+      : true
   );
   const [loadingMoreListings, setLoadingMoreListings] = useState(false);
 
@@ -268,6 +327,8 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
 
   const [priceMin, setPriceMin] = useState<string>("");
   const [priceMax, setPriceMax] = useState<string>("");
+  const [tradableFilter, setTradableFilter] = useState<"" | "yes" | "no">("");
+  const [shippingFilter, setShippingFilter] = useState<"" | "yes" | "no">("");
 
   const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]>("newest");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -279,8 +340,22 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
     setSubCategoryFilter("");
     setPriceMin("");
     setPriceMax("");
+    setTradableFilter("");
+    setShippingFilter("");
     setSortBy("newest");
+    setViewMode("grid");
     setDisplayLimit(24);
+  };
+
+  const applyPreset = (preset: "tradableYes" | "shippingYes") => {
+    if (preset === "tradableYes") {
+      setTradableFilter((prev) => (prev === "yes" ? "" : "yes"));
+      return;
+    }
+    if (preset === "shippingYes") {
+      setShippingFilter((prev) => (prev === "yes" ? "" : "yes"));
+      return;
+    }
   };
 
   const activeFiltersCount = useMemo(() => {
@@ -290,9 +365,20 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
     if (subCategoryFilter) c++;
     if (priceMin.trim()) c++;
     if (priceMax.trim()) c++;
+    if (tradableFilter) c++;
+    if (shippingFilter) c++;
     if (sortBy !== "newest") c++;
     return c;
-  }, [searchText, categoryFilter, subCategoryFilter, priceMin, priceMax, sortBy]);
+  }, [
+    searchText,
+    categoryFilter,
+    subCategoryFilter,
+    priceMin,
+    priceMax,
+    tradableFilter,
+    shippingFilter,
+    sortBy,
+  ]);
 
   useEffect(() => {
     if (activeFiltersCount > 0) setFiltersOpen(true);
@@ -315,11 +401,27 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
     const q = cleanParam(sp.get("q") || "");
     setSearchText(q);
 
-    setCategoryFilter(cleanParam(sp.get("cat") || ""));
-    setSubCategoryFilter(cleanParam(sp.get("sub") || ""));
+    setCategoryFilter(
+      toSlugTR(cleanParam(sp.get("category") || sp.get("cat") || ""))
+    );
+    setSubCategoryFilter(
+      toSlugTR(cleanParam(sp.get("subCategory") || sp.get("sub") || ""))
+    );
 
     setPriceMin(cleanParam(sp.get("pmin") || "").replace(/[^\d]/g, ""));
     setPriceMax(cleanParam(sp.get("pmax") || "").replace(/[^\d]/g, ""));
+    setTradableFilter(
+      pickEnum(sp.get("tradable"), ["", "yes", "no"] as const, "") as
+        | ""
+        | "yes"
+        | "no"
+    );
+    setShippingFilter(
+      pickEnum(sp.get("shipping"), ["", "yes", "no"] as const, "") as
+        | ""
+        | "yes"
+        | "no"
+    );
 
     setSortBy(pickEnum(sp.get("sort"), SORT_OPTIONS, "newest"));
 
@@ -346,11 +448,13 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
     const sp = new URLSearchParams();
 
     if (searchText.trim()) sp.set("q", searchText.trim());
-    if (categoryFilter) sp.set("cat", categoryFilter);
-    if (subCategoryFilter) sp.set("sub", subCategoryFilter);
+    if (categoryFilter) sp.set("category", categoryFilter);
+    if (subCategoryFilter) sp.set("subCategory", subCategoryFilter);
 
     if (priceMin.trim()) sp.set("pmin", priceMin.trim());
     if (priceMax.trim()) sp.set("pmax", priceMax.trim());
+    if (tradableFilter) sp.set("tradable", tradableFilter);
+    if (shippingFilter) sp.set("shipping", shippingFilter);
 
     if (sortBy !== "newest") sp.set("sort", sortBy);
 
@@ -372,6 +476,8 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
     subCategoryFilter,
     priceMin,
     priceMax,
+    tradableFilter,
+    shippingFilter,
     sortBy,
     displayLimit,
   ]);
@@ -415,11 +521,12 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
           id: d.id,
           ...(d.data() as any),
         })) as Listing[];
+        const visibleRawL = rawL.filter((item) => isPublicListingVisible(item));
 
         // DEDUPE (duplicate key fix)
         const seen = new Set<string>();
         const l: Listing[] = [];
-        for (const item of rawL) {
+        for (const item of visibleRawL) {
           if (!item?.id) continue;
           if (seen.has(item.id)) continue;
           seen.add(item.id);
@@ -512,6 +619,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
         id: d.id,
         ...(d.data() as any),
       })) as Listing[];
+      const visibleRaw = raw.filter((item) => isPublicListingVisible(item));
 
       const newLast =
         snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
@@ -523,7 +631,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
       setRecentListings((prev) => {
         const seen = new Set(prev.map((x) => x.id));
         const merged = [...prev];
-        for (const it of raw) {
+        for (const it of visibleRaw) {
           if (!it?.id) continue;
           if (seen.has(it.id)) continue;
           seen.add(it.id);
@@ -564,21 +672,89 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }, [categories]);
 
+  const activeMainBySlug = useMemo(() => {
+    const map = new Map<string, Category>();
+    for (const cat of activeMainCategories) {
+      const slug = toSlugTR(cat.nameLower || cat.name);
+      if (slug) map.set(slug, cat);
+    }
+    return map;
+  }, [activeMainCategories]);
+
+  const enabledSubBySlug = useMemo(() => {
+    const map = new Map<string, Category>();
+    for (const sub of allSubCategories) {
+      if (sub.enabled === false) continue;
+      const slug = toSlugTR(sub.nameLower || sub.name);
+      if (slug) map.set(slug, sub);
+    }
+    return map;
+  }, [allSubCategories]);
+
+  const selectedCategoryId = useMemo(() => {
+    if (!categoryFilter) return "";
+    return activeMainBySlug.get(categoryFilter)?.id || "";
+  }, [activeMainBySlug, categoryFilter]);
+
+  const selectedSubCategoryId = useMemo(() => {
+    if (!subCategoryFilter) return "";
+    return enabledSubBySlug.get(subCategoryFilter)?.id || "";
+  }, [enabledSubBySlug, subCategoryFilter]);
+
   const filteredSubCategories = useMemo(() => {
     const base = allSubCategories.filter((c) => c.enabled !== false);
-    if (!categoryFilter) return base;
-    return base.filter((c) => c.parentId === categoryFilter);
-  }, [allSubCategories, categoryFilter]);
+    if (!selectedCategoryId) return base;
+    return base.filter((c) => c.parentId === selectedCategoryId);
+  }, [allSubCategories, selectedCategoryId]);
 
   useEffect(() => {
-    if (!subCategoryFilter) return;
-    const valid = allSubCategories.some(
-      (c) =>
-        c.id === subCategoryFilter &&
-        (categoryFilter ? c.parentId === categoryFilter : true)
-    );
-    if (!valid) setSubCategoryFilter("");
-  }, [allSubCategories, categoryFilter, subCategoryFilter]);
+    if (!categories.length) return;
+
+    let nextCategory = categoryFilter;
+    let nextSub = subCategoryFilter;
+
+    if (nextCategory && !activeMainBySlug.has(nextCategory)) {
+      const legacyCategory = categoryById.get(nextCategory);
+      if (legacyCategory && !legacyCategory.parentId && legacyCategory.enabled !== false) {
+        nextCategory = toSlugTR(legacyCategory.nameLower || legacyCategory.name);
+      } else {
+        nextCategory = "";
+      }
+    }
+
+    if (nextSub && !enabledSubBySlug.has(nextSub)) {
+      const legacySub = categoryById.get(nextSub);
+      if (legacySub && legacySub.parentId && legacySub.enabled !== false) {
+        nextSub = toSlugTR(legacySub.nameLower || legacySub.name);
+      } else {
+        nextSub = "";
+      }
+    }
+
+    if (nextSub) {
+      const subDoc = enabledSubBySlug.get(nextSub);
+      const parentDoc = subDoc?.parentId ? categoryById.get(subDoc.parentId) : null;
+      const parentSlug = parentDoc ? toSlugTR(parentDoc.nameLower || parentDoc.name) : "";
+
+      if (!parentSlug) {
+        nextSub = "";
+      } else if (!nextCategory) {
+        nextCategory = parentSlug;
+      } else if (nextCategory !== parentSlug) {
+        nextSub = "";
+      }
+    }
+
+    if (nextCategory !== categoryFilter) setCategoryFilter(nextCategory);
+    if (nextSub !== subCategoryFilter) setSubCategoryFilter(nextSub);
+  }, [
+    categories.length,
+    categoryFilter,
+    subCategoryFilter,
+    activeMainBySlug,
+    enabledSubBySlug,
+    categoryById,
+  ]);
 
   /* =======================
      FILTERING (client-side)
@@ -589,20 +765,6 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
 
     const min = priceMin.trim() ? Number(priceMin.trim()) : null;
     const max = priceMax.trim() ? Number(priceMax.trim()) : null;
-
-    const selectedCategory = categoryFilter
-      ? categoryById.get(categoryFilter)
-      : null;
-    const selectedCategorySlug = selectedCategory
-      ? selectedCategory.nameLower || toSlugTR(selectedCategory.name)
-      : "";
-
-    const selectedSubCategory = subCategoryFilter
-      ? categoryById.get(subCategoryFilter)
-      : null;
-    const selectedSubCategorySlug = selectedSubCategory
-      ? selectedSubCategory.nameLower || toSlugTR(selectedSubCategory.name)
-      : "";
 
     let arr = recentListings.slice();
 
@@ -617,18 +779,17 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
       }
 
       if (categoryFilter) {
-        const matchId = (l.categoryId || "") === categoryFilter;
+        const matchId = !!selectedCategoryId && (l.categoryId || "") === selectedCategoryId;
         const matchName =
-          !!selectedCategorySlug &&
-          toSlugTR(l.categoryName || "") === selectedCategorySlug;
+          toSlugTR(l.categoryName || "") === categoryFilter;
         if (!matchId && !matchName) return false;
       }
 
       if (subCategoryFilter) {
-        const matchId = (l.subCategoryId || "") === subCategoryFilter;
+        const matchId =
+          !!selectedSubCategoryId && (l.subCategoryId || "") === selectedSubCategoryId;
         const matchName =
-          !!selectedSubCategorySlug &&
-          toSlugTR(l.subCategoryName || "") === selectedSubCategorySlug;
+          toSlugTR(l.subCategoryName || "") === subCategoryFilter;
         if (!matchId && !matchName) return false;
       }
 
@@ -639,6 +800,18 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
       }
       if (max !== null && Number.isFinite(max)) {
         if (!Number.isFinite(p) || p > max) return false;
+      }
+
+      if (tradableFilter) {
+        const tradable = getTradableValue(l);
+        if (tradableFilter === "yes" && tradable !== true) return false;
+        if (tradableFilter === "no" && tradable !== false) return false;
+      }
+
+      if (shippingFilter) {
+        const shipping = getShippingValue(l);
+        if (shippingFilter === "yes" && shipping !== true) return false;
+        if (shippingFilter === "no" && shipping !== false) return false;
       }
 
       return true;
@@ -665,8 +838,11 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
     subCategoryFilter,
     priceMin,
     priceMax,
+    tradableFilter,
+    shippingFilter,
     sortBy,
-    categoryById,
+    selectedCategoryId,
+    selectedSubCategoryId,
   ]);
 
   const gridListings = useMemo(() => {
@@ -846,34 +1022,189 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
             </div>
           )}
 
-          <div className="mt-4 border border-slate-200/70 rounded-2xl bg-white/80 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-slate-800">Filtreler</div>
-              <button
-                type="button"
-                onClick={() => setFiltersOpen((v) => !v)}
-                className="md:hidden inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-white"
-              >
-                {activeFiltersCount > 0 ? (
-                  <span className="inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-emerald-600 text-white text-[10px]">
-                    {activeFiltersCount}
-                  </span>
-                ) : null}
-                <span className="text-sm leading-none">
-                  {filtersOpen ? "−" : "+"}
-                </span>
-              </button>
+          <div className="mt-4 border border-slate-200/70 rounded-2xl bg-white/80 p-3 sm:p-4">
+            <div className="md:hidden grid grid-cols-[1fr_auto] items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar">
+                <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs text-slate-600 shrink-0 whitespace-nowrap">
+                  <span>Gösteriliyor</span>
+                  <span className="font-semibold text-slate-900">{gridListings.length}</span>
+                  <span className="text-slate-400">/</span>
+                  <span>{totalFound}</span>
+                </div>
+                {activeFiltersCount > 0 && (
+                  <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs text-emerald-700 shrink-0 whitespace-nowrap">
+                    Filtre: <span className="font-semibold">{activeFiltersCount}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 justify-self-end">
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen((v) => !v)}
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shrink-0"
+                >
+                  Filtreler
+                  <svg
+                    className={`w-3.5 h-3.5 transition ${filtersOpen ? "rotate-180" : ""}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+
+                <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("grid")}
+                    className={`px-3 py-2 text-sm ${
+                      viewMode === "grid"
+                        ? "bg-emerald-50 text-emerald-700 font-semibold"
+                        : "hover:bg-slate-50"
+                    }`}
+                  >
+                    Grid
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("list")}
+                    className={`px-3 py-2 text-sm ${
+                      viewMode === "list"
+                        ? "bg-emerald-50 text-emerald-700 font-semibold"
+                        : "hover:bg-slate-50"
+                    }`}
+                  >
+                    Liste
+                  </button>
+                </div>
+              </div>
             </div>
 
-            <div className="mt-3 hidden md:flex md:flex-wrap md:items-center gap-2">
-              <input
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                placeholder="Ara..."
-                aria-label="Arama"
-                className="h-9 sm:h-10 w-full sm:w-[160px] rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
-              />
+            <div className="hidden md:grid md:grid-cols-[auto_minmax(140px,1fr)_minmax(160px,1fr)_auto_auto_auto] md:items-center md:gap-2">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs text-slate-600 shrink-0">
+                  <span>Gösteriliyor</span>
+                  <span className="font-semibold text-slate-900">{gridListings.length}</span>
+                  <span className="text-slate-400">/</span>
+                  <span>{totalFound}</span>
+                </div>
+                {activeFiltersCount > 0 && (
+                  <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs text-emerald-700 shrink-0">
+                    Filtre: <span className="font-semibold">{activeFiltersCount}</span>
+                  </div>
+                )}
+              </div>
 
+              <div className="hidden md:block">
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setCategoryFilter(next);
+                    if (subCategoryFilter) setSubCategoryFilter("");
+                  }}
+                  aria-label="Kategori"
+                  className="h-9 w-full rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                >
+                  <option value="">Kategori</option>
+                  {activeMainCategories.map((cat) => (
+                    <option key={cat.id} value={toSlugTR(cat.nameLower || cat.name)}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="hidden md:block">
+                <select
+                  value={subCategoryFilter}
+                  onChange={(e) => setSubCategoryFilter(e.target.value)}
+                  aria-label="Alt kategori"
+                  disabled={filteredSubCategories.length === 0}
+                  className="h-9 w-full rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)] disabled:opacity-60"
+                >
+                  <option value="">Alt kategori</option>
+                  {filteredSubCategories.map((sub) => (
+                    <option key={sub.id} value={toSlugTR(sub.nameLower || sub.name)}>
+                      {sub.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => applyPreset("tradableYes")}
+                className={`hidden md:inline-flex items-center justify-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                  tradableFilter === "yes"
+                    ? "border-emerald-700 bg-emerald-700 text-white"
+                    : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                }`}
+              >
+                Takasa açık
+              </button>
+
+              <button
+                type="button"
+                onClick={() => applyPreset("shippingYes")}
+                className={`hidden md:inline-flex items-center justify-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                  shippingFilter === "yes"
+                    ? "border-sky-700 bg-sky-700 text-white"
+                    : "border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                }`}
+              >
+                Kargoya uygun
+              </button>
+
+              <div className="ml-auto flex items-center gap-2 md:ml-0 md:justify-self-end">
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen((v) => !v)}
+                  className="md:hidden inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shrink-0"
+                >
+                  Filtreler
+                  <svg
+                    className={`w-3.5 h-3.5 transition ${filtersOpen ? "rotate-180" : ""}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+
+                <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("grid")}
+                    className={`px-3 py-2 text-sm ${
+                      viewMode === "grid"
+                        ? "bg-emerald-50 text-emerald-700 font-semibold"
+                        : "hover:bg-slate-50"
+                    }`}
+                  >
+                    Grid
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("list")}
+                    className={`px-3 py-2 text-sm ${
+                      viewMode === "list"
+                        ? "bg-emerald-50 text-emerald-700 font-semibold"
+                        : "hover:bg-slate-50"
+                    }`}
+                  >
+                    Liste
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-2 grid grid-cols-2 gap-2 md:hidden">
               <select
                 value={categoryFilter}
                 onChange={(e) => {
@@ -882,11 +1213,11 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                   if (subCategoryFilter) setSubCategoryFilter("");
                 }}
                 aria-label="Kategori"
-                className="h-9 sm:h-10 w-full sm:w-[140px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                className="h-9 sm:h-10 rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
               >
                 <option value="">Kategori</option>
                 {activeMainCategories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
+                  <option key={cat.id} value={toSlugTR(cat.nameLower || cat.name)}>
                     {cat.name}
                   </option>
                 ))}
@@ -897,21 +1228,56 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                 onChange={(e) => setSubCategoryFilter(e.target.value)}
                 aria-label="Alt kategori"
                 disabled={filteredSubCategories.length === 0}
-                className="h-9 sm:h-10 w-full sm:w-[170px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)] disabled:opacity-60"
+                className="h-9 sm:h-10 rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)] disabled:opacity-60"
               >
                 <option value="">Alt kategori</option>
                 {filteredSubCategories.map((sub) => (
-                  <option key={sub.id} value={sub.id}>
+                  <option key={sub.id} value={toSlugTR(sub.nameLower || sub.name)}>
                     {sub.name}
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="mt-2 grid grid-cols-2 gap-2 md:hidden">
+              <button
+                type="button"
+                onClick={() => applyPreset("tradableYes")}
+                className={`inline-flex items-center justify-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                  tradableFilter === "yes"
+                    ? "border-emerald-700 bg-emerald-700 text-white"
+                    : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                }`}
+              >
+                Takasa açık
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset("shippingYes")}
+                className={`inline-flex items-center justify-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                  shippingFilter === "yes"
+                    ? "border-sky-700 bg-sky-700 text-white"
+                    : "border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                }`}
+              >
+                Kargoya uygun
+              </button>
+            </div>
+
+            <div className="mt-3 hidden md:grid md:grid-cols-[2fr_1fr_1fr_1fr_auto] md:items-center md:gap-2">
+              <input
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="Ara..."
+                aria-label="Arama"
+                className="h-9 sm:h-10 w-full rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+              />
 
               <input
                 type="number"
                 value={priceMin}
                 onChange={(e) => setPriceMin(e.target.value)}
-                className="h-9 sm:h-10 w-full sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                className="h-9 sm:h-10 w-full rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                 placeholder="Min TL"
                 aria-label="Minimum fiyat"
                 min={0}
@@ -921,7 +1287,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                 type="number"
                 value={priceMax}
                 onChange={(e) => setPriceMax(e.target.value)}
-                className="h-9 sm:h-10 w-full sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                className="h-9 sm:h-10 w-full rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                 placeholder="Max TL"
                 aria-label="Maksimum fiyat"
                 min={0}
@@ -933,7 +1299,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                   setSortBy(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
                 }
                 aria-label="Sıralama"
-                className="h-9 sm:h-10 w-full sm:w-[150px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                className="h-9 sm:h-10 w-full rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
               >
                 <option value="newest">En yeni</option>
                 <option value="price_asc">Fiyat (artan)</option>
@@ -943,7 +1309,7 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
               <button
                 type="button"
                 onClick={resetFilters}
-                className="h-9 sm:h-10 rounded-full border border-slate-200/80 px-3 sm:px-4 text-sm text-slate-700 bg-white/70 hover:bg-white shadow-sm"
+                className="h-9 sm:h-10 rounded-full border border-rose-200 px-4 text-sm font-semibold text-rose-700 hover:bg-rose-50 whitespace-nowrap"
               >
                 Sıfırla
               </button>
@@ -956,47 +1322,14 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                   onChange={(e) => setSearchText(e.target.value)}
                   placeholder="Ara..."
                   aria-label="Arama"
-                  className="col-span-2 h-9 sm:h-10 w-full sm:w-[160px] rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  className="col-span-2 h-9 sm:h-10 rounded-full border border-slate-200/80 bg-white/90 px-3 sm:px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                 />
-
-                <select
-                  value={categoryFilter}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setCategoryFilter(next);
-                    if (subCategoryFilter) setSubCategoryFilter("");
-                  }}
-                  aria-label="Kategori"
-                  className="h-9 sm:h-10 w-full sm:w-[140px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
-                >
-                  <option value="">Kategori</option>
-                  {activeMainCategories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  value={subCategoryFilter}
-                  onChange={(e) => setSubCategoryFilter(e.target.value)}
-                  aria-label="Alt kategori"
-                  disabled={filteredSubCategories.length === 0}
-                  className="h-9 sm:h-10 w-full sm:w-[170px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)] disabled:opacity-60"
-                >
-                  <option value="">Alt kategori</option>
-                  {filteredSubCategories.map((sub) => (
-                    <option key={sub.id} value={sub.id}>
-                      {sub.name}
-                    </option>
-                  ))}
-                </select>
 
                 <input
                   type="number"
                   value={priceMin}
                   onChange={(e) => setPriceMin(e.target.value)}
-                  className="h-9 sm:h-10 w-full sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  className="h-9 sm:h-10 rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                   placeholder="Min TL"
                   aria-label="Minimum fiyat"
                   min={0}
@@ -1006,32 +1339,34 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
                   type="number"
                   value={priceMax}
                   onChange={(e) => setPriceMax(e.target.value)}
-                  className="h-9 sm:h-10 w-full sm:w-[90px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  className="h-9 sm:h-10 rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
                   placeholder="Max TL"
                   aria-label="Maksimum fiyat"
                   min={0}
                 />
 
-                <select
-                  value={sortBy}
-                  onChange={(e) =>
-                    setSortBy(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
-                  }
-                  aria-label="Sıralama"
-                  className="col-span-2 h-9 sm:h-10 w-full sm:w-[150px] rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
-                >
-                  <option value="newest">En yeni</option>
-                  <option value="price_asc">Fiyat (artan)</option>
-                  <option value="price_desc">Fiyat (azalan)</option>
-                </select>
+                <div className="col-span-2 grid grid-cols-2 gap-2">
+                  <select
+                    value={sortBy}
+                    onChange={(e) =>
+                      setSortBy(pickEnum(e.target.value, SORT_OPTIONS, "newest"))
+                    }
+                    aria-label="Sıralama"
+                    className="h-9 sm:h-10 rounded-full border border-slate-200/80 bg-white/90 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--market-accent)]/20 focus:border-[color:var(--market-accent)]"
+                  >
+                    <option value="newest">En yeni</option>
+                    <option value="price_asc">Fiyat (artan)</option>
+                    <option value="price_desc">Fiyat (azalan)</option>
+                  </select>
 
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="col-span-2 h-9 sm:h-10 rounded-full border border-slate-200/80 px-3 sm:px-4 text-sm text-slate-700 bg-white/70 hover:bg-white shadow-sm"
-                >
-                  Sıfırla
-                </button>
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="h-9 sm:h-10 rounded-full border border-rose-200 px-3 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                  >
+                    Sıfırla
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1061,31 +1396,6 @@ function HomeInner({ initialCategories = [], initialListings = [] }: HomeClientP
               >
                 İlan Ver
               </Link>
-
-              <div className="inline-flex rounded-full border border-slate-200/70 bg-white/80 p-0.5 sm:p-1">
-                <button
-                  type="button"
-                  onClick={() => setViewMode("grid")}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition ${
-                    viewMode === "grid"
-                      ? "bg-[color:var(--market-accent)] text-white"
-                      : "text-slate-600 hover:bg-white"
-                  }`}
-                >
-                  Grid
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode("list")}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition ${
-                    viewMode === "list"
-                      ? "bg-[color:var(--market-accent)] text-white"
-                      : "text-slate-600 hover:bg-white"
-                  }`}
-                >
-                  Liste
-                </button>
-              </div>
             </div>
           </div>
 

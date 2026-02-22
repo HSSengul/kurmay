@@ -20,6 +20,7 @@ import {
 import { db } from "@/lib/firebase";
 import { devError, getFriendlyErrorMessage } from "@/lib/logger";
 import { buildListingPath } from "@/lib/listingUrl";
+import { isPublicListingVisible } from "@/lib/listingVisibility";
 
 /* =======================
    TYPES
@@ -30,6 +31,7 @@ type Listing = {
   title: string;
   price: number;
   status?: string;
+  adminStatus?: string;
   createdAt?: any;
 
   categoryName?: string;
@@ -158,8 +160,9 @@ export default function SellerClient({
           ...(d.data() as any),
         })) as Listing[];
         if (fallback) {
-          data = data.filter((item) => String(item.status || "") === "active");
+          data = data.filter((item) => isPublicListingVisible(item));
         }
+        data = data.filter((item) => isPublicListingVisible(item));
 
         setListings(data);
         setCursor(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
@@ -221,8 +224,9 @@ export default function SellerClient({
         ...(d.data() as any),
       })) as Listing[];
       if (fallback) {
-        data = data.filter((item) => String(item.status || "") === "active");
+        data = data.filter((item) => isPublicListingVisible(item));
       }
+      data = data.filter((item) => isPublicListingVisible(item));
 
       setListings((prev) => {
         const seen = new Set(prev.map((x) => x.id));

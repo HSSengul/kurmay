@@ -175,7 +175,7 @@ export type RunQueryByFieldParams = {
   collectionId: string;
   fieldPath: string;
   value: string | number | boolean | null;
-  orderByField?: string;
+  orderByField?: string | null;
   direction?: SortDirection;
   limit?: number;
   equalFilters?: EqualFilter[];
@@ -183,7 +183,7 @@ export type RunQueryByFieldParams = {
 
 export type RunCollectionQueryParams = {
   collectionId: string;
-  orderByField?: string;
+  orderByField?: string | null;
   direction?: SortDirection;
   limit?: number;
   selectFields?: string[];
@@ -204,6 +204,19 @@ const isActiveDoc = (
   statusField: string,
   statusValue: string
 ) => String(doc?.[statusField] || "") === statusValue;
+
+const toEpochMs = (value: any) => {
+  const date = new Date(value as any);
+  const ms = date.getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+const sortByCreatedAtDesc = <T extends Record<string, any>>(
+  rows: Array<T & { id: string }>
+) =>
+  [...rows].sort(
+    (a, b) => toEpochMs((b as any)?.createdAt) - toEpochMs((a as any)?.createdAt)
+  );
 
 const buildWhere = (filters: EqualFilter[]) => {
   if (!Array.isArray(filters) || filters.length === 0) return undefined;
@@ -242,7 +255,7 @@ export async function fetchDocument<T = Record<string, any>>(
     const json = await fetchJson(url);
     return decodeDoc(json) as T & { id: string };
   } catch (err: any) {
-    if (err?.status === 404) return null;
+    if (err?.status === 404 || err?.status === 403) return null;
     throw err;
   }
 }
@@ -296,10 +309,14 @@ export async function runQueryByField<T = Record<string, any>>({
     structuredQuery: {
       from: [{ collectionId }],
       where: buildWhere(allFilters),
-      orderBy: [{ field: { fieldPath: orderByField }, direction }],
       limit,
     },
   };
+  if (orderByField) {
+    (body.structuredQuery as any).orderBy = [
+      { field: { fieldPath: orderByField }, direction },
+    ];
+  }
 
   const url = withKey(`${base}/documents:runQuery`);
   const json = (await fetchJson(url, {
@@ -328,9 +345,11 @@ export async function runCollectionQuery<T = Record<string, any>>({
 
   const structuredQuery: any = {
     from: [{ collectionId }],
-    orderBy: [{ field: { fieldPath: orderByField }, direction }],
     limit,
   };
+  if (orderByField) {
+    structuredQuery.orderBy = [{ field: { fieldPath: orderByField }, direction }];
+  }
 
   if (Array.isArray(selectFields) && selectFields.length > 0) {
     structuredQuery.select = {
@@ -381,17 +400,23 @@ export async function runActiveQueryByField<T = Record<string, any>>(
   } catch (err) {
     if (!isFirestoreIndexError(err)) throw err;
 
-    const fallbackLimit = Math.max(limit, limit * fallbackMultiplier);
-    const fallback = await runQueryByField<T & Record<string, any>>({
-      ...rest,
+    const fallbackLimit = Math.min(500, Math.max(limit, limit * fallbackMultiplier * 3));
+    const fallback = await runCollectionQuery<T & Record<string, any>>({
+      collectionId: rest.collectionId,
+      orderByField: null,
       limit: fallbackLimit,
+      equalFilters: [{ fieldPath: statusField, value: statusValue }],
     });
 
-    return fallback
-      .filter((doc) =>
-        isActiveDoc(doc as Record<string, any>, statusField, statusValue)
-      )
-      .slice(0, limit);
+    return sortByCreatedAtDesc(
+      fallback.filter((doc) => {
+        if (!isActiveDoc(doc as Record<string, any>, statusField, statusValue))
+          return false;
+        if (String((doc as any)?.[rest.fieldPath] || "") !== String(rest.value || ""))
+          return false;
+        return true;
+      })
+    ).slice(0, limit);
   }
 }
 
@@ -421,21 +446,26 @@ export async function runActiveCollectionQuery<T = Record<string, any>>(
   } catch (err) {
     if (!isFirestoreIndexError(err)) throw err;
 
-    const fallbackLimit = Math.max(limit, limit * fallbackMultiplier);
+    const fallbackLimit = Math.min(500, Math.max(limit, limit * fallbackMultiplier * 3));
     const fields = Array.isArray(selectFields) ? [...selectFields] : undefined;
     if (fields && !fields.includes(statusField)) fields.push(statusField);
+    if (fields && !fields.includes("createdAt")) fields.push("createdAt");
 
     const fallback = await runCollectionQuery<T & Record<string, any>>({
-      ...rest,
+      collectionId: rest.collectionId,
+      orderByField: null,
       limit: fallbackLimit,
       selectFields: fields,
+      equalFilters: [{ fieldPath: statusField, value: statusValue }],
     });
 
-    return fallback
-      .filter((doc) =>
-        isActiveDoc(doc as Record<string, any>, statusField, statusValue)
-      )
-      .slice(0, limit);
+    return sortByCreatedAtDesc(
+      fallback.filter((doc) => {
+        if (!isActiveDoc(doc as Record<string, any>, statusField, statusValue))
+          return false;
+        return true;
+      })
+    ).slice(0, limit);
   }
 }
 

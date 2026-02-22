@@ -31,6 +31,7 @@ type ListingRow = {
   id: string;
   title?: string;
   price?: number;
+  status?: string;
   imageUrls?: string[];
   categoryName?: string;
   subCategoryName?: string;
@@ -47,6 +48,9 @@ const STATUS_OPTIONS: Array<{ value: "" | ListingStatus; label: string }> = [
   { value: "hidden", label: "Gizli" },
   { value: "removed", label: "Kaldırıldı" },
 ];
+
+const listingStatusFromAdmin = (adminStatus: ListingStatus) =>
+  adminStatus === "active" ? "active" : adminStatus;
 
 function formatPriceTRY(v?: number) {
   if (!Number.isFinite(v)) return "-";
@@ -136,13 +140,17 @@ export default function AdminListingsPage() {
     if (!db) return;
     setSavingId(id);
     try {
+      const nextStatus = listingStatusFromAdmin(next);
       await updateDoc(doc(db, "listings", id), {
         adminStatus: next,
+        status: nextStatus,
         adminReviewedAt: serverTimestamp(),
         adminReviewedBy: auth?.currentUser?.uid || null,
       });
       setRows((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, adminStatus: next } : r))
+        prev.map((r) =>
+          r.id === id ? { ...r, adminStatus: next, status: nextStatus } : r
+        )
       );
       showToast({
         type: "success",

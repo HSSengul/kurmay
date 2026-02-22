@@ -200,6 +200,12 @@ export default function NewListingPage() {
     function clampString(val: any, max: number) {
       return normalizeSpaces(String(val || "")).slice(0, max);
     }
+    function roundCoord(value: number, precision = 4) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return 0;
+      const factor = 10 ** precision;
+      return Math.round(n * factor) / factor;
+    }
     function formatMaybeInt(val: string) {
       return val.replace(/[^0-9]/g, "");
     }
@@ -1703,6 +1709,15 @@ function normalizeOptions(list: OptionLike[] | undefined) {
         String(location?.address || locationAddress || "")
       );
       const cityDistrict = extractCityDistrict(locationLabel);
+      const safeLocation =
+        location &&
+        Number.isFinite(Number(location.lat)) &&
+        Number.isFinite(Number(location.lng))
+          ? {
+              lat: roundCoord(Number(location.lat), 4),
+              lng: roundCoord(Number(location.lng), 4),
+            }
+          : null;
 
       basePayload = {
         title: safeTitle,
@@ -1713,8 +1728,7 @@ function normalizeOptions(list: OptionLike[] | undefined) {
         subCategoryName: safeSubCategoryName,
         ownerId,
         ownerName: safeOwnerName,
-        location: location,
-        locationAddress: locationAddress || null,
+        location: safeLocation,
         locationCity: cityDistrict.city || null,
         locationDistrict: cityDistrict.district || null,
       };
@@ -1739,6 +1753,7 @@ function normalizeOptions(list: OptionLike[] | undefined) {
         attributes: attributesForSave,
 
         status: "active",
+        adminStatus: "active",
         imageUrls,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
