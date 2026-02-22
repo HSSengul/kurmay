@@ -565,45 +565,39 @@ export default function CategoryClient({
     } catch (e: any) {
       if (!isIndexError(e)) throw e;
 
-      // Fallback: status filtresi index isterse client-side filtre uygula.
-      let cursorDoc = startAfterDoc;
-      let hasMore = true;
-      const collected: Listing[] = [];
-      let lastDoc: QueryDocumentSnapshot<DocumentData> | null = startAfterDoc;
-
-      while (hasMore && collected.length < LISTINGS_BATCH) {
-        const constraints: any[] = [
-          where("categoryId", "==", categoryId),
-          orderBy("createdAt", "desc"),
-          limit(LISTINGS_BATCH),
-        ];
-        if (cursorDoc) constraints.splice(2, 0, startAfter(cursorDoc));
-
-        const snap = await getDocs(query(collection(db, "listings"), ...constraints));
-        const docs = snap.docs;
-        if (docs.length === 0) {
-          hasMore = false;
-          break;
-        }
-
-        cursorDoc = docs[docs.length - 1];
-        lastDoc = cursorDoc;
-        hasMore = docs.length === LISTINGS_BATCH;
-
-        const activeItems = docs
-          .map((d) => ({ id: d.id, ...(d.data() as any) }))
-          .filter((item) => isPublicListingVisible(item as Listing)) as Listing[];
-
-        for (const item of activeItems) {
-          collected.push(item);
-          if (collected.length >= LISTINGS_BATCH) break;
-        }
+      // Fallback: izin uyumluluğu için status=="active" filtresini koru.
+      // createdAt orderBy indexsiz çalışmayabilir; bu durumda ilk batch'i orderBy'sız çekeriz.
+      if (startAfterDoc) {
+        return {
+          items: [],
+          lastDoc: startAfterDoc,
+          hasMore: false,
+        };
       }
+
+      const snap = await getDocs(
+        query(
+          collection(db, "listings"),
+          where("categoryId", "==", categoryId),
+          where("status", "==", "active"),
+          limit(LISTINGS_BATCH)
+        )
+      );
+      const docs = snap.docs;
+      const collected = docs
+        .map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((item) => isPublicListingVisible(item as Listing)) as Listing[];
+
+      collected.sort((a, b) => {
+        const ad = a.createdAt?.toDate?.()?.getTime?.() ?? 0;
+        const bd = b.createdAt?.toDate?.()?.getTime?.() ?? 0;
+        return bd - ad;
+      });
 
       return {
         items: collected,
-        lastDoc,
-        hasMore,
+        lastDoc: docs.length > 0 ? docs[docs.length - 1] : startAfterDoc,
+        hasMore: false,
       };
     }
   };
@@ -648,6 +642,7 @@ export default function CategoryClient({
 
   useEffect(() => {
     if (!categorySlug) return;
+    if (initialCategory) return;
 
     let cancelled = false;
 

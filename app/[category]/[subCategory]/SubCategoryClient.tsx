@@ -548,6 +548,7 @@ export default function SubCategoryClient({
 
   useEffect(() => {
     if (!categorySlug || !subCategorySlug) return;
+    if (initialCategory && initialSubCategory) return;
 
     let cancelled = false;
 
@@ -721,44 +722,35 @@ export default function SubCategoryClient({
     } catch (e: any) {
       if (!isIndexError(e)) throw e;
 
-      let cursorDoc = startAfterDoc;
-      let hasMore = true;
-      const collected: Listing[] = [];
-      let lastDoc: QueryDocumentSnapshot<DocumentData> | null = startAfterDoc;
-
-      while (hasMore && collected.length < pageSize) {
-        const constraints: any[] = [
-          where("subCategoryId", "==", subCategoryId),
-          orderBy("createdAt", "desc"),
-          limit(pageSize),
-        ];
-        if (cursorDoc) constraints.splice(2, 0, startAfter(cursorDoc));
-
-        const snap = await getDocs(query(collection(db, "listings"), ...constraints));
-        const docs = snap.docs;
-        if (docs.length === 0) {
-          hasMore = false;
-          break;
-        }
-
-        cursorDoc = docs[docs.length - 1];
-        lastDoc = cursorDoc;
-        hasMore = docs.length === pageSize;
-
-        const activeItems = docs
-          .map((d) => ({ id: d.id, ...(d.data() as any) }))
-          .filter((item) => isPublicListingVisible(item as Listing)) as Listing[];
-
-        for (const item of activeItems) {
-          collected.push(item);
-          if (collected.length >= pageSize) break;
-        }
+      // Fallback: izin uyumluluğu için status=="active" filtresini koru.
+      // createdAt orderBy indexsiz çalışmayabilir; bu durumda ilk batch'i orderBy'sız çekeriz.
+      if (startAfterDoc) {
+        return {
+          items: [],
+          lastDoc: startAfterDoc,
+          hasMore: false,
+        };
       }
+
+      const snap = await getDocs(
+        query(
+          collection(db, "listings"),
+          where("subCategoryId", "==", subCategoryId),
+          where("status", "==", "active"),
+          limit(pageSize)
+        )
+      );
+      const docs = snap.docs;
+      const collected = docs
+        .map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((item) => isPublicListingVisible(item as Listing)) as Listing[];
+
+      collected.sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
 
       return {
         items: collected,
-        lastDoc,
-        hasMore,
+        lastDoc: docs.length > 0 ? docs[docs.length - 1] : startAfterDoc,
+        hasMore: false,
       };
     }
   };

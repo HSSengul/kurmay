@@ -39,6 +39,8 @@ type Listing = {
   categoryName?: string;
   subCategoryName?: string;
   imageUrls?: string[];
+  status?: "active" | "draft" | "sold";
+  adminStatus?: "active" | "review" | "hidden" | "removed";
   createdAt?: any;
 };
 
@@ -47,8 +49,10 @@ type PublicProfile = {
   bio: string;
   address: string;
   phone: string;
+  email: string;
   websiteInstagram: string;
   showPhone: boolean;
+  showEmail: boolean;
   showAddress: boolean;
   showWebsiteInstagram: boolean;
   avatarUrl?: string;
@@ -73,12 +77,14 @@ type PublicContact = {
   phone: string;
   email: string;
   address: string;
+  websiteInstagram: string;
 };
 
 type PublicContactVisibility = {
   phone: boolean;
   email: boolean;
   address: boolean;
+  websiteInstagram: boolean;
 };
 
 /* =======================
@@ -122,6 +128,11 @@ function ToggleRow({
 
 function normalizeSpaces(v: string) {
   return (v || "").replace(/\s+/g, " ").trim();
+}
+
+function clampLen(v: string, max: number) {
+  const t = String(v ?? "");
+  return t.length > max ? t.slice(0, max) : t;
 }
 
 function digitsOnly(v: string) {
@@ -242,8 +253,10 @@ function MyPageInner() {
     bio: "",
     address: "",
     phone: "",
+    email: "",
     websiteInstagram: "",
     showPhone: true,
+    showEmail: false,
     showAddress: true,
     showWebsiteInstagram: true,
     avatarUrl: "",
@@ -258,6 +271,7 @@ function MyPageInner() {
     phone: "",
     email: "",
     address: "",
+    websiteInstagram: "",
   });
   const [publicContactSnapshot, setPublicContactSnapshot] =
     useState<PublicContact | null>(null);
@@ -266,6 +280,7 @@ function MyPageInner() {
       phone: false,
       email: false,
       address: false,
+      websiteInstagram: false,
     });
   const [publicContactVisibilitySnapshot, setPublicContactVisibilitySnapshot] =
     useState<PublicContactVisibility | null>(null);
@@ -328,6 +343,15 @@ function MyPageInner() {
     useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [listingsHasMore, setListingsHasMore] = useState(false);
   const [listingsLoadingMore, setListingsLoadingMore] = useState(false);
+
+  const hasPublishedListings = useMemo(() => {
+    return listings.some(
+      (l) =>
+        l.status === "active" &&
+        l.adminStatus !== "hidden" &&
+        l.adminStatus !== "removed"
+    );
+  }, [listings]);
 
   const filteredListings = useMemo(() => {
     const q = normalizeSpaces(listingQuery).toLowerCase();
@@ -475,8 +499,10 @@ function MyPageInner() {
           name: "",
           bio: "",
           showPhone: true,
+          showEmail: false,
           showAddress: true,
           showWebsiteInstagram: true,
+          email: "",
           avatarUrl: "",
           onboardingCompleted: false,
           createdAt: serverTimestamp(),
@@ -488,8 +514,10 @@ function MyPageInner() {
           bio: "",
           address: "",
           phone: "",
+          email: normalizeSpaces(user.email || ""),
           websiteInstagram: "",
           showPhone: true,
+          showEmail: false,
           showAddress: true,
           showWebsiteInstagram: true,
           avatarUrl: "",
@@ -501,13 +529,24 @@ function MyPageInner() {
         setProfileLocation(null);
         setProfileLocationSnapshot(null);
 
-        setPublicContact({ phone: "", email: "", address: "" });
-        setPublicContactSnapshot({ phone: "", email: "", address: "" });
-        setPublicContactVisibility({ phone: false, email: false, address: false });
+        setPublicContact({ phone: "", email: "", address: "", websiteInstagram: "" });
+        setPublicContactSnapshot({
+          phone: "",
+          email: "",
+          address: "",
+          websiteInstagram: "",
+        });
+        setPublicContactVisibility({
+          phone: false,
+          email: false,
+          address: false,
+          websiteInstagram: false,
+        });
         setPublicContactVisibilitySnapshot({
           phone: false,
           email: false,
           address: false,
+          websiteInstagram: false,
         });
 
         // İlk giriş onboarding zorla + düzenleme modunu aç
@@ -547,6 +586,7 @@ function MyPageInner() {
 
         const mergedPhone = privateData.phone || d.phone || "";
         const mergedAddress = privateData.address || d.address || "";
+        const mergedEmail = normalizeSpaces(d.email || user.email || "");
         const mergedWebsite =
           privateData.websiteInstagram || d.websiteInstagram || "";
 
@@ -555,8 +595,10 @@ function MyPageInner() {
           bio: d.bio || "",
           address: mergedAddress,
           phone: mergedPhone,
+          email: mergedEmail,
           websiteInstagram: mergedWebsite,
           showPhone: d.showPhone !== false,
+          showEmail: d.showEmail === true,
           showAddress: d.showAddress !== false,
           showWebsiteInstagram: d.showWebsiteInstagram !== false,
           avatarUrl: d.avatarUrl || "",
@@ -578,34 +620,70 @@ function MyPageInner() {
               phone: c.phone || "",
               email: c.email || "",
               address: c.address || "",
+              websiteInstagram: c.websiteInstagram || "",
             };
             const loadedVisibility: PublicContactVisibility = {
-              phone: !!(c.phone || ""),
-              email: !!(c.email || ""),
-              address: !!(c.address || ""),
+              phone:
+                typeof c.showPhone === "boolean"
+                  ? c.showPhone
+                  : !!(c.phone || ""),
+              email:
+                typeof c.showEmail === "boolean"
+                  ? c.showEmail
+                  : !!(c.email || ""),
+              address:
+                typeof c.showAddress === "boolean"
+                  ? c.showAddress
+                  : !!(c.address || ""),
+              websiteInstagram:
+                typeof c.showWebsiteInstagram === "boolean"
+                  ? c.showWebsiteInstagram
+                  : !!(c.websiteInstagram || ""),
             };
             setPublicContact(loadedContact);
             setPublicContactSnapshot(loadedContact);
             setPublicContactVisibility(loadedVisibility);
             setPublicContactVisibilitySnapshot(loadedVisibility);
           } else {
-            setPublicContact({ phone: "", email: "", address: "" });
-            setPublicContactSnapshot({ phone: "", email: "", address: "" });
-            setPublicContactVisibility({ phone: false, email: false, address: false });
+            setPublicContact({ phone: "", email: "", address: "", websiteInstagram: "" });
+            setPublicContactSnapshot({
+              phone: "",
+              email: "",
+              address: "",
+              websiteInstagram: "",
+            });
+            setPublicContactVisibility({
+              phone: false,
+              email: false,
+              address: false,
+              websiteInstagram: false,
+            });
             setPublicContactVisibilitySnapshot({
               phone: false,
               email: false,
               address: false,
+              websiteInstagram: false,
             });
           }
         } catch {
-          setPublicContact({ phone: "", email: "", address: "" });
-          setPublicContactSnapshot({ phone: "", email: "", address: "" });
-          setPublicContactVisibility({ phone: false, email: false, address: false });
+          setPublicContact({ phone: "", email: "", address: "", websiteInstagram: "" });
+          setPublicContactSnapshot({
+            phone: "",
+            email: "",
+            address: "",
+            websiteInstagram: "",
+          });
+          setPublicContactVisibility({
+            phone: false,
+            email: false,
+            address: false,
+            websiteInstagram: false,
+          });
           setPublicContactVisibilitySnapshot({
             phone: false,
             email: false,
             address: false,
+            websiteInstagram: false,
           });
         }
 
@@ -711,9 +789,21 @@ function MyPageInner() {
       setProfileSaving(true);
       setProfileMessage("");
 
-      const rawPhone = normalizeSpaces(profile.phone || "");
-      const rawAddress = normalizeSpaces(profile.address || "");
-      const rawWebsite = (profile.websiteInstagram || "").trim();
+      const rawName = clampLen(normalizeSpaces(profile.name || ""), 80);
+      const rawBio = clampLen((profile.bio || "").trim(), 1000);
+      const rawPhone = clampLen(normalizeSpaces(profile.phone || ""), 20);
+      const rawAddress = clampLen(normalizeSpaces(profile.address || ""), 200);
+      const rawEmail = clampLen(
+        normalizeSpaces(auth.currentUser?.email || profile.email || ""),
+        320
+      );
+      const rawWebsite = clampLen((profile.websiteInstagram || "").trim(), 200);
+      const effectiveContactVisibility: PublicContactVisibility = {
+        phone: publicContactVisibility.phone,
+        email: publicContactVisibility.email,
+        address: hasPublishedListings ? true : publicContactVisibility.address,
+        websiteInstagram: publicContactVisibility.websiteInstagram,
+      };
       const normalizedLocation =
         profileLocation &&
         Number.isFinite(profileLocation.lat) &&
@@ -721,36 +811,47 @@ function MyPageInner() {
           ? {
               lat: Number(profileLocation.lat),
               lng: Number(profileLocation.lng),
-              address: normalizeSpaces(
-                String(profileLocation.address || rawAddress || "")
+              address: clampLen(
+                normalizeSpaces(
+                  String(profileLocation.address || rawAddress || "")
+                ),
+                200
               ),
             }
           : null;
 
       const normalized: PublicProfile = {
         ...profile,
-        name: normalizeSpaces(profile.name || ""),
-        bio: (profile.bio || "").trim(),
+        name: rawName,
+        bio: rawBio,
         address: rawAddress,
         phone: rawPhone,
+        email: rawEmail,
         websiteInstagram: rawWebsite,
-        showPhone: profile.showPhone !== false,
-        showAddress: profile.showAddress !== false,
-        showWebsiteInstagram: profile.showWebsiteInstagram !== false,
+        showPhone:
+          effectiveContactVisibility.phone && profile.showPhone !== false,
+        showEmail:
+          effectiveContactVisibility.email && profile.showEmail !== false,
+        showAddress:
+          hasPublishedListings
+            ? true
+            : effectiveContactVisibility.address && profile.showAddress !== false,
+        showWebsiteInstagram:
+          effectiveContactVisibility.websiteInstagram &&
+          profile.showWebsiteInstagram !== false,
         avatarUrl: profile.avatarUrl || "",
         onboardingCompleted: profile.onboardingCompleted || false,
       };
 
-      // Onboarding gerekiyorsa minimum şartları zorla
-      // Normal modda da bu kontrol yapılabilir ama şimdilik onboarding için zorunlu
+      // Onboarding gerekiyorsa minimum sartlari zorla
       if (onboardingNeeded && !requiredOk) {
         setProfileMessage(
-          "İlan verebilmek için profilini tamamlamalısın: isim + telefon + adres ❌"
+          "Ilan verebilmek icin profilini tamamlamalisin: isim + telefon + adres."
         );
         return;
       }
 
-      // Eğer onboarding gerekiyorsa bu kayıtta completed true yap
+      // Eger onboarding gerekiyorsa bu kayitta completed true yap
       const shouldCompleteOnboarding = onboardingNeeded && requiredOk;
 
       const privatePayload: PrivateProfile = {
@@ -769,18 +870,19 @@ function MyPageInner() {
         { merge: true }
       );
 
-        const publicPayload: PublicProfile = {
-          ...normalized,
-          phone: normalized.showPhone ? normalized.phone : "",
-          address: normalized.showAddress ? normalized.address : "",
-          websiteInstagram: normalized.showWebsiteInstagram
-            ? normalized.websiteInstagram
-            : "",
-          location: normalized.showAddress ? normalizedLocation : null,
-          onboardingCompleted: shouldCompleteOnboarding
-            ? true
-            : !!normalized.onboardingCompleted,
-        };
+      const publicPayload: PublicProfile = {
+        ...normalized,
+        phone: normalized.showPhone ? normalized.phone : "",
+        email: normalized.showEmail ? normalized.email : "",
+        address: normalized.showAddress ? normalized.address : "",
+        websiteInstagram: normalized.showWebsiteInstagram
+          ? normalized.websiteInstagram
+          : "",
+        location: normalized.showAddress ? normalizedLocation : null,
+        onboardingCompleted: shouldCompleteOnboarding
+          ? true
+          : !!normalized.onboardingCompleted,
+      };
 
       await setDoc(
         doc(db, "publicProfiles", userId),
@@ -792,50 +894,76 @@ function MyPageInner() {
       );
 
       const normalizedContact: PublicContact = {
-        phone: publicContactVisibility.phone
-          ? digitsOnly(publicContact.phone || "")
+        phone: effectiveContactVisibility.phone
+          ? clampLen(digitsOnly(rawPhone), 15)
           : "",
-        email: publicContactVisibility.email
-          ? (publicContact.email || "").trim()
+        email: effectiveContactVisibility.email
+          ? rawEmail
           : "",
-        address: publicContactVisibility.address
-          ? normalizeSpaces(publicContact.address || "")
+        address: effectiveContactVisibility.address
+          ? rawAddress
+          : "",
+        websiteInstagram: effectiveContactVisibility.websiteInstagram
+          ? rawWebsite
           : "",
       };
 
-      await setDoc(
-        doc(db, "publicContacts", userId),
-        {
-          ...normalizedContact,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      let contactSaveError: any = null;
+      try {
+        await setDoc(
+          doc(db, "publicContacts", userId),
+          {
+            ...normalizedContact,
+            showPhone: effectiveContactVisibility.phone,
+            showEmail: effectiveContactVisibility.email,
+            showAddress: effectiveContactVisibility.address,
+            showWebsiteInstagram: effectiveContactVisibility.websiteInstagram,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        contactSaveError = e;
+        devError("saveProfile publicContacts write failed:", e);
+      }
 
-        if (shouldCompleteOnboarding) {
-          setProfile((p) => ({ ...p, onboardingCompleted: true }));
-          setProfileSnapshot({
-            ...normalized,
-            onboardingCompleted: true,
-          });
-          setProfileLocationSnapshot(normalizedLocation);
-          setPublicContactSnapshot(normalizedContact);
-          setProfileMessage("Profil tamamlandı ✅ Artık ilan verebilirsin.");
-          setEditingProfile(false);
-          setOnboardingForced(false);
-          setOnboardingBannerDismissed(false);
+      if (shouldCompleteOnboarding) {
+        setProfile((p) => ({ ...p, onboardingCompleted: true }));
+        setProfileSnapshot({
+          ...normalized,
+          onboardingCompleted: true,
+        });
+        setProfileLocationSnapshot(normalizedLocation);
+        setPublicContactSnapshot(normalizedContact);
+        setPublicContactVisibility(effectiveContactVisibility);
+        setPublicContactVisibilitySnapshot(effectiveContactVisibility);
+        setProfileMessage(
+          contactSaveError
+            ? "Profil tamamlandi. Izinli iletisim ayarlari kaydedilemedi."
+            : "Profil tamamlandi. Artik ilan verebilirsin."
+        );
+        setEditingProfile(false);
+        setOnboardingForced(false);
+        setOnboardingBannerDismissed(false);
 
         // Query temizle (UX)
         router.replace("/my");
-        } else {
-          setProfileMessage("Profil kaydedildi ✅");
-          setProfileSnapshot(normalized);
-          setProfileLocationSnapshot(normalizedLocation);
-          setPublicContactSnapshot(normalizedContact);
-          setEditingProfile(false);
-        }
-    } catch {
-      setProfileMessage("Profil kaydedilirken hata oluştu ❌");
+      } else {
+        setProfileMessage(
+          contactSaveError
+            ? "Profil kaydedildi. Izinli iletisim ayarlari kaydedilemedi."
+            : "Profil kaydedildi."
+        );
+        setProfileSnapshot(normalized);
+        setProfileLocationSnapshot(normalizedLocation);
+        setPublicContactSnapshot(normalizedContact);
+        setPublicContactVisibility(effectiveContactVisibility);
+        setPublicContactVisibilitySnapshot(effectiveContactVisibility);
+        setEditingProfile(false);
+      }
+    } catch (e) {
+      devError("saveProfile failed:", e);
+      setProfileMessage("Profil kaydedilirken hata olustu.");
     } finally {
       setProfileSaving(false);
     }
@@ -845,13 +973,14 @@ function MyPageInner() {
     if (!userId || !db) return;
     if (pinSaveInFlightRef.current) return;
 
-    const cleanAddress = normalizeSpaces(
-      String(loc.address || profile.address || "")
+    const cleanAddress = clampLen(
+      normalizeSpaces(String(loc.address || profile.address || "")),
+      200
     );
     const normalizedLoc = {
       lat: Number(loc.lat),
       lng: Number(loc.lng),
-      address: cleanAddress,
+      address: clampLen(cleanAddress, 200),
     };
 
     pinSaveInFlightRef.current = true;
@@ -981,6 +1110,118 @@ function MyPageInner() {
     setProfileMessage("Önce profilini tamamlamalısın ❌");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  useEffect(() => {
+    if (!hasPublishedListings) return;
+    setProfile((prev) => (prev.showAddress ? prev : { ...prev, showAddress: true }));
+    setPublicContactVisibility((prev) =>
+      prev.address ? prev : { ...prev, address: true }
+    );
+  }, [hasPublishedListings]);
+
+  useEffect(() => {
+    if (!userId || !hasPublishedListings || profileLoading) return;
+
+    const needsPublicProfileFix = profile.showAddress === false;
+    const needsPublicContactFix = publicContactVisibility.address === false;
+    if (!needsPublicProfileFix && !needsPublicContactFix) return;
+
+    const cleanAddress = clampLen(normalizeSpaces(profile.address || ""), 200);
+    const normalizedLocation =
+      profileLocation &&
+      Number.isFinite(profileLocation.lat) &&
+      Number.isFinite(profileLocation.lng)
+        ? {
+            lat: Number(profileLocation.lat),
+            lng: Number(profileLocation.lng),
+            address: clampLen(
+              normalizeSpaces(String(profileLocation.address || cleanAddress || "")),
+              200
+            ),
+          }
+        : null;
+
+    (async () => {
+      try {
+        if (needsPublicProfileFix) {
+          await setDoc(
+            doc(db, "publicProfiles", userId),
+            {
+              showAddress: true,
+              address: cleanAddress,
+              location: normalizedLocation,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+
+        if (needsPublicContactFix) {
+          await setDoc(
+            doc(db, "publicContacts", userId),
+            {
+              showAddress: true,
+              address: cleanAddress,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (e) {
+        devError("hasPublishedListings visibility sync error", e);
+      }
+    })();
+  }, [
+    userId,
+    hasPublishedListings,
+    profileLoading,
+    profile.showAddress,
+    profile.address,
+    profileLocation,
+    publicContactVisibility.address,
+  ]);
+
+  useEffect(() => {
+    setProfile((prev) => {
+      const nextShowPhone = publicContactVisibility.phone
+        ? prev.showPhone !== false
+        : false;
+      const nextShowEmail = publicContactVisibility.email
+        ? prev.showEmail !== false
+        : false;
+      const nextShowAddress = hasPublishedListings
+        ? true
+        : publicContactVisibility.address
+        ? prev.showAddress !== false
+        : false;
+      const nextShowWebsiteInstagram = publicContactVisibility.websiteInstagram
+        ? prev.showWebsiteInstagram !== false
+        : false;
+
+      if (
+        nextShowPhone === prev.showPhone &&
+        nextShowEmail === prev.showEmail &&
+        nextShowAddress === prev.showAddress &&
+        nextShowWebsiteInstagram === prev.showWebsiteInstagram
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        showPhone: nextShowPhone,
+        showEmail: nextShowEmail,
+        showAddress: nextShowAddress,
+        showWebsiteInstagram: nextShowWebsiteInstagram,
+      };
+    });
+  }, [
+    publicContactVisibility.phone,
+    publicContactVisibility.email,
+    publicContactVisibility.address,
+    publicContactVisibility.websiteInstagram,
+    hasPublishedListings,
+  ]);
 
   /* =======================
      BLOCK NAVIGATION (UX)
@@ -1601,6 +1842,18 @@ function MyPageInner() {
             </div>
           )}
 
+          <div className="space-y-1">
+            <input
+              disabled
+              className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm bg-slate-100"
+              value={profile.email || auth.currentUser?.email || ""}
+              placeholder="E-posta (Google hesabın)"
+            />
+            <div className="text-[11px] sm:text-xs text-slate-500">
+              E-posta Google hesabından alınır.
+            </div>
+          </div>
+
           <input
             disabled={!editingProfile}
             className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
@@ -1621,23 +1874,38 @@ function MyPageInner() {
             <ToggleRow
               label="Telefon numaram görünsün"
               checked={profile.showPhone}
-              disabled={!editingProfile}
+              disabled={!editingProfile || !publicContactVisibility.phone}
               onChange={(next) => setProfile({ ...profile, showPhone: next })}
+            />
+            <ToggleRow
+              label="E-postam görünsün"
+              checked={profile.showEmail}
+              disabled={!editingProfile || !publicContactVisibility.email}
+              onChange={(next) => setProfile({ ...profile, showEmail: next })}
             />
             <ToggleRow
               label="Adresim görünsün"
               checked={profile.showAddress}
-              disabled={!editingProfile}
+              disabled={
+                !editingProfile ||
+                hasPublishedListings ||
+                !publicContactVisibility.address
+              }
               onChange={(next) => setProfile({ ...profile, showAddress: next })}
             />
             <ToggleRow
               label="Website / Instagram görünsün"
               checked={profile.showWebsiteInstagram}
-              disabled={!editingProfile}
+              disabled={!editingProfile || !publicContactVisibility.websiteInstagram}
               onChange={(next) =>
                 setProfile({ ...profile, showWebsiteInstagram: next })
               }
             />
+            {hasPublishedListings && (
+              <div className="text-[11px] sm:text-xs text-amber-700">
+                Yayında ilanın olduğu için adres görünürlüğü kapatılamaz.
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-3">
@@ -1645,12 +1913,12 @@ function MyPageInner() {
               İzinli İletişim (Giriş yapanlar)
             </div>
             <div className="text-[11px] sm:text-xs text-slate-500">
-              Bu bilgiler sadece <b>giriş yapmış</b> kullanıcılara gösterilir. İlan sayfasında
-              ayrı bir bölüm olarak görünür.
+              Buradaki anahtarlar açık olduğunda iletişim bilgileri sadece{" "}
+              <b>giriş yapmış</b> kullanıcılara gösterilir.
             </div>
             <div className="space-y-2">
               <ToggleRow
-                label="Telefonu göster"
+                label="Giriş yapılmışsa telefonu göster"
                 checked={publicContactVisibility.phone}
                 disabled={!editingProfile}
                 onChange={(next) =>
@@ -1658,7 +1926,7 @@ function MyPageInner() {
                 }
               />
               <ToggleRow
-                label="E-posta göster"
+                label="Giriş yapılmışsa e-postayı göster"
                 checked={publicContactVisibility.email}
                 disabled={!editingProfile}
                 onChange={(next) =>
@@ -1666,42 +1934,25 @@ function MyPageInner() {
                 }
               />
               <ToggleRow
-                label="Adresi göster"
+                label="Giriş yapılmışsa adresi göster"
                 checked={publicContactVisibility.address}
-                disabled={!editingProfile}
+                disabled={!editingProfile || hasPublishedListings}
                 onChange={(next) =>
                   setPublicContactVisibility((p) => ({ ...p, address: next }))
                 }
               />
+              <ToggleRow
+                label="Giriş yapılmışsa website / instagram göster"
+                checked={publicContactVisibility.websiteInstagram}
+                disabled={!editingProfile}
+                onChange={(next) =>
+                  setPublicContactVisibility((p) => ({
+                    ...p,
+                    websiteInstagram: next,
+                  }))
+                }
+              />
             </div>
-            <input
-              disabled={!editingProfile || !publicContactVisibility.phone}
-              className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
-              value={publicContact.phone}
-              onChange={(e) =>
-                setPublicContact({ ...publicContact, phone: e.target.value })
-              }
-              placeholder="Telefon (giriş yapanlara)"
-            />
-            <input
-              disabled={!editingProfile || !publicContactVisibility.email}
-              className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
-              value={publicContact.email}
-              onChange={(e) =>
-                setPublicContact({ ...publicContact, email: e.target.value })
-              }
-              placeholder="E-posta (giriş yapanlara)"
-            />
-            <textarea
-              disabled={!editingProfile || !publicContactVisibility.address}
-              rows={2}
-              className="w-full border border-slate-200 rounded-2xl px-3.5 py-2 text-sm disabled:bg-slate-100"
-              value={publicContact.address}
-              onChange={(e) =>
-                setPublicContact({ ...publicContact, address: e.target.value })
-              }
-              placeholder="Adres (giriş yapanlara)"
-            />
           </div>
 
           {!editingProfile ? (

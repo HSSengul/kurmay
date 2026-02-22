@@ -192,13 +192,8 @@ service cloud.firestore {
     function isConversationParticipantByData(data) {
       return signedIn()
         && (
-          (("buyerId" in data) && (data.buyerId is string) && data.buyerId == request.auth.uid)
-          || (("sellerId" in data) && (data.sellerId is string) && data.sellerId == request.auth.uid)
-          || (
-            ("participants" in data)
-            && (data.participants is list)
-            && (request.auth.uid in data.participants)
-          )
+          data.buyerId == request.auth.uid
+          || data.sellerId == request.auth.uid
         );
     }
 
