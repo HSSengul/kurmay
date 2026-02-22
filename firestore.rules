@@ -106,6 +106,16 @@ service cloud.firestore {
         );
     }
 
+    function isPublicEmailAllowed(data) {
+      return !("email" in data)
+        || (data.email == "")
+        || (
+          (data.email is string)
+          && data.email.size() <= 320
+          && ( !("showEmail" in data) || data.showEmail == true )
+        );
+    }
+
     function isPublicAddressAllowed(data) {
       return !("address" in data)
         || (data.address == "")
@@ -137,9 +147,11 @@ service cloud.firestore {
 
     function isPublicProfileSafe(data) {
       return isPublicPhoneAllowed(data)
+        && isPublicEmailAllowed(data)
         && isPublicAddressAllowed(data)
         && isPublicWebsiteAllowed(data)
-        && isPublicLocationAllowed(data);
+        && isPublicLocationAllowed(data)
+        && ( !("showEmail" in data) || (data.showEmail is bool) );
     }
 
     function isValidSelfUserCreate(data) {
@@ -174,9 +186,20 @@ service cloud.firestore {
     }
 
     function isParticipantByResource() {
+      return isConversationParticipantByData(resource.data);
+    }
+
+    function isConversationParticipantByData(data) {
       return signedIn()
-        && (resource.data.participants is list)
-        && (request.auth.uid in resource.data.participants);
+        && (
+          (("buyerId" in data) && (data.buyerId is string) && data.buyerId == request.auth.uid)
+          || (("sellerId" in data) && (data.sellerId is string) && data.sellerId == request.auth.uid)
+          || (
+            ("participants" in data)
+            && (data.participants is list)
+            && (request.auth.uid in data.participants)
+          )
+        );
     }
 
     function isValidUnreadMap(m) {
@@ -582,6 +605,11 @@ service cloud.firestore {
         && (request.resource.data.phone == "" || request.resource.data.phone.matches("^[0-9]{10,15}$"))
         && optionalString(request.resource.data.email, 320)
         && optionalString(request.resource.data.address, 200)
+        && optionalString(request.resource.data.websiteInstagram, 200)
+        && ( !("showPhone" in request.resource.data) || (request.resource.data.showPhone is bool) )
+        && ( !("showEmail" in request.resource.data) || (request.resource.data.showEmail is bool) )
+        && ( !("showAddress" in request.resource.data) || (request.resource.data.showAddress is bool) )
+        && ( !("showWebsiteInstagram" in request.resource.data) || (request.resource.data.showWebsiteInstagram is bool) )
         && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) )
         && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) );
 
@@ -591,10 +619,26 @@ service cloud.firestore {
         && (request.resource.data.phone == "" || request.resource.data.phone.matches("^[0-9]{10,15}$"))
         && optionalString(request.resource.data.email, 320)
         && optionalString(request.resource.data.address, 200)
+        && optionalString(request.resource.data.websiteInstagram, 200)
+        && ( !("showPhone" in request.resource.data) || (request.resource.data.showPhone is bool) )
+        && ( !("showEmail" in request.resource.data) || (request.resource.data.showEmail is bool) )
+        && ( !("showAddress" in request.resource.data) || (request.resource.data.showAddress is bool) )
+        && ( !("showWebsiteInstagram" in request.resource.data) || (request.resource.data.showWebsiteInstagram is bool) )
         && ( !("updatedAt" in request.resource.data) || (request.resource.data.updatedAt is timestamp) )
         && ( !("createdAt" in request.resource.data) || (request.resource.data.createdAt is timestamp) )
         && request.resource.data.diff(resource.data).changedKeys()
-          .hasOnly(["phone", "email", "address", "createdAt", "updatedAt"]);
+          .hasOnly([
+            "phone",
+            "email",
+            "address",
+            "websiteInstagram",
+            "showPhone",
+            "showEmail",
+            "showAddress",
+            "showWebsiteInstagram",
+            "createdAt",
+            "updatedAt"
+          ]);
 
       allow delete: if false;
     }
@@ -663,17 +707,9 @@ service cloud.firestore {
 
     match /conversations/{conversationId} {
 
-      allow read: if isAdmin() || (
-        signedIn()
-        && (resource.data.participants is list)
-        && (request.auth.uid in resource.data.participants)
-      );
+      allow read: if isAdmin() || isConversationParticipantByData(resource.data);
 
-      allow list: if isAdmin() || (
-        signedIn()
-        && (resource.data.participants is list)
-        && (request.auth.uid in resource.data.participants)
-      );
+      allow list: if isAdmin() || isConversationParticipantByData(resource.data);
 
       // Konuşma oluşturma
       allow create: if signedIn()

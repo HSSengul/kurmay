@@ -9,14 +9,12 @@ import {
   collection,
   doc,
   onSnapshot,
-  orderBy,
   query,
   where,
   QuerySnapshot,
   DocumentData,
   updateDoc,
   Timestamp,
-  limit,
 } from "firebase/firestore";
 import Link from "next/link";
 
@@ -360,72 +358,97 @@ export default function MessagesPage() {
 
     const page = clampInt(pageSize, 10, 200);
 
-    const q = query(
-      collection(db, "conversations"),
-      where("participants", "array-contains", userId),
-      orderBy("lastMessageAt", "desc"),
-      limit(page + 1)
-    );
+    const buyerDocs = new Map<string, DocumentData>();
+    const sellerDocs = new Map<string, DocumentData>();
+    let buyerReady = false;
+    let sellerReady = false;
 
-    const unsub = onSnapshot(
-      q,
+    const recompute = () => {
+      if (!buyerReady || !sellerReady) return;
+
+      const merged = new Map<string, DocumentData>();
+      buyerDocs.forEach((data, id) => merged.set(id, data));
+      sellerDocs.forEach((data, id) => merged.set(id, data));
+
+      const all = Array.from(merged.entries())
+        .map(([id, data]) => ({ id, ...(data as any) } as Conversation))
+        .sort(
+          (a, b) => getTimestampMillis(b.lastMessageAt) - getTimestampMillis(a.lastMessageAt)
+        );
+
+      const visible: Conversation[] = [];
+
+      all.forEach((c) => {
+        const data = c as any;
+        const myRole: "buyer" | "seller" = data.buyerId === userId ? "buyer" : "seller";
+        const clearedMs = getTimestampMillis(data.clearedAt?.[myRole]);
+        const lastMs = getTimestampMillis(data.lastMessageAt);
+
+        if (clearedMs) {
+          if (!lastMs) return;
+          if (lastMs <= clearedMs) return;
+        }
+
+        const totalMessages = Number(data.totalMessages ?? 0);
+
+        const hasLastMessage =
+          !!data.lastMessage &&
+          (data.lastMessage.type === "image" ||
+            data.lastMessage.type === "system" ||
+            (typeof data.lastMessage.text === "string" &&
+              data.lastMessage.text.trim().length > 0));
+
+        const isDraft = totalMessages <= 0 && !hasLastMessage;
+        if (isDraft) return;
+
+        visible.push(c);
+      });
+
+      setHasMore(visible.length > page);
+      setConversations(visible.slice(0, page));
+      setLoading(false);
+      setLoadError(null);
+    };
+
+    const buyerQuery = query(collection(db, "conversations"), where("buyerId", "==", userId));
+    const sellerQuery = query(collection(db, "conversations"), where("sellerId", "==", userId));
+
+    const unsubBuyer = onSnapshot(
+      buyerQuery,
       (snap: QuerySnapshot<DocumentData>) => {
-        const docs = snap.docs;
-        const rawHasMore = docs.length > page;
-
-        setHasMore(rawHasMore);
-
-        const sliceDocs = rawHasMore ? docs.slice(0, page) : docs;
-
-        const list: Conversation[] = [];
-
-        sliceDocs.forEach((d) => {
-          const data = d.data() as any;
-
-          const myRole: "buyer" | "seller" = data.buyerId === userId ? "buyer" : "seller";
-          const clearedMs = getTimestampMillis(data.clearedAt?.[myRole]);
-          const lastMs = getTimestampMillis(data.lastMessageAt);
-
-          // ✅ SADECE clearedAt
-          // kullanıcı sildi -> clearedAt setlenir
-          // lastMessageAt <= clearedAt ise inbox'ta görünmez
-          if (clearedMs) {
-            if (!lastMs) return;
-            if (lastMs <= clearedMs) return;
-          }
-
-          // ✅ DRAFT FİLTRESİ: mesaj atılmamış sohbet inbox'a düşmesin
-          const totalMessages = Number(data.totalMessages ?? 0);
-
-          const hasLastMessage =
-            !!data.lastMessage &&
-            (data.lastMessage.type === "image" ||
-              data.lastMessage.type === "system" ||
-              (typeof data.lastMessage.text === "string" &&
-                data.lastMessage.text.trim().length > 0));
-
-          const isDraft = totalMessages <= 0 && !hasLastMessage;
-
-          if (isDraft) {
-            return;
-          }
-
-          list.push({ id: d.id, ...data });
-        });
-
-        setConversations(list);
-        setLoading(false);
-        setLoadError(null);
+        buyerDocs.clear();
+        snap.docs.forEach((d) => buyerDocs.set(d.id, d.data()));
+        buyerReady = true;
+        recompute();
       },
       (err) => {
-        devError("MessagesPage onSnapshot error:", err);
+        devError("MessagesPage buyer snapshot error:", err);
         setLoading(false);
         setHasMore(false);
         setLoadError(getFriendlyErrorMessage(err, "Mesajlar yüklenemedi."));
       }
     );
 
-    return () => unsub();
+    const unsubSeller = onSnapshot(
+      sellerQuery,
+      (snap: QuerySnapshot<DocumentData>) => {
+        sellerDocs.clear();
+        snap.docs.forEach((d) => sellerDocs.set(d.id, d.data()));
+        sellerReady = true;
+        recompute();
+      },
+      (err) => {
+        devError("MessagesPage seller snapshot error:", err);
+        setLoading(false);
+        setHasMore(false);
+        setLoadError(getFriendlyErrorMessage(err, "Mesajlar yüklenemedi."));
+      }
+    );
+
+    return () => {
+      unsubBuyer();
+      unsubSeller();
+    };
   }, [userId, pageSize]);
 
   const normalizedSearch = search.trim().toLowerCase();
