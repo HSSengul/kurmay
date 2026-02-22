@@ -1159,7 +1159,10 @@ function normalizeComparableValue(v: any) {
             );
           });
 
-        if (!isValid) return `"${f.label}" geçersiz seçim.`;
+        if (!isValid) {
+          if (f.required) return `"${f.label}" geçersiz seçim.`;
+          continue;
+        }
       }
 
       if (f.type === "multiselect") {
@@ -1179,7 +1182,10 @@ function normalizeComparableValue(v: any) {
                 normalizeComparableValue(ol) === normItem
               );
             });
-            if (!ok) return `"${f.label}" içinde geçersiz seçim var.`;
+            if (!ok) {
+              if (f.required) return `"${f.label}" içinde geçersiz seçim var.`;
+              continue;
+            }
           }
         }
       }
@@ -1238,7 +1244,8 @@ function normalizeComparableValue(v: any) {
         if (f.type === "multiselect") {
           if (Array.isArray(raw)) {
             const opts = normalizeOptions(f.options);
-            out[f.key] = raw.map((x) => {
+            const normalized = raw
+              .map((x) => {
               const rawItem = String(x);
               const normItem = normalizeComparableValue(rawItem);
               const match = opts.find((o) => {
@@ -1250,8 +1257,10 @@ function normalizeComparableValue(v: any) {
                   normalizeComparableValue(ol) === normItem
                 );
               });
-              return match ? String(match.value) : rawItem;
-            });
+              return match ? String(match.value) : "";
+            })
+              .filter(Boolean);
+            if (normalized.length > 0) out[f.key] = normalized;
           }
           continue;
         }
@@ -1268,7 +1277,7 @@ function normalizeComparableValue(v: any) {
               normalizeComparableValue(ol) === normValue
             );
           });
-          out[f.key] = match ? String(match.value) : rawValue;
+          if (match) out[f.key] = String(match.value);
           continue;
         }
 
