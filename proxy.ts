@@ -87,15 +87,19 @@ async function verifyAdminSession(token: string) {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const lowerPathname = pathname.toLowerCase();
+  const normalizedPathname = pathname
+    .toLocaleLowerCase("tr-TR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i");
 
-  if (lowerPathname.startsWith("/admin") && pathname !== lowerPathname) {
+  if (normalizedPathname.startsWith("/admin") && pathname !== normalizedPathname) {
     const url = request.nextUrl.clone();
-    url.pathname = lowerPathname;
+    url.pathname = normalizedPathname;
     return NextResponse.redirect(url, 308);
   }
 
-  if (lowerPathname.startsWith("/admin")) {
+  if (normalizedPathname.startsWith("/admin")) {
     const sessionToken = request.cookies.get("admin_session")?.value || "";
     const validSession = await verifyAdminSession(sessionToken);
     if (!validSession) {
