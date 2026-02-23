@@ -44,7 +44,14 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 const getCategoriesCached = unstable_cache(
-  async () => listCollection("categories", 500, 5),
+  async () => {
+    try {
+      return await listCollection("categories", 500, 5);
+    } catch (err) {
+      console.warn("[layout] categories fetch failed, fallback to []", err);
+      return [];
+    }
+  },
   ["kf_categories_layout"],
   { revalidate: 300 }
 );

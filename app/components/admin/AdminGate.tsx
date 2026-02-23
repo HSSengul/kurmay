@@ -4,14 +4,14 @@ import { ReactNode, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db, firebaseConfigReady } from "@/lib/firebase";
+import { auth, firebaseConfigReady } from "@/lib/firebase";
 import { getFriendlyErrorMessage } from "@/lib/logger";
 
 export default function AdminGate({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const configReady = firebaseConfigReady && !!auth;
 
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(configReady);
   const [ok, setOk] = useState(false);
 
   useEffect(() => {
@@ -37,36 +37,25 @@ export default function AdminGate({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!firebaseConfigReady || !auth || !db) {
-      setChecking(false);
-      return;
-    }
-    const unsub = onAuthStateChanged(auth, async (user) => {
+    if (!configReady || !auth) return;
+    const unsub = onAuthStateChanged(auth, (user) => {
       if (!user) {
-        router.push("/login");
-        return;
-      }
-
-      try {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        const role = snap.exists() ? (snap.data() as any).role : null;
-
-        if (role === "admin") {
-          setOk(true);
-        } else {
-          router.push("/my");
-          return;
-        }
-      } catch (err) {
-        router.push("/my");
-        return;
-      } finally {
+        const next =
+          typeof window !== "undefined"
+            ? `${window.location.pathname}${window.location.search}`
+            : "/admin/dashboard";
+        router.replace(`/login?next=${encodeURIComponent(next)}`);
         setChecking(false);
+        return;
       }
+      // Admin yetkisi middleware + admin_session cookie ile doğrulanıyor.
+      // Burada sadece aktif auth oturumu olup olmadığını kontrol ediyoruz.
+      setOk(true);
+      setChecking(false);
     });
 
     return () => unsub();
-  }, [router]);
+  }, [configReady, router]);
 
   if (checking) {
     return (
@@ -78,7 +67,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!firebaseConfigReady || !auth || !db) {
+  if (!configReady) {
     return (
       <div className="min-h-screen bg-[#f7f4ef] px-4 py-10">
         <div className="max-w-3xl mx-auto bg-white/90 rounded-3xl border border-rose-200 shadow-sm p-8 text-center">
