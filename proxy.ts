@@ -87,8 +87,15 @@ async function verifyAdminSession(token: string) {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const lowerPathname = pathname.toLowerCase();
 
-  if (pathname.startsWith("/admin")) {
+  if (lowerPathname.startsWith("/admin") && pathname !== lowerPathname) {
+    const url = request.nextUrl.clone();
+    url.pathname = lowerPathname;
+    return NextResponse.redirect(url, 308);
+  }
+
+  if (lowerPathname.startsWith("/admin")) {
     const sessionToken = request.cookies.get("admin_session")?.value || "";
     const validSession = await verifyAdminSession(sessionToken);
     if (!validSession) {
@@ -110,5 +117,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|api).*)"],
 };
