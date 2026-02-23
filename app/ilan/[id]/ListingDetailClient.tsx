@@ -89,6 +89,7 @@ type PublicProfile = {
   email?: string;
   address?: string;
   showPhone?: boolean;
+  showEmail?: boolean;
   showAddress?: boolean;
   showWebsiteInstagram?: boolean;
 };
@@ -97,6 +98,11 @@ type PublicContact = {
   phone?: string;
   email?: string;
   address?: string;
+  websiteInstagram?: string;
+  showPhone?: boolean;
+  showEmail?: boolean;
+  showAddress?: boolean;
+  showWebsiteInstagram?: boolean;
 };
 
 type ListingDetailClientProps = {
@@ -644,26 +650,45 @@ export default function ListingDetailClient({
   }, [seller?.displayName, seller?.name]);
 
   const showPhone = seller?.showPhone !== false;
+  const showEmail = seller?.showEmail === true;
   const showAddress = seller?.showAddress !== false;
   const showWebsite = seller?.showWebsiteInstagram !== false;
 
   const contactPhone = useMemo(() => {
     if (showPhone && seller?.phone) return seller.phone;
-    if (publicContact?.phone) return publicContact.phone;
+    if (
+      currentUserId &&
+      publicContact?.showPhone !== false &&
+      publicContact?.phone
+    ) {
+      return publicContact.phone;
+    }
     return "";
-  }, [showPhone, seller?.phone, publicContact?.phone]);
+  }, [showPhone, seller?.phone, currentUserId, publicContact?.showPhone, publicContact?.phone]);
 
   const contactEmail = useMemo(() => {
-    if (seller?.email) return seller.email;
-    if (publicContact?.email) return publicContact.email;
+    if (showEmail && seller?.email) return seller.email;
+    if (
+      currentUserId &&
+      publicContact?.showEmail !== false &&
+      publicContact?.email
+    ) {
+      return publicContact.email;
+    }
     return "";
-  }, [seller?.email, publicContact?.email]);
+  }, [showEmail, seller?.email, currentUserId, publicContact?.showEmail, publicContact?.email]);
 
   const contactAddress = useMemo(() => {
     if (showAddress && seller?.address) return seller.address;
-    if (publicContact?.address) return publicContact.address;
+    if (
+      currentUserId &&
+      publicContact?.showAddress !== false &&
+      publicContact?.address
+    ) {
+      return publicContact.address;
+    }
     return "";
-  }, [showAddress, seller?.address, publicContact?.address]);
+  }, [showAddress, seller?.address, currentUserId, publicContact?.showAddress, publicContact?.address]);
 
   const waLink = useMemo(() => {
     if (!contactPhone) return "";
@@ -671,9 +696,24 @@ export default function ListingDetailClient({
   }, [contactPhone]);
 
   const websiteInstagramLink = useMemo(() => {
-    if (!seller?.websiteInstagram || !showWebsite) return "";
-    return normalizeWebsiteInstagramLink(seller.websiteInstagram);
-  }, [seller?.websiteInstagram, showWebsite]);
+    if (showWebsite && seller?.websiteInstagram) {
+      return normalizeWebsiteInstagramLink(seller.websiteInstagram);
+    }
+    if (
+      currentUserId &&
+      publicContact?.showWebsiteInstagram !== false &&
+      publicContact?.websiteInstagram
+    ) {
+      return normalizeWebsiteInstagramLink(publicContact.websiteInstagram);
+    }
+    return "";
+  }, [
+    showWebsite,
+    seller?.websiteInstagram,
+    currentUserId,
+    publicContact?.showWebsiteInstagram,
+    publicContact?.websiteInstagram,
+  ]);
 
   const hasImages = !!listing?.imageUrls && listing.imageUrls.length > 0;
   const listingImages = Array.isArray(listing?.imageUrls)
@@ -796,14 +836,12 @@ export default function ListingDetailClient({
   const boardGameInfoTags = useMemo(() => {
     if (!isBoardGameCategory) return [] as string[];
     const tags: string[] = [];
-    if (boardGameDetails.gameName) tags.push(`Oyun: ${boardGameDetails.gameName}`);
     if (boardGameDetails.players) tags.push(`Oyuncu: ${boardGameDetails.players}`);
     if (boardGameDetails.playtime) tags.push(`Süre: ${boardGameDetails.playtime}`);
     if (boardGameAgeLabel) tags.push(`Yaş: ${boardGameAgeLabel}`);
     return tags;
   }, [
     isBoardGameCategory,
-    boardGameDetails.gameName,
     boardGameDetails.players,
     boardGameDetails.playtime,
     boardGameAgeLabel,
@@ -956,8 +994,6 @@ export default function ListingDetailClient({
           ) : (
             <span>{listing.subCategoryName}</span>
           )}
-          <span className="text-[#b79b84]">›</span>
-          <span className="text-[#3f2a1a] line-clamp-1">{listing.title}</span>
         </div>
 
         <div className="grid grid-cols-1 gap-8">
@@ -974,29 +1010,13 @@ export default function ListingDetailClient({
                     {fmtTL(Number(listing.price ?? 0))}
                   </div>
                 </div>
-                {(listing.conditionLabel || listing.conditionKey) && (
-                  <div className="sm:hidden text-sm font-medium text-[#7a5a40]">
-                    {listing.conditionLabel || listing.conditionKey}
-                  </div>
-                )}
-                <div className="flex items-center gap-2 text-xs sm:text-sm text-[#7a5a40] whitespace-nowrap overflow-x-auto">
-                  <span className="font-medium text-[#6b4b33]">
-                    {listing.categoryName} / {listing.subCategoryName}
-                  </span>
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-[#7a5a40]">
                   {(listing.conditionLabel || listing.conditionKey) && (
-                    <>
-                      <span className="hidden sm:inline text-[#c3a58a]">•</span>
-                      <span className="hidden sm:inline">
-                        {listing.conditionLabel || listing.conditionKey}
-                      </span>
-                    </>
+                    <span className="font-medium text-[#6b4b33]">
+                      {listing.conditionLabel || listing.conditionKey}
+                    </span>
                   )}
-                  {publishedAt && (
-                    <>
-                      <span className="text-[#c3a58a]">•</span>
-                      <span>{publishedAt}</span>
-                    </>
-                  )}
+                  {publishedAt && <span className="ml-auto shrink-0 text-right">{publishedAt}</span>}
                 </div>
               </div>
             </div>
@@ -1047,38 +1067,55 @@ export default function ListingDetailClient({
                   </div>
 
                   {hasImages && (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-                      {listingImages.map((url, i) => (
-                        <button
-                          key={`${url}-${i}`}
-                          type="button"
-                          onClick={() => setMainImage(url)}
-                          className={`rounded-2xl overflow-hidden border transition ${
-                            mainImage === url
-                              ? "border-[#1f2a24] ring-1 ring-[#1f2a24]"
-                              : "border-[#ead8c5] hover:border-[#c7b199]"
-                          } relative`}
-                          title="Görseli büyüt"
-                        >
-                          <Image
-                            src={url}
-                            alt={`thumb-${i}`}
-                            fill
-                            sizes="(max-width: 640px) 22vw, (max-width: 1024px) 18vw, 96px"
-                            className="object-cover"
-                            quality={45}
+                    <>
+                      <div className="sm:hidden mx-auto w-40">
+                        <div className="h-1.5 rounded-full bg-[#ead8c5] overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-[#1f2a24] transition-all duration-300"
+                            style={{
+                              width: `${Math.max(
+                                8,
+                                ((Math.max(mainImageIndex, 0) + 1) / Math.max(listingImages.length, 1)) *
+                                  100
+                              )}%`,
+                            }}
                           />
-                        </button>
-                      ))}
-                    </div>
+                        </div>
+                      </div>
+
+                      <div className="hidden sm:grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+                        {listingImages.map((url, i) => (
+                          <button
+                            key={`${url}-${i}`}
+                            type="button"
+                            onClick={() => setMainImage(url)}
+                            className={`rounded-2xl overflow-hidden border transition ${
+                              mainImage === url
+                                ? "border-[#1f2a24] ring-1 ring-[#1f2a24]"
+                                : "border-[#ead8c5] hover:border-[#c7b199]"
+                            } relative aspect-[4/3]`}
+                            title="Görseli büyüt"
+                          >
+                            <Image
+                              src={url}
+                              alt={`thumb-${i}`}
+                              fill
+                              sizes="(max-width: 1024px) 18vw, 96px"
+                              className="object-cover"
+                              quality={45}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </>
                   )}
 
                   {boardGameInfoTags.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="grid grid-flow-col auto-cols-fr gap-2 sm:flex sm:flex-wrap">
                       {boardGameInfoTags.map((tag) => (
                         <span
                           key={tag}
-                          className={`${chipBaseClass} border-[#ead8c5] bg-[#fff7ed] text-[#6b4b33]`}
+                          className={`${chipBaseClass} border-[#ead8c5] bg-[#fff7ed] text-[#6b4b33] justify-center text-center min-w-0 whitespace-nowrap overflow-hidden text-ellipsis sm:justify-start sm:text-left`}
                         >
                           {tag}
                         </span>
@@ -1094,9 +1131,9 @@ export default function ListingDetailClient({
                       <div className="space-y-2">
                         <div className="grid grid-cols-4 gap-2">
                           <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 col-span-3">
-                            <div className="text-xs text-[#8a6a4f]">İlan başlığı</div>
+                            <div className="text-xs text-[#8a6a4f]">Oyunun resmi adı</div>
                             <div className="text-sm font-semibold text-[#3f2a1a]">
-                              {listing.title}
+                              {boardGameDetails.gameName || "Belirtilmemiş"}
                             </div>
                           </div>
                           <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2 col-span-1 text-right">
@@ -1115,9 +1152,9 @@ export default function ListingDetailClient({
                             </div>
                           </div>
                           <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
-                            <div className="text-xs text-[#8a6a4f]">Takas edilebilir mi?</div>
+                            <div className="text-xs text-[#8a6a4f]">Dil</div>
                             <div className="text-sm font-semibold text-[#3f2a1a]">
-                              {tradeText}
+                              {boardGameDetails.language || "Belirtilmemiş"}
                             </div>
                           </div>
                           <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
@@ -1127,9 +1164,9 @@ export default function ListingDetailClient({
                             </div>
                           </div>
                           <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
-                            <div className="text-xs text-[#8a6a4f]">Dil</div>
+                            <div className="text-xs text-[#8a6a4f]">Takas edilebilir mi?</div>
                             <div className="text-sm font-semibold text-[#3f2a1a]">
-                              {boardGameDetails.language || "Belirtilmemiş"}
+                              {tradeText}
                             </div>
                           </div>
                           <div className="rounded-2xl border border-[#ead8c5] bg-white/80 px-3 py-2">
@@ -1273,7 +1310,7 @@ export default function ListingDetailClient({
                     </a>
                   )}
 
-                  {seller?.websiteInstagram && showWebsite && (
+                  {websiteInstagramLink && (
                     <a
                       href={websiteInstagramLink}
                       target="_blank"
@@ -1344,102 +1381,53 @@ export default function ListingDetailClient({
                         Profilde paylaşılan
                       </div>
 
-                      {seller?.email ? (
+                      {publicContactLoading ? (
+                        <div className="text-[#9b7b5a]">İletişim bilgileri yükleniyor...</div>
+                      ) : null}
+
+                      {contactEmail ? (
                         <div className="text-[#5a4330]">
                           <span className="font-semibold">E-posta:</span>{" "}
-                          <a href={`mailto:${seller.email}`} className="underline">
-                            {seller.email}
+                          <a href={`mailto:${contactEmail}`} className="underline">
+                            {contactEmail}
                           </a>
                         </div>
                       ) : (
                         <div className="text-[#9b7b5a]">E-posta paylaşılmadı.</div>
                       )}
 
-                      {showWebsite ? (
-                        seller?.websiteInstagram ? (
-                          <div className="text-[#5a4330]">
-                            <span className="font-semibold">Website / Instagram:</span>{" "}
-                            <span className="underline">{seller.websiteInstagram}</span>
-                          </div>
-                        ) : (
-                          <div className="text-[#9b7b5a]">Website / Instagram paylaşılmadı.</div>
-                        )
-                      ) : (
-                        <div className="text-[#9b7b5a]">Website / Instagram gizli tutuluyor.</div>
-                      )}
-
-                      {showPhone ? (
-                        seller?.phone ? (
-                          <div className="text-[#5a4330]">
-                            <span className="font-semibold">Telefon:</span>{" "}
-                            <span className="underline">{seller.phone}</span>
-                          </div>
-                        ) : (
-                          <div className="text-[#9b7b5a]">Telefon paylaşılmadı.</div>
-                        )
-                      ) : (
-                        <div className="text-[#9b7b5a]">Telefon gizli tutuluyor.</div>
-                      )}
-
-                      {showAddress ? (
-                        seller?.address ? (
-                          <div className="text-[#5a4330]">
-                            <span className="font-semibold">Adres:</span>{" "}
-                            <span className="whitespace-pre-line">{seller.address}</span>
-                          </div>
-                        ) : (
-                          <div className="text-[#9b7b5a]">Adres paylaşılmadı.</div>
-                        )
-                      ) : (
-                        <div className="text-[#9b7b5a]">Adres gizli tutuluyor.</div>
-                      )}
-
-                      <div className="pt-2 text-[10px] uppercase tracking-[0.2em] text-[#9b7b5a]">
-                        İzinli iletişim (giriş yapanlara)
-                      </div>
-
-                      {publicContactLoading ? (
-                        <div className="text-[#9b7b5a]">Yükleniyor...</div>
-                      ) : publicContact ? (
-                        <>
-                          {publicContact.email ? (
-                            <div className="text-[#5a4330]">
-                              <span className="font-semibold">E-posta:</span>{" "}
-                              <a
-                                href={`mailto:${publicContact.email}`}
-                                className="underline"
-                              >
-                                {publicContact.email}
-                              </a>
-                            </div>
-                          ) : (
-                            <div className="text-[#9b7b5a]">E-posta paylaşılmadı.</div>
-                          )}
-
-                          {publicContact.phone ? (
-                            <div className="text-[#5a4330]">
-                              <span className="font-semibold">Telefon:</span>{" "}
-                              <span className="underline">{publicContact.phone}</span>
-                            </div>
-                          ) : (
-                            <div className="text-[#9b7b5a]">Telefon paylaşılmadı.</div>
-                          )}
-
-                          {publicContact.address ? (
-                            <div className="text-[#5a4330]">
-                              <span className="font-semibold">Adres:</span>{" "}
-                              <span className="whitespace-pre-line">
-                                {publicContact.address}
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="text-[#9b7b5a]">Adres paylaşılmadı.</div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="text-[#9b7b5a]">
-                          Satıcı izinli iletişim bilgisi paylaşmadı.
+                      {websiteInstagramLink ? (
+                        <div className="text-[#5a4330]">
+                          <span className="font-semibold">Website / Instagram:</span>{" "}
+                          <a
+                            href={websiteInstagramLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline"
+                          >
+                            {websiteInstagramLink}
+                          </a>
                         </div>
+                      ) : (
+                        <div className="text-[#9b7b5a]">Website / Instagram paylaşılmadı.</div>
+                      )}
+
+                      {contactPhone ? (
+                        <div className="text-[#5a4330]">
+                          <span className="font-semibold">Telefon:</span>{" "}
+                          <span className="underline">{contactPhone}</span>
+                        </div>
+                      ) : (
+                        <div className="text-[#9b7b5a]">Telefon paylaşılmadı.</div>
+                      )}
+
+                      {contactAddress ? (
+                        <div className="text-[#5a4330]">
+                          <span className="font-semibold">Adres:</span>{" "}
+                          <span className="whitespace-pre-line">{contactAddress}</span>
+                        </div>
+                      ) : (
+                        <div className="text-[#9b7b5a]">Adres paylaşılmadı.</div>
                       )}
                     </>
                   )}
