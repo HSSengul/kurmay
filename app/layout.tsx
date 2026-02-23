@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { unstable_cache } from "next/cache";
 import "./globals.css";
@@ -22,18 +22,21 @@ const siteUrl =
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "İlan Sitesi",
-  description: "Basit ilan platformu",
+  title: {
+    default: "Kurmay",
+    template: "%s | Kurmay",
+  },
+  description: "Hobi ve oyun pazaryeri",
   openGraph: {
-    title: "İlan Sitesi",
-    description: "Basit ilan platformu",
+    title: "Kurmay",
+    description: "Hobi ve oyun pazaryeri",
     url: siteUrl,
     images: [{ url: `${siteUrl}/opengraph-image` }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "İlan Sitesi",
-    description: "Basit ilan platformu",
+    title: "Kurmay",
+    description: "Hobi ve oyun pazaryeri",
     images: [`${siteUrl}/opengraph-image`],
   },
 };

@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "İlan Haritası",
-  description: "Yüklenen ilanları harita üzerinde görüntüle.",
+  title: "Harita",
+  description: "Yuklenen ilanlari harita uzerinde goruntule.",
 };
 
 export default function HaritaLayout({
