@@ -241,11 +241,11 @@ function LoginPageInner() {
       } catch {
         // doc yazımı patlarsa bile kullanıcıyı login’de kilitlemeyelim
       }
-      router.push(nextPath);
+      await redirectAfterAuth(u);
     });
 
     return () => unsub();
-  }, [router, nextPath]);
+  }, [redirectAfterAuth]);
 
   /* =======================
      ACTIONS
@@ -255,6 +255,56 @@ function LoginPageInner() {
     setError("");
     setMessage("");
   };
+
+  async function ensureAdminSessionIfNeeded(
+    u: User
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    if (!nextPath.toLowerCase().startsWith("/admin")) return { ok: true };
+
+    try {
+      const idToken = await u.getIdToken(true);
+      const res = await fetch("/api/admin/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ idToken }),
+      });
+
+      if (res.ok) return { ok: true };
+
+      let reason = "";
+      try {
+        const data = (await res.json()) as { error?: string };
+        reason = String(data?.error || "");
+      } catch {
+        reason = "";
+      }
+
+      if (reason === "not_admin") {
+        return { ok: false, message: "Bu hesap admin yetkisine sahip degil." };
+      }
+      if (reason === "user_doc_denied") {
+        return {
+          ok: false,
+          message:
+            "Admin rol kontrolu yapilamadi. Firestore users/uid okuma iznini kontrol et.",
+        };
+      }
+      return { ok: false, message: "Admin oturumu acilamadi. Tekrar dene." };
+    } catch {
+      return { ok: false, message: "Admin oturumu acilamadi. Tekrar dene." };
+    }
+  }
+
+  async function redirectAfterAuth(u: User) {
+    const adminSession = await ensureAdminSessionIfNeeded(u);
+    if (!adminSession.ok) {
+      setError(adminSession.message);
+      router.replace("/");
+      return;
+    }
+    router.push(nextPath);
+  }
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -385,7 +435,7 @@ function LoginPageInner() {
 
       // Zaten password linked ise normal akış
       await ensureUserDocs(u);
-      router.push(nextPath);
+      await redirectAfterAuth(u);
     } catch (err: any) {
       setError(firebaseErrorToTR(err?.code));
     } finally {
@@ -434,7 +484,7 @@ function LoginPageInner() {
         // Demek ki zaten password var; kullanıcı yanlışlıkla burada
         setMessage("Bu hesap zaten şifre ile giriş destekliyor ✅");
         await ensureUserDocs(u);
-        router.push(nextPath);
+        await redirectAfterAuth(u);
         return;
       }
 
@@ -455,7 +505,7 @@ function LoginPageInner() {
       await ensureUserDocs(u);
 
       setMessage("Şifre oluşturuldu ✅ Artık Google veya şifre ile giriş yapabilirsin.");
-      router.push(nextPath);
+      await redirectAfterAuth(u);
     } catch (err: any) {
       setError(firebaseErrorToTR(err?.code));
     } finally {
