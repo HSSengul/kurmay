@@ -200,6 +200,11 @@ function LoginPageInner() {
     "login"
   );
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.title = mode === "setpw" ? "Sifre Degistir | Kurmay" : "Giris Yap | Kurmay";
+  }, [mode]);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 

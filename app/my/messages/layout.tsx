@@ -1,11 +1,11 @@
 ﻿import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Hesabım",
+  title: "Mesajlar",
   robots: { index: false, follow: false },
 };
 
-export default function MyLayout({
+export default function MessagesLayout({
   children,
 }: {
   children: React.ReactNode;
