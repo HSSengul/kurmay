@@ -43,10 +43,22 @@ export async function POST(request: Request) {
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "";
   const sessionSecret = getSessionSecret();
+  const missing: string[] = [];
+  if (!apiKey) missing.push("NEXT_PUBLIC_FIREBASE_API_KEY");
+  if (!projectId) missing.push("NEXT_PUBLIC_FIREBASE_PROJECT_ID");
+  if (!sessionSecret) {
+    missing.push(
+      "ADMIN_SESSION_SECRET (or FIREBASE_ADMIN_SESSION_SECRET or NEXTAUTH_SECRET)"
+    );
+  }
 
-  if (!apiKey || !projectId || !sessionSecret) {
+  if (missing.length > 0) {
     return NextResponse.json(
-      { ok: false, error: "missing_env_or_session_secret" },
+      {
+        ok: false,
+        error: "missing_env_or_session_secret",
+        missing,
+      },
       { status: 500 }
     );
   }

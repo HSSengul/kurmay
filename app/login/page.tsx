@@ -283,6 +283,13 @@ function LoginPageInner() {
       if (reason === "not_admin") {
         return { ok: false, message: "Bu hesap admin yetkisine sahip degil." };
       }
+      if (reason === "missing_env_or_session_secret") {
+        return {
+          ok: false,
+          message:
+            "Sunucu admin oturumu ayarlanmamis. Vercel env: ADMIN_SESSION_SECRET eksik.",
+        };
+      }
       if (reason === "user_doc_denied") {
         return {
           ok: false,
@@ -300,7 +307,6 @@ function LoginPageInner() {
     const adminSession = await ensureAdminSessionIfNeeded(u);
     if (!adminSession.ok) {
       setError(adminSession.message);
-      router.replace("/");
       return;
     }
     router.push(nextPath);
