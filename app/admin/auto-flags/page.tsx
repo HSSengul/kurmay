@@ -92,7 +92,9 @@ function parseMessageIdFromTargetPath(targetPath?: string) {
 function getAdminTargetHref(row: AutoFlagRow): string | null {
   if (!row?.targetType || !row?.targetId) return null;
 
-  if (row.targetType === "listing") return `/admin/listings/${row.targetId}`;
+  if (row.targetType === "listing") {
+    return `/admin/listings?listingId=${encodeURIComponent(row.targetId)}`;
+  }
   if (row.targetType === "user") return `/admin/users?uid=${row.targetId}`;
 
   if (row.targetType === "message") {
@@ -105,8 +107,10 @@ function getAdminTargetHref(row: AutoFlagRow): string | null {
       parseMessageIdFromTargetPath(row.targetPath);
 
     if (!convId) return null;
-    if (msgId) return `/admin/chats/${convId}?message=${msgId}`;
-    return `/admin/chats/${convId}`;
+    const params = new URLSearchParams();
+    params.set("conversationId", convId);
+    if (msgId) params.set("messageId", msgId);
+    return `/admin/logs?${params.toString()}`;
   }
 
   return null;
@@ -212,12 +216,37 @@ export default function AdminAutoFlagsPage() {
     load();
   }, [status]);
 
+  async function copyPath(path: string) {
+    if (!path) {
+      showToast({
+        type: "info",
+        title: "Path yok",
+        text: "Bu flag kaydinda targetPath bulunamadi.",
+      });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(path);
+      showToast({
+        type: "success",
+        title: "Kopyalandi",
+        text: "Target path panoya kopyalandi.",
+      });
+    } catch {
+      showToast({
+        type: "error",
+        title: "Kopyalanamadi",
+        text: "Tarayici pano izni vermedi.",
+      });
+    }
+  }
+
   return (
     <div className="space-y-4">
       <ToastView toast={toast} />
 
-      <div className="border rounded-2xl bg-white p-5">
-        <div className="flex items-start justify-between gap-3">
+      <div className="border rounded-2xl bg-white p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div className="min-w-0">
             <div className="text-xs text-gray-500">Admin</div>
             <div className="mt-1 text-xl font-semibold text-gray-900">Oto Bayraklar</div>
@@ -230,7 +259,7 @@ export default function AdminAutoFlagsPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/admin/dashboard"
               className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 active:bg-gray-100 text-sm"
@@ -292,7 +321,7 @@ export default function AdminAutoFlagsPage() {
         </div>
       </div>
 
-      <div className="border rounded-2xl bg-white p-5">
+      <div className="border rounded-2xl bg-white p-4 sm:p-5">
         <div className="flex items-center justify-between">
           <div className="text-sm font-semibold text-gray-900">Liste (max 50)</div>
           <div className="text-xs text-gray-500">status == {status}</div>
@@ -313,7 +342,7 @@ export default function AdminAutoFlagsPage() {
                   key={r.id}
                   className="border rounded-2xl p-4 hover:bg-gray-50 transition"
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className="text-sm font-semibold text-gray-900">
@@ -345,7 +374,7 @@ export default function AdminAutoFlagsPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-2 shrink-0">
+                    <div className="flex flex-col gap-2 shrink-0 w-full sm:w-auto">
                       {href ? (
                         <Link
                           href={href}
@@ -415,7 +444,7 @@ export default function AdminAutoFlagsPage() {
                       ) : null}
 
                       <button
-                        onClick={() => navigator.clipboard.writeText(r.targetPath)}
+                        onClick={() => copyPath(String(r.targetPath || ""))}
                         className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
                       >
                         📋 Path kopyala

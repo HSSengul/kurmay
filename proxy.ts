@@ -105,6 +105,7 @@ export async function proxy(request: NextRequest) {
     if (!validSession) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
+      url.search = "";
       url.searchParams.set("next", `${pathname}${request.nextUrl.search || ""}`);
       const response = NextResponse.redirect(url);
       response.cookies.set({

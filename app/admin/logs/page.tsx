@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   addDoc,
   collection,
@@ -35,6 +36,7 @@ type AdminLogRow = {
 
 export default function AdminLogsPage() {
   const { toast, showToast } = useToast();
+  const params = useSearchParams();
 
   const [rows, setRows] = useState<AdminLogRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,6 +49,11 @@ export default function AdminLogsPage() {
   const [noteEntityType, setNoteEntityType] = useState("");
   const [noteEntityId, setNoteEntityId] = useState("");
   const [saving, setSaving] = useState(false);
+  const conversationIdParam = (params.get("conversationId") || "").trim();
+  const messageIdParam = (params.get("messageId") || "").trim();
+  const deepLinkFilter = [conversationIdParam, messageIdParam]
+    .filter(Boolean)
+    .join(" ");
 
   async function load() {
     if (!db) return;
@@ -108,6 +115,11 @@ export default function AdminLogsPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (!deepLinkFilter) return;
+    setSearchText((prev) => (prev.trim() ? prev : deepLinkFilter));
+  }, [deepLinkFilter]);
+
   const filtered = useMemo(() => {
     const { lower } = normalizeTextTR(searchText);
     return rows.filter((r) => {
@@ -138,8 +150,8 @@ export default function AdminLogsPage() {
     <div className="space-y-4">
       <ToastView toast={toast} />
 
-      <div className="border border-slate-200/80 rounded-2xl bg-white/85 p-6 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
-        <div className="flex items-start justify-between gap-3">
+      <div className="border border-slate-200/80 rounded-2xl bg-white/85 p-4 sm:p-6 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
               Admin
@@ -231,6 +243,22 @@ export default function AdminLogsPage() {
         {error && (
           <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {error}
+          </div>
+        )}
+
+        {deepLinkFilter && (
+          <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+            Auto-flag baglantisi:
+            {conversationIdParam ? (
+              <span className="ml-1">
+                conversationId = <b>{conversationIdParam}</b>
+              </span>
+            ) : null}
+            {messageIdParam ? (
+              <span className="ml-2">
+                messageId = <b>{messageIdParam}</b>
+              </span>
+            ) : null}
           </div>
         )}
 

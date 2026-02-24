@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import {
   collection,
   doc,
@@ -67,6 +68,7 @@ function formatPriceTRY(v?: number) {
 
 export default function AdminListingsPage() {
   const { toast, showToast } = useToast();
+  const params = useSearchParams();
 
   const [rows, setRows] = useState<ListingRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -78,6 +80,7 @@ export default function AdminListingsPage() {
 
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const listingIdParam = (params.get("listingId") || "").trim();
 
   async function load() {
     if (!db) return;
@@ -106,6 +109,11 @@ export default function AdminListingsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (!listingIdParam) return;
+    setSearchText((prev) => (prev.trim() ? prev : listingIdParam));
+  }, [listingIdParam]);
 
   const categories = useMemo(() => {
     const s = new Set<string>();
@@ -203,8 +211,8 @@ export default function AdminListingsPage() {
     <div className="space-y-4">
       <ToastView toast={toast} />
 
-      <div className="border border-slate-200/80 rounded-2xl bg-white/85 p-6 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
-        <div className="flex items-start justify-between gap-3">
+      <div className="border border-slate-200/80 rounded-2xl bg-white/85 p-4 sm:p-6 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
               Admin
@@ -216,16 +224,25 @@ export default function AdminListingsPage() {
               Şüpheli ilanları kontrol et, durum değiştir, not bırak.
             </div>
           </div>
-          <button
-            type="button"
-            onClick={load}
-            className={cx(
-              "px-3 py-2 rounded-xl bg-gray-900 text-white text-sm",
-              loading ? "opacity-60 pointer-events-none" : ""
-            )}
-          >
-            ⟳ Yenile
-          </button>
+
+          <div className="flex items-center gap-2">
+            <Link
+              href="/admin/listings/new"
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-50"
+            >
+              + Ilan Ekle
+            </Link>
+            <button
+              type="button"
+              onClick={load}
+              className={cx(
+                "px-3 py-2 rounded-xl bg-gray-900 text-white text-sm",
+                loading ? "opacity-60 pointer-events-none" : ""
+              )}
+            >
+              Yenile
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2 items-center">
@@ -233,7 +250,7 @@ export default function AdminListingsPage() {
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="Ara..."
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[220px]"
+            className="w-full sm:w-auto sm:min-w-[220px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           />
           <select
             value={statusFilter}
@@ -241,7 +258,7 @@ export default function AdminListingsPage() {
               const next = e.target.value as ListingStatus | "";
               setStatusFilter(next);
             }}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
+            className="w-full sm:w-auto sm:min-w-[140px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           >
             {STATUS_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -252,7 +269,7 @@ export default function AdminListingsPage() {
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[160px]"
+            className="w-full sm:w-auto sm:min-w-[160px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           >
             <option value="">Tüm kategoriler</option>
             {categories.map((c) => (
@@ -262,7 +279,7 @@ export default function AdminListingsPage() {
             ))}
           </select>
 
-          <div className="ml-auto text-xs text-slate-500">
+          <div className="sm:ml-auto text-xs text-slate-500">
             Toplam: <span className="font-semibold">{filtered.length}</span>
           </div>
         </div>
@@ -270,6 +287,12 @@ export default function AdminListingsPage() {
         {error && (
           <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {error}
+          </div>
+        )}
+
+        {listingIdParam && (
+          <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+            Auto-flag baglantisi: <span className="font-semibold">{listingIdParam}</span>
           </div>
         )}
 
@@ -284,10 +307,14 @@ export default function AdminListingsPage() {
             filtered.map((r) => {
               const img = r.imageUrls?.[0];
               const status = r.adminStatus || "active";
+              const highlighted = listingIdParam && r.id === listingIdParam;
               return (
                 <div
                   key={r.id}
-                  className="border border-slate-200/80 rounded-2xl bg-white/90 p-4"
+                  className={cx(
+                    "border border-slate-200/80 rounded-2xl bg-white/90 p-4",
+                    highlighted ? "ring-2 ring-sky-300 border-sky-300" : ""
+                  )}
                 >
                   <div className="flex flex-col lg:flex-row gap-4">
                     <div className="flex items-start gap-3 min-w-0">
