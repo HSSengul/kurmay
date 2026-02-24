@@ -99,11 +99,14 @@ const withKey = (url: string) => {
 const fetchJson = async (url: string, init?: RequestInit) => {
   const finalInit: RequestInit = { ...(init || {}) };
   if (typeof window === "undefined") {
-    if (!(finalInit as any).next) {
-      (finalInit as any).next = { revalidate: 300 };
-    }
-    if (!finalInit.cache) {
-      finalInit.cache = "force-cache";
+    const cacheMode = finalInit.cache;
+    if (cacheMode !== "no-store") {
+      if (!(finalInit as any).next) {
+        (finalInit as any).next = { revalidate: 300 };
+      }
+      if (!finalInit.cache) {
+        finalInit.cache = "force-cache";
+      }
     }
   }
 
@@ -319,10 +322,12 @@ export async function runQueryByField<T = Record<string, any>>({
   }
 
   const url = withKey(`${base}/documents:runQuery`);
+  const shouldBypassCache = collectionId === "listings";
   const json = (await fetchJson(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    cache: shouldBypassCache ? "no-store" : "force-cache",
   })) as RunQueryResult[];
 
   const docs = json
@@ -363,10 +368,12 @@ export async function runCollectionQuery<T = Record<string, any>>({
   }
 
   const url = withKey(`${base}/documents:runQuery`);
+  const shouldBypassCache = collectionId === "listings";
   const json = (await fetchJson(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ structuredQuery }),
+    cache: shouldBypassCache ? "no-store" : "force-cache",
   })) as RunQueryResult[];
 
   const docs = json
