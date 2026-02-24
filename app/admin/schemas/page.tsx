@@ -1204,13 +1204,13 @@ export default function AdminSchemasPage() {
       <ToastView toast={toast} />
 
       {/* Ekranda TEK kontrol: tek buton */}
-      <div className="border rounded-2xl bg-white p-8 flex items-center justify-center">
+      <div className="border rounded-2xl bg-white p-4 sm:p-8 flex items-center justify-center">
         <button
           type="button"
           onClick={seedAllSchemasSingleButton}
           disabled={running}
           className={cx(
-            "w-full max-w-xl py-6 rounded-2xl text-lg font-bold transition",
+            "w-full max-w-xl py-4 sm:py-6 rounded-2xl text-sm sm:text-lg font-bold transition",
             running
               ? "bg-blue-300 text-white cursor-not-allowed"
               : "bg-blue-600 hover:bg-blue-700 text-white"

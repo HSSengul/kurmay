@@ -170,9 +170,13 @@ service cloud.firestore {
     }
 
     // 🔒 Onboarding tamam mı?
+    function onboardingCompletedFor(uid) {
+      return exists(/databases/$(database)/documents/publicProfiles/$(uid))
+        && get(/databases/$(database)/documents/publicProfiles/$(uid)).data.onboardingCompleted == true;
+    }
+
     function onboardingCompleted() {
-      return exists(/databases/$(database)/documents/publicProfiles/$(request.auth.uid))
-        && get(/databases/$(database)/documents/publicProfiles/$(request.auth.uid)).data.onboardingCompleted == true;
+      return signedIn() && onboardingCompletedFor(request.auth.uid);
     }
 
     /* ====== CHAT HELPERS (CONVERSATIONS / MESSAGES) ====== */
@@ -399,10 +403,22 @@ service cloud.firestore {
 
       // ➕ İlan oluşturma: sadece onboarding tamamlayan kullanıcı
       allow create: if signedIn()
-        && onboardingCompleted()
-        && !isUserBanned(request.auth.uid)
-        && !isUserBlockedListings(request.auth.uid)
-        && request.resource.data.ownerId == request.auth.uid
+        && (
+          (
+            request.resource.data.ownerId == request.auth.uid
+            && onboardingCompleted()
+            && !isUserBanned(request.auth.uid)
+            && !isUserBlockedListings(request.auth.uid)
+          )
+          || (
+            isAdmin()
+            && nonEmptyString(request.resource.data.ownerId, 128)
+            && exists(/databases/$(database)/documents/users/$(request.resource.data.ownerId))
+            && onboardingCompletedFor(request.resource.data.ownerId)
+            && !isUserBanned(request.resource.data.ownerId)
+            && !isUserBlockedListings(request.resource.data.ownerId)
+          )
+        )
         && nonEmptyString(request.resource.data.title, 120)
         && request.resource.data.price is number
         && request.resource.data.price >= 0
@@ -482,10 +498,15 @@ service cloud.firestore {
         // Yeni ilan akışında görsel yükleme sonrası finalize adımı:
         // sadece imageUrls + updatedAt değişebilir.
         signedIn()
-        && onboardingCompleted()
-        && !isUserBanned(request.auth.uid)
-        && !isUserBlockedListings(request.auth.uid)
-        && resource.data.ownerId == request.auth.uid
+        && (
+          (
+            onboardingCompleted()
+            && !isUserBanned(request.auth.uid)
+            && !isUserBlockedListings(request.auth.uid)
+            && resource.data.ownerId == request.auth.uid
+          )
+          || isAdmin()
+        )
         && request.resource.data.diff(resource.data).changedKeys()
           .hasOnly(["imageUrls", "updatedAt"])
         && validImages(request.resource.data.imageUrls)

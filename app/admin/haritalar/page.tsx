@@ -121,7 +121,7 @@ export default function AdminMapsPage() {
     <div className="space-y-4">
       <ToastView toast={toast} />
 
-      <div className="border border-slate-200/80 rounded-2xl bg-white/85 p-6 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
+      <div className="border border-slate-200/80 rounded-2xl bg-white/85 p-4 sm:p-6 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
         <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
           Admin
         </div>
@@ -190,7 +190,7 @@ export default function AdminMapsPage() {
           </div>
         </div>
 
-        <div className="mt-6 flex items-center gap-2">
+        <div className="mt-6 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={save}

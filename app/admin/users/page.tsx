@@ -578,7 +578,7 @@ export default function AdminUsersPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/admin/dashboard"
               className="px-3 py-2 rounded-xl border border-slate-200 bg-white/80 hover:bg-slate-50 text-sm"
@@ -633,14 +633,14 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-4">
+      <div className="grid grid-cols-1 2xl:grid-cols-[360px_1fr] gap-4">
         <div className="border border-slate-200/80 rounded-2xl bg-white/85 p-4 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold text-slate-900">Kullanıcılar</div>
             {loading ? <div className="text-xs text-slate-500">Yükleniyor…</div> : null}
           </div>
 
-          <div className="mt-3 space-y-2 max-h-[70vh] overflow-auto pr-1">
+          <div className="mt-3 space-y-2 max-h-[52vh] sm:max-h-[70vh] overflow-auto pr-1">
             {filteredUsers.length === 0 ? (
               <div className="text-sm text-slate-500 border border-slate-200/80 rounded-xl p-4 bg-slate-50">
                 Sonuç bulunamadı.

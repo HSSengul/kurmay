@@ -163,8 +163,8 @@ export default function AdminReportsPage() {
     <div className="space-y-4">
       <ToastView toast={toast} />
 
-      <div className="border border-slate-200/80 rounded-2xl bg-white/85 p-6 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
-        <div className="flex items-start justify-between gap-3">
+      <div className="border border-slate-200/80 rounded-2xl bg-white/85 p-4 sm:p-6 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.35)]">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
               Admin
@@ -194,14 +194,14 @@ export default function AdminReportsPage() {
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="Ara..."
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[220px]"
+            className="w-full sm:w-auto sm:min-w-[220px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           />
           <select
             value={statusFilter}
             onChange={(e) =>
               setStatusFilter(e.target.value as "" | ReportStatus)
             }
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-w-[140px]"
+            className="w-full sm:w-auto sm:min-w-[140px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           >
             {STATUS_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -210,7 +210,7 @@ export default function AdminReportsPage() {
             ))}
           </select>
 
-          <div className="ml-auto text-xs text-slate-500">
+          <div className="sm:ml-auto text-xs text-slate-500">
             Toplam: <span className="font-semibold">{filtered.length}</span>
           </div>
         </div>
@@ -264,7 +264,7 @@ export default function AdminReportsPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-2 shrink-0">
+                    <div className="flex flex-col sm:flex-col gap-2 shrink-0 w-full sm:w-auto">
                       {href && (
                         <Link
                           href={href}

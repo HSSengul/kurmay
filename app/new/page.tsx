@@ -9,7 +9,10 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   getDocFromServer,
+  limit,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -81,6 +84,17 @@ type ListingSchemaDoc = {
   fields: SchemaField[];
 };
 
+type AssignableUserOption = {
+  id: string;
+  email: string;
+  name: string;
+};
+
+type NewListingPageProps = {
+  adminMode?: boolean;
+  cancelHref?: string;
+};
+
 const DEFAULT_BOARDGAME_LANGUAGE_OPTIONS = [
   { value: "Turkce", label: "Türkçe" },
   { value: "Ingilizce", label: "İngilizce" },
@@ -93,7 +107,10 @@ const DEFAULT_BOARDGAME_LANGUAGE_OPTIONS = [
 
 const TEMP_LISTING_IMAGE_URL = "/window.svg";
 
-export default function NewListingPage() {
+export function NewListingPageClient({
+  adminMode = false,
+  cancelHref = "/",
+}: NewListingPageProps = {}) {
     // ================= STATE =================
     const router = useRouter();
     // Kategoriler ve alt kategoriler
@@ -111,6 +128,10 @@ export default function NewListingPage() {
     const [attributes, setAttributes] = useState<Record<string, any>>({});
     // Kullanıcı ve gate
     const [userId, setUserId] = useState<string | null>(null);
+    const [isCurrentUserAdmin, setIsCurrentUserAdmin] = useState(false);
+    const [assignUsersLoading, setAssignUsersLoading] = useState(false);
+    const [assignableUsers, setAssignableUsers] = useState<AssignableUserOption[]>([]);
+    const [assignedOwnerId, setAssignedOwnerId] = useState("");
     const [profileSummary, setProfileSummary] = useState<PublicProfile | null>(null);
     const [gateAllowed, setGateAllowed] = useState(false);
     const [gateChecking, setGateChecking] = useState(true);
@@ -151,6 +172,9 @@ export default function NewListingPage() {
         ),
       [selectedMainCategory]
     );
+
+    const isAdminAssignMode = adminMode && isCurrentUserAdmin;
+    const effectiveOwnerId = isAdminAssignMode ? assignedOwnerId : userId;
 
     const isBoardGameCategory = selectedMainCategorySlug === "kutu-oyunlari";
     const isConsoleCategory = selectedMainCategorySlug === "konsollar";
@@ -827,16 +851,97 @@ function normalizeComparableValue(v: any) {
       }
 
       setUserId(user.uid);
+      setError("");
 
+      try {
+        const currentUserSnap = await getDoc(doc(db, "users", user.uid));
+        const currentRole = String((currentUserSnap.data() as any)?.role || "user");
+        const admin = currentRole === "admin";
+        setIsCurrentUserAdmin(admin);
+
+        if (adminMode && !admin) {
+          setGateAllowed(false);
+          setGateChecking(false);
+          setGateMissingReasons(["Bu sayfaya erisim icin admin rolu gerekli."]);
+          setError("Bu sayfaya erisim icin admin rolu gerekli.");
+          return;
+        }
+
+        if (adminMode && admin) {
+          setAssignUsersLoading(true);
+          const usersSnap = await getDocs(
+            query(collection(db, "users"), limit(500))
+          );
+
+          const options = usersSnap.docs
+            .map((d) => {
+              const data = d.data() as any;
+              const email = String(data?.email || "").trim();
+              const name = String(data?.name || "").trim();
+              return {
+                id: d.id,
+                email,
+                name,
+              } as AssignableUserOption;
+            })
+            .filter((u) => u.id)
+            .sort((a, b) => {
+              const left = (a.name || a.email || a.id).toLocaleLowerCase("tr-TR");
+              const right = (b.name || b.email || b.id).toLocaleLowerCase("tr-TR");
+              return left.localeCompare(right, "tr");
+            });
+
+          setAssignableUsers(options);
+          setAssignedOwnerId((prev) => {
+            if (prev && options.some((u) => u.id === prev)) return prev;
+            const firstNonAdmin = options.find((u) => u.id !== user.uid);
+            return (firstNonAdmin || options[0])?.id || "";
+          });
+        } else {
+          setAssignableUsers([]);
+          setAssignedOwnerId("");
+        }
+      } catch (err) {
+        devError("Admin/user preload error", err);
+        setGateAllowed(false);
+        setGateChecking(false);
+        setGateMissingReasons(["Kullanici bilgileri alinamadi."]);
+        setError("Kullanici bilgileri yuklenemedi. Lutfen tekrar dene.");
+      } finally {
+        setAssignUsersLoading(false);
+      }
+    });
+
+    return () => unsub();
+  }, [adminMode, router]);
+
+  useEffect(() => {
+    if (!userId) return;
+    if (adminMode && !isCurrentUserAdmin) return;
+
+    if (isAdminAssignMode && !assignedOwnerId) {
+      setProfileSummary(null);
+      setGateAllowed(false);
+      setGateChecking(false);
+      setGateMissingReasons(["Once ilanin sahibi olacak kullaniciyi sec."]);
+      return;
+    }
+
+    const targetUid = isAdminAssignMode ? assignedOwnerId : userId;
+    if (!targetUid) return;
+
+    let alive = true;
+
+    const run = async () => {
       try {
         setGateChecking(true);
 
-        const publicRef = doc(db, "publicProfiles", user.uid);
-        const privateRef = doc(db, "privateProfiles", user.uid);
         const [publicSnap, privateSnap] = await Promise.all([
-          getDoc(publicRef),
-          getDoc(privateRef),
+          getDoc(doc(db, "publicProfiles", targetUid)),
+          getDoc(doc(db, "privateProfiles", targetUid)),
         ]);
+
+        if (!alive) return;
 
         if (!publicSnap.exists()) {
           setProfileSummary({
@@ -847,7 +952,14 @@ function normalizeComparableValue(v: any) {
           });
 
           setGateAllowed(false);
-          router.replace("/my?onboarding=1");
+          setGateMissingReasons(
+            isAdminAssignMode
+              ? ["Secilen kullanicinin public profile kaydi yok."]
+              : ["Onboarding tamamlanmamis gorunuyor."]
+          );
+          if (!isAdminAssignMode) {
+            router.replace("/my?onboarding=1");
+          }
           return;
         }
 
@@ -855,6 +967,7 @@ function normalizeComparableValue(v: any) {
         const p = privateSnap.exists()
           ? (privateSnap.data() as PrivateProfile)
           : {};
+
         const mergedPhone = p.phone || d.phone || "";
         const mergedAddress = p.address || d.address || "";
 
@@ -867,16 +980,27 @@ function normalizeComparableValue(v: any) {
 
         setProfileSummary(summary);
 
-        const completed = summary.onboardingCompleted === true;
+        const reasons: string[] = [];
+        if (summary.onboardingCompleted !== true) {
+          reasons.push("Onboarding tamamlanmamis.");
+        }
+        if (!isValidName(summary.name || "")) {
+          reasons.push("Ad-soyad eksik.");
+        }
+        if (!isValidPhone(summary.phone || "")) {
+          reasons.push("Telefon eksik veya gecersiz.");
+        }
+        if (!isValidAddress(summary.address || "")) {
+          reasons.push("Adres eksik veya gecersiz.");
+        }
 
-        const requiredOk =
-          isValidName(summary.name || "") &&
-          isValidPhone(summary.phone || "") &&
-          isValidAddress(summary.address || "");
+        setGateMissingReasons(reasons);
 
-        if (!completed || !requiredOk) {
+        if (reasons.length > 0) {
           setGateAllowed(false);
-          router.replace("/my?onboarding=1");
+          if (!isAdminAssignMode) {
+            router.replace("/my?onboarding=1");
+          }
           return;
         }
 
@@ -884,16 +1008,21 @@ function normalizeComparableValue(v: any) {
       } catch (err) {
         devError("Profile gate check error", err);
         setGateAllowed(false);
+        setGateMissingReasons(["Profil kontrolu sirasinda hata olustu."]);
         setError(
-          "Profil kontrolü sırasında hata oluştu. Lütfen /my sayfasına gidip profilini kontrol et."
+          "Profil kontrolu sirasinda hata olustu. Lutfen /my sayfasina gidip profilini kontrol et."
         );
       } finally {
-        setGateChecking(false);
+        if (alive) setGateChecking(false);
       }
-    });
+    };
 
-    return () => unsub();
-  }, [router]);
+    run();
+
+    return () => {
+      alive = false;
+    };
+  }, [adminMode, assignedOwnerId, isAdminAssignMode, isCurrentUserAdmin, router, userId]);
 
   /* ================= LOAD CATEGORIES (categories) ================= */
 
@@ -1585,6 +1714,7 @@ function normalizeComparableValue(v: any) {
     gateAllowed &&
     !loading &&
     !uploading &&
+    !assignUsersLoading &&
     !preparingImages &&
     !publishValidationError;
 
@@ -1600,14 +1730,34 @@ function normalizeComparableValue(v: any) {
       return;
     }
 
+    if (!effectiveOwnerId) {
+      setError(
+        isAdminAssignMode
+          ? "Ilanin sahibi olacak kullaniciyi sec."
+          : "Kullanici bilgisi alinamadi."
+      );
+      return;
+    }
+
     if (gateChecking) {
       setError("Profil kontrolü devam ediyor, lütfen birkaç saniye sonra dene.");
       return;
     }
 
+    if (isAdminAssignMode && assignUsersLoading) {
+      setError("Kullanicilar yukleniyor, lutfen tekrar dene.");
+      return;
+    }
+
     if (!gateAllowed) {
-      setError("İlan verebilmek için önce profilini tamamlamalısın.");
-      router.replace("/my?onboarding=1");
+      setError(
+        isAdminAssignMode
+          ? "Secilen kullanicinin profili eksik. Uygun bir kullanici sec."
+          : "Ilan verebilmek icin once profilini tamamlamalisin."
+      );
+      if (!isAdminAssignMode) {
+        router.replace("/my?onboarding=1");
+      }
       return;
     }
 
@@ -1765,9 +1915,9 @@ function normalizeComparableValue(v: any) {
 
       failStep = "precheckReads";
       const [profileSnap, userSnap, privateSnap] = await Promise.all([
-        getDocFromServer(doc(db, "publicProfiles", userId)),
-        getDocFromServer(doc(db, "users", userId)),
-        getDocFromServer(doc(db, "privateProfiles", userId)),
+        getDocFromServer(doc(db, "publicProfiles", effectiveOwnerId)),
+        getDocFromServer(doc(db, "users", effectiveOwnerId)),
+        getDocFromServer(doc(db, "privateProfiles", effectiveOwnerId)),
       ]);
 
       if (profileSnap.metadata.fromCache || userSnap.metadata.fromCache) {
@@ -1809,7 +1959,9 @@ function normalizeComparableValue(v: any) {
         onboardingCompleted: profileOk,
         notBanned: !isBanned,
         notBlockedListings: !isBlockedListings,
-        ownerIdMatch: auth.currentUser?.uid === userId,
+        ownerIdMatch: isAdminAssignMode
+          ? !!effectiveOwnerId
+          : auth.currentUser?.uid === effectiveOwnerId,
         tokenProjectMatch:
           !tokenAud ||
           tokenAud === String(db.app?.options?.projectId || "") ||
@@ -1865,7 +2017,7 @@ function normalizeComparableValue(v: any) {
       }
 
       failStep = "addDoc";
-      const ownerId = auth.currentUser?.uid || userId;
+      const ownerId = effectiveOwnerId;
       if (!ownerId) {
         setError("Oturum bilgisi alınamadı. Lütfen tekrar giriş yap.");
         setLoading(false);
@@ -1958,6 +2110,8 @@ function normalizeComparableValue(v: any) {
 
         status: "active",
         adminStatus: "active",
+        createdByAdminId: isAdminAssignMode ? auth.currentUser?.uid || null : null,
+        assignedByAdmin: isAdminAssignMode,
         // Storage kuralları listing owner check yaptığı için
         // önce listing belgesi oluşturulmalı.
         imageUrls: [TEMP_LISTING_IMAGE_URL],
@@ -2000,6 +2154,7 @@ function normalizeComparableValue(v: any) {
         authDomain: String(db.app?.options?.authDomain || ""),
         authUid: auth.currentUser?.uid || "null",
         userId: userId || "null",
+        targetOwnerId: effectiveOwnerId || "null",
         tokenIssuer: String(tokenResult?.issuer || ""),
         tokenAud: String(tokenResult?.claims?.aud || ""),
         tokenIss: String(tokenResult?.claims?.iss || ""),
@@ -2016,7 +2171,11 @@ function normalizeComparableValue(v: any) {
         profileSummaryNameOk: String(isValidName(profileSummary?.name || "")),
         profileSummaryPhoneOk: String(isValidPhone(profileSummary?.phone || "")),
         profileSummaryAddressOk: String(isValidAddress(profileSummary?.address || "")),
-        ownerIdMatch: String(auth.currentUser?.uid === userId),
+        ownerIdMatch: String(
+          isAdminAssignMode
+            ? !!effectiveOwnerId
+            : auth.currentUser?.uid === effectiveOwnerId
+        ),
         titleLen: String((safeTitle || "").length),
         priceNumber: String(priceNumber),
         categoryId: String(safeCategoryId || ""),
@@ -2042,7 +2201,9 @@ function normalizeComparableValue(v: any) {
       if (basePayload) {
         debugDetails.payloadOwnerId = String(basePayload.ownerId || "");
         debugDetails.payloadOwnerIdMatch = String(
-          basePayload.ownerId === auth.currentUser?.uid
+          isAdminAssignMode
+            ? basePayload.ownerId === effectiveOwnerId
+            : basePayload.ownerId === auth.currentUser?.uid
         );
         debugDetails.payloadPriceType = typeof basePayload.price;
         debugDetails.payloadHasLocation = String(!!basePayload.location);
@@ -2051,9 +2212,9 @@ function normalizeComparableValue(v: any) {
           typeof basePayload.subCategoryName;
       }
 
-      if (code === "permission-denied" && userId) {
+      if (code === "permission-denied" && effectiveOwnerId) {
         try {
-          const pSnap = await getDoc(doc(db, "publicProfiles", userId));
+          const pSnap = await getDoc(doc(db, "publicProfiles", effectiveOwnerId));
           debugDetails.profileDoc = pSnap.exists() ? "exists" : "missing";
           debugDetails.profileDocCompleted = String(
             pSnap.exists() ? pSnap.data()?.onboardingCompleted === true : false
@@ -2063,7 +2224,7 @@ function normalizeComparableValue(v: any) {
         }
 
         try {
-          const uSnap = await getDoc(doc(db, "users", userId));
+          const uSnap = await getDoc(doc(db, "users", effectiveOwnerId));
           if (uSnap.exists()) {
             const u = uSnap.data() as any;
             debugDetails.userDoc = "exists";
@@ -2116,7 +2277,28 @@ function normalizeComparableValue(v: any) {
     );
   }
 
-  if (!gateAllowed) {
+  if (adminMode && !isCurrentUserAdmin) {
+    return (
+      <div className="min-h-screen bg-[#f7f4ef] bg-[radial-gradient(circle_at_top,_#fff7ed,_#f7f4ef_55%)] px-4 py-10 flex items-center justify-center">
+        <div className="w-full max-w-md bg-white/80 border border-rose-200 rounded-2xl shadow-[0_20px_50px_-40px_rgba(15,23,42,0.45)] p-6 text-center">
+          <div className="text-lg font-semibold text-rose-700">
+            Yetkin yok
+          </div>
+          <div className="text-sm text-[#6b4b33] mt-2">
+            Bu sayfayi kullanmak icin admin rolu gerekli.
+          </div>
+          <button
+            onClick={() => router.replace("/")}
+            className="mt-5 w-full bg-[#1f2a24] hover:bg-[#2b3b32] text-white font-semibold py-3 rounded-full"
+          >
+            Ana sayfaya don
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!gateAllowed && !isAdminAssignMode) {
     return (
       <div className="min-h-screen bg-[#f7f4ef] bg-[radial-gradient(circle_at_top,_#fff7ed,_#f7f4ef_55%)] px-4 py-10 flex items-center justify-center">
         <div className="w-full max-w-md bg-white/80 border border-[#ead8c5] rounded-2xl shadow-[0_20px_50px_-40px_rgba(15,23,42,0.45)] p-6 text-center">
@@ -2166,7 +2348,7 @@ function normalizeComparableValue(v: any) {
           </div>
 
           <button
-            onClick={() => router.push("/")}
+            onClick={() => router.push(cancelHref)}
             className="text-xs sm:text-sm rounded-full border border-[#ead8c5] px-4 py-2 text-[#3f2a1a] hover:bg-[#f7ede2]"
             disabled={loading || uploading}
           >
@@ -2196,6 +2378,58 @@ function normalizeComparableValue(v: any) {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-8">
+          {isAdminAssignMode && (
+            <div className={`${sectionCardClass} space-y-4`}>
+              <div className={sectionTitleClass}>Ilan Sahibi (Admin)</div>
+              <div className="text-sm text-[#6b4b33]">
+                Ilani olusturacagin kullaniciyi sec. Yayinlandiginda ilan, secilen
+                kullanicinin ilani olarak gorunur.
+              </div>
+
+              <div className="space-y-2">
+                <div className={labelClass}>
+                  Kullanici <span className="text-red-600">*</span>
+                </div>
+                <select
+                  value={assignedOwnerId}
+                  onChange={(e) => setAssignedOwnerId(e.target.value)}
+                  className={selectClass}
+                  disabled={loading || uploading || assignUsersLoading}
+                >
+                  <option value="">Kullanici sec</option>
+                  {assignableUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name ? `${u.name} (${u.email || u.id})` : (u.email || u.id)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {assignUsersLoading && (
+                <div className={helperTextClass}>Kullanicilar yukleniyor...</div>
+              )}
+
+              {!assignUsersLoading && assignableUsers.length === 0 && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  Atama yapilabilecek kullanici bulunamadi.
+                </div>
+              )}
+
+              {!gateAllowed && !gateChecking && gateMissingReasons.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  <div className="font-semibold mb-1">
+                    Secilen kullanicinin profili ilan icin uygun degil:
+                  </div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    {gateMissingReasons.map((reason, idx) => (
+                      <li key={idx}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ================= CATEGORY ================= */}
           <div className={`${sectionCardClass} space-y-4`}>
             <div className={sectionTitleClass}>Kategori</div>
@@ -3052,7 +3286,7 @@ function normalizeComparableValue(v: any) {
 
             <button
               type="button"
-              onClick={() => router.push("/")}
+              onClick={() => router.push(cancelHref)}
               disabled={loading || uploading || preparingImages}
               className="flex-1 border border-[#ead8c5] text-[#3f2a1a] rounded-full py-3 font-semibold hover:bg-[#f7ede2] disabled:opacity-50"
             >
@@ -3077,4 +3311,8 @@ function normalizeComparableValue(v: any) {
       </div>
     </div>
   );
+}
+
+export default function NewListingPage() {
+  return <NewListingPageClient />;
 }

@@ -667,8 +667,8 @@ export default function AdminCategoriesPage() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between gap-3 mb-4">
+    <div className="p-3 sm:p-6 max-w-6xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl font-bold">Kategoriler</h1>
           <p className="text-sm text-gray-600">
@@ -676,7 +676,7 @@ export default function AdminCategoriesPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={askSeedDefaults}
             disabled={busy}
@@ -735,7 +735,7 @@ export default function AdminCategoriesPage() {
                   setDragMainId(null);
                 }}
               >
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <span className="text-gray-400 cursor-move select-none">::</span>
                   {m.imageUrl ? (
@@ -796,7 +796,7 @@ export default function AdminCategoriesPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <input
                     className="col-span-2 px-2 py-1 rounded-md border text-sm"
                     defaultValue={m.name}
@@ -913,7 +913,7 @@ export default function AdminCategoriesPage() {
                       if (dragSubId) handleReorder(subs, dragSubId, s.id);
                       setDragSubId(null);
                     }}>
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
                           <span className="text-gray-400 cursor-move select-none">::</span>
                         <span className="text-lg">{s.icon || "📄"}</span>
@@ -959,7 +959,7 @@ export default function AdminCategoriesPage() {
                       </div>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <input
                         className="col-span-2 px-2 py-1 rounded-md border text-sm"
                         defaultValue={s.name}

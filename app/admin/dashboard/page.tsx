@@ -415,8 +415,8 @@ export default function AdminDashboardPage() {
       <ToastView toast={toast} />
 
       {/* Header */}
-      <div className="border rounded-2xl bg-white p-5">
-        <div className="flex items-start justify-between gap-3">
+      <div className="border rounded-2xl bg-white p-4 sm:p-5">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
           <div className="min-w-0">
             <div className="text-xs text-gray-500">Admin</div>
             <div className="mt-1 text-xl font-semibold text-gray-900">
@@ -436,7 +436,7 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={loadDashboard}
